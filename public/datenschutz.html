@@ -9,12 +9,17 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./base.css">
 <style>
-  body {
+  html, body {
     font-family: var(--font-body);
     color: var(--color-text);
     background: var(--color-bg);
     padding: 0;
     margin: 0;
+    height: auto !important;
+    min-height: 100% !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch;
   }
   .privacy-container {
     max-width: 720px;
