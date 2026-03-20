@@ -235,6 +235,15 @@ var App = {
       AppState.currentUser = user;
       var dash = { school: 'school-dashboard', instructor: 'instructor-dashboard', student: 'student-dashboard' };
       this.navigate(dash[user.role]);
+      // Handle Stripe redirect
+      var params = new URLSearchParams(window.location.search);
+      if (params.get('stripe') === 'success') {
+        setTimeout(function() { App.showToast('Abo erfolgreich gestartet!'); if (user.role === 'school') App.switchSchoolTab('abo'); }, 500);
+        window.history.replaceState({}, '', window.location.pathname);
+      } else if (params.get('stripe') === 'cancel') {
+        setTimeout(function() { App.showToast('Checkout abgebrochen'); }, 500);
+        window.history.replaceState({}, '', window.location.pathname);
+      }
     } catch (e) { ApiClient.setToken(null); } finally { this.showLoading(false); }
   },
 
@@ -1120,22 +1129,104 @@ var App = {
   renderSchoolAboTab: async function() {
     var main = document.getElementById('school-main');
     try {
-      var sub = await ApiClient.get('/api/school/subscription');
-      var end = new Date(sub.trial_end); var now = new Date();
-      var diff = Math.ceil((end - now) / (1000 * 60 * 60 * 24));
-      var html = '<div class="page-padding">' +
-        '<div class="card mb-4">' +
-          '<div class="abo-plan-header"><span class="abo-plan-name">' + sub.plan_name + ' Plan</span><span class="badge badge-success">Aktiv</span></div>' +
-          (diff > 0 ? '<div class="abo-trial-info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>Testphase: noch ' + diff + ' Tage</div>' : '') +
-          '<div class="abo-price"><span class="abo-price-value">' + sub.price_per_seat.toFixed(2).replace('.', ',') + ' €</span><span class="abo-price-label">pro Sitzplatz / Monat</span></div>' +
-        '</div>' +
-        '<div class="card mb-4"><div class="section-title mb-3">Sitzplätze</div>' +
-          '<div style="display:flex;justify-content:space-between;font-size:var(--text-sm);margin-bottom:var(--space-2);"><span>Belegt</span><span class="font-semibold">' + sub.usedSeats + ' / ' + sub.max_seats + '</span></div>' +
-          '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + ((sub.usedSeats / sub.max_seats) * 100) + '%;"></div></div>' +
-        '</div>' +
-        '<button class="btn btn-primary btn-full btn-lg" onclick="App.showToast(\'Stripe-Integration folgt\')">Upgrade</button></div>';
+      var sub = await ApiClient.get('/api/stripe/subscription');
+      var statusLabels = { trial: 'Testphase', trialing: 'Testphase', active: 'Aktiv', past_due: 'Zahlung ausstehend', canceled: 'Gekündigt', expired: 'Abgelaufen', incomplete: 'Unvollständig' };
+      var statusColors = { trial: 'warning', trialing: 'warning', active: 'success', past_due: 'error', canceled: 'error', expired: 'error', incomplete: 'warning' };
+      var statusLabel = statusLabels[sub.status] || sub.status;
+      var statusColor = statusColors[sub.status] || 'muted';
+      var hasActiveSub = sub.status === 'active' || sub.status === 'trialing';
+      var isExpired = sub.status === 'expired' || sub.status === 'canceled';
+
+      // Count current instructors
+      var instructors = [];
+      try { instructors = await ApiClient.get('/api/school/instructors'); } catch(e) {}
+      var instructorCount = Array.isArray(instructors) ? instructors.length : 0;
+
+      var html = '<div class="page-padding">';
+
+      // Status Card
+      html += '<div class="card mb-4">' +
+        '<div class="abo-plan-header"><span class="abo-plan-name">FahrDoc Pro</span>' +
+        '<span class="badge badge-' + statusColor + '">' + statusLabel + '</span></div>';
+
+      // Trial info
+      if ((sub.status === 'trial' || sub.status === 'trialing') && sub.days_remaining !== null) {
+        html += '<div class="abo-trial-info" style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-3);background:var(--warning-bg,#fff8e1);border-radius:var(--radius-md);margin:var(--space-3) 0;font-size:var(--text-sm);">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>' +
+          'Testphase: noch <strong style="margin:0 4px;">' + sub.days_remaining + '</strong> Tage</div>';
+      }
+
+      // Pricing
+      html += '<div class="abo-price" style="text-align:center;padding:var(--space-4) 0;">' +
+        '<span class="abo-price-value" style="font-size:var(--text-2xl);font-weight:700;">29,90 \u20ac</span>' +
+        '<span class="abo-price-label" style="font-size:var(--text-sm);color:var(--text-muted);display:block;">pro Fahrlehrer / Monat</span></div>';
+
+      // Instructor seats
+      if (hasActiveSub && sub.instructor_quantity) {
+        html += '<div style="display:flex;justify-content:space-between;font-size:var(--text-sm);padding:var(--space-2) 0;border-top:1px solid var(--border-color);margin-top:var(--space-3);">' +
+          '<span>Gebuchte Fahrlehrer-Lizenzen</span><span class="font-semibold">' + sub.instructor_quantity + '</span></div>';
+        html += '<div style="display:flex;justify-content:space-between;font-size:var(--text-sm);padding:var(--space-2) 0;">' +
+          '<span>Aktive Fahrlehrer</span><span class="font-semibold">' + instructorCount + '</span></div>';
+      }
+
+      // Cancel notice
+      if (sub.cancel_at_period_end) {
+        var endDate = sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString('de-DE') : '';
+        html += '<div style="padding:var(--space-3);background:var(--error-bg,#ffeaea);border-radius:var(--radius-md);margin-top:var(--space-3);font-size:var(--text-sm);color:var(--error-color,#c62828);">' +
+          'Abo wird zum ' + endDate + ' beendet.</div>';
+      }
+
+      html += '</div>';
+
+      // Actions
+      if (!hasActiveSub || isExpired || sub.status === 'trial') {
+        // No Stripe sub yet — show checkout button
+        var defaultQty = Math.max(1, instructorCount);
+        html += '<div class="card mb-4">' +
+          '<div class="section-title mb-3">Abo starten</div>' +
+          '<p style="font-size:var(--text-sm);color:var(--text-muted);margin-bottom:var(--space-3);">W\u00e4hle die Anzahl der Fahrlehrer-Lizenzen. Du kannst jederzeit \u00e4ndern.</p>' +
+          '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);">' +
+            '<label style="font-size:var(--text-sm);font-weight:600;">Fahrlehrer:</label>' +
+            '<div style="display:flex;align-items:center;gap:var(--space-2);">' +
+              '<button class="btn btn-sm" onclick="var i=document.getElementById(\'abo-qty\');i.value=Math.max(1,parseInt(i.value)-1);document.getElementById(\'abo-total\').textContent=((parseInt(i.value)*29.90).toFixed(2).replace(\'.\',\',\'))+\' \u20ac/Monat\'">−</button>' +
+              '<input type="number" id="abo-qty" value="' + defaultQty + '" min="1" max="99" style="width:60px;text-align:center;" class="form-input" onchange="document.getElementById(\'abo-total\').textContent=((parseInt(this.value)*29.90).toFixed(2).replace(\'.\',\',\'))+\' \u20ac/Monat\'">' +
+              '<button class="btn btn-sm" onclick="var i=document.getElementById(\'abo-qty\');i.value=Math.min(99,parseInt(i.value)+1);document.getElementById(\'abo-total\').textContent=((parseInt(i.value)*29.90).toFixed(2).replace(\'.\',\',\'))+\' \u20ac/Monat\'">+</button>' +
+            '</div>' +
+          '</div>' +
+          '<div style="text-align:center;font-size:var(--text-lg);font-weight:700;margin-bottom:var(--space-4);" id="abo-total">' + (defaultQty * 29.90).toFixed(2).replace('.', ',') + ' \u20ac/Monat</div>' +
+          '<button class="btn btn-primary btn-full btn-lg" onclick="App.stripeCheckout()">Jetzt starten — 14 Tage kostenlos</button>' +
+          '<p style="font-size:var(--text-xs);color:var(--text-muted);text-align:center;margin-top:var(--space-2);">Erste Zahlung erst nach der Testphase. Jederzeit k\u00fcndbar.</p>' +
+        '</div>';
+      } else {
+        // Has active sub — show manage buttons
+        html += '<button class="btn btn-primary btn-full btn-lg mb-3" onclick="App.stripePortal()">Abo verwalten</button>';
+        html += '<p style="font-size:var(--text-xs);color:var(--text-muted);text-align:center;">Rechnung, Zahlungsmethode \u00e4ndern oder k\u00fcndigen</p>';
+      }
+
+      html += '</div>';
       main.innerHTML = html;
-    } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
+    } catch (err) {
+      main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + (err.message || err) + '</p></div>';
+    }
+  },
+
+  stripeCheckout: async function() {
+    try {
+      var qty = parseInt(document.getElementById('abo-qty').value) || 1;
+      App.showToast('Weiterleitung zu Stripe...');
+      var result = await ApiClient.post('/api/stripe/create-checkout', { quantity: qty });
+      if (result.url) window.location.href = result.url;
+      else App.showToast('Fehler: Keine Checkout-URL erhalten');
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+  },
+
+  stripePortal: async function() {
+    try {
+      App.showToast('Weiterleitung zu Stripe...');
+      var result = await ApiClient.post('/api/stripe/portal', {});
+      if (result.url) window.location.href = result.url;
+      else App.showToast('Fehler: Keine Portal-URL erhalten');
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
   },
 
   renderSchoolProfileTab: function() {

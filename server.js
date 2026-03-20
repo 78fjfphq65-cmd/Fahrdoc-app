@@ -9,9 +9,87 @@ const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const { supabase, generateToken, generateId, hashPassword, verifyPassword } = require('./db');
 const { sendVerificationEmail, sendPasswordResetEmail, generateCode } = require('./email');
+const Stripe = require('stripe');
+const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// ============================================
+// STRIPE WEBHOOK (needs raw body — before express.json)
+// ============================================
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+  let event;
+  const sig = req.headers['stripe-signature'];
+  const whSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  
+  // In test mode without webhook secret, parse directly
+  if (!whSecret || whSecret === 'whsec_placeholder') {
+    try { event = JSON.parse(req.body); } catch (e) { return res.status(400).send('Invalid JSON'); }
+  } else {
+    try { event = stripe.webhooks.constructEvent(req.body, sig, whSecret); } catch (e) { return res.status(400).send(`Webhook Error: ${e.message}`); }
+  }
+
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        const schoolId = session.metadata?.school_id;
+        const subscriptionId = session.subscription;
+        if (schoolId && subscriptionId) {
+          const sub = await stripe.subscriptions.retrieve(subscriptionId);
+          await supabase.from('subscriptions').upsert({
+            school_id: schoolId,
+            stripe_customer_id: session.customer,
+            stripe_subscription_id: subscriptionId,
+            status: sub.status,
+            current_period_start: new Date(sub.current_period_start * 1000).toISOString(),
+            current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+            cancel_at_period_end: sub.cancel_at_period_end,
+            instructor_quantity: sub.items.data[0]?.quantity || 1,
+            trial_end: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'school_id' });
+        }
+        break;
+      }
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted': {
+        const sub = event.data.object;
+        const { data: existing } = await supabase.from('subscriptions')
+          .select('school_id').eq('stripe_subscription_id', sub.id).single();
+        if (existing) {
+          await supabase.from('subscriptions').update({
+            status: sub.status,
+            current_period_start: new Date(sub.current_period_start * 1000).toISOString(),
+            current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+            cancel_at_period_end: sub.cancel_at_period_end,
+            instructor_quantity: sub.items.data[0]?.quantity || 1,
+            trial_end: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
+            updated_at: new Date().toISOString()
+          }).eq('school_id', existing.school_id);
+        }
+        break;
+      }
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        const { data: existing } = await supabase.from('subscriptions')
+          .select('school_id').eq('stripe_customer_id', invoice.customer).single();
+        if (existing) {
+          await supabase.from('subscriptions').update({
+            status: 'past_due', updated_at: new Date().toISOString()
+          }).eq('school_id', existing.school_id);
+        }
+        break;
+      }
+    }
+    res.json({ received: true });
+  } catch (err) {
+    console.error('[Stripe Webhook Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ============================================
 // RATE LIMITING
@@ -1288,6 +1366,184 @@ app.get('/api/feedback', authMiddleware, async (req, res) => {
       .order('created_at', { ascending: false }).limit(100);
     res.json(rows || []);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// STRIPE: Config (publishable key for frontend)
+// ============================================
+app.get('/api/stripe/config', (req, res) => {
+  res.json({
+    publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
+    priceId: process.env.STRIPE_PRICE_ID || ''
+  });
+});
+
+// ============================================
+// STRIPE: Create Checkout Session
+// ============================================
+app.post('/api/stripe/create-checkout', authMiddleware, async (req, res) => {
+  if (!stripe) return res.status(500).json({ error: 'Stripe nicht konfiguriert' });
+  if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschulen können Abos verwalten' });
+
+  try {
+    const { quantity } = req.body; // number of instructors
+    const instructorCount = Math.max(1, parseInt(quantity) || 1);
+
+    // Check if school already has a Stripe customer
+    const { data: existingSub } = await supabase.from('subscriptions')
+      .select('stripe_customer_id').eq('school_id', req.user.id).single();
+
+    let customerId = existingSub?.stripe_customer_id;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: req.user.email,
+        name: req.user.name || req.user.admin_name,
+        metadata: { school_id: req.user.id, app: 'fahrdoc' }
+      });
+      customerId = customer.id;
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: 'subscription',
+      payment_method_types: ['card', 'sepa_debit'],
+      line_items: [{
+        price: process.env.STRIPE_PRICE_ID,
+        quantity: instructorCount
+      }],
+      subscription_data: {
+        trial_period_days: 14,
+        metadata: { school_id: req.user.id }
+      },
+      metadata: { school_id: req.user.id },
+      success_url: `${req.protocol}://${req.get('host')}/?stripe=success`,
+      cancel_url: `${req.protocol}://${req.get('host')}/?stripe=cancel`,
+      locale: 'de',
+      allow_promotion_codes: true
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('[Stripe Checkout Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// STRIPE: Customer Portal (manage subscription)
+// ============================================
+app.post('/api/stripe/portal', authMiddleware, async (req, res) => {
+  if (!stripe) return res.status(500).json({ error: 'Stripe nicht konfiguriert' });
+  if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschulen' });
+
+  try {
+    const { data: sub } = await supabase.from('subscriptions')
+      .select('stripe_customer_id').eq('school_id', req.user.id).single();
+    if (!sub?.stripe_customer_id) return res.status(404).json({ error: 'Kein Abo gefunden' });
+
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: sub.stripe_customer_id,
+      return_url: `${req.protocol}://${req.get('host')}/`
+    });
+    res.json({ url: portalSession.url });
+  } catch (err) {
+    console.error('[Stripe Portal Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// STRIPE: Get subscription status
+// ============================================
+app.get('/api/stripe/subscription', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschulen' });
+
+  try {
+    const { data: sub } = await supabase.from('subscriptions')
+      .select('*').eq('school_id', req.user.id).single();
+
+    if (!sub) {
+      // Check if within free trial (14 days since school creation)
+      const { data: school } = await supabase.from('schools')
+        .select('created_at').eq('id', req.user.id).single();
+      const created = new Date(school?.created_at || Date.now());
+      const trialEnd = new Date(created.getTime() + 14 * 24 * 60 * 60 * 1000);
+      const now = new Date();
+      return res.json({
+        status: now < trialEnd ? 'trial' : 'expired',
+        trial_end: trialEnd.toISOString(),
+        days_remaining: Math.max(0, Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24))),
+        instructor_quantity: 0
+      });
+    }
+
+    // Sync with Stripe if we have a subscription
+    if (stripe && sub.stripe_subscription_id) {
+      try {
+        const stripeSub = await stripe.subscriptions.retrieve(sub.stripe_subscription_id);
+        const updated = {
+          status: stripeSub.status,
+          current_period_start: new Date(stripeSub.current_period_start * 1000).toISOString(),
+          current_period_end: new Date(stripeSub.current_period_end * 1000).toISOString(),
+          cancel_at_period_end: stripeSub.cancel_at_period_end,
+          instructor_quantity: stripeSub.items.data[0]?.quantity || 1,
+          trial_end: stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000).toISOString() : null,
+          updated_at: new Date().toISOString()
+        };
+        await supabase.from('subscriptions').update(updated).eq('school_id', req.user.id);
+        Object.assign(sub, updated);
+      } catch (e) { /* use cached data */ }
+    }
+
+    const now = new Date();
+    const isTrialing = sub.status === 'trialing';
+    const trialEnd = sub.trial_end ? new Date(sub.trial_end) : null;
+    const daysRemaining = trialEnd ? Math.max(0, Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24))) : null;
+
+    res.json({
+      status: sub.status,
+      trial_end: sub.trial_end,
+      days_remaining: isTrialing ? daysRemaining : null,
+      current_period_end: sub.current_period_end,
+      cancel_at_period_end: sub.cancel_at_period_end,
+      instructor_quantity: sub.instructor_quantity || 1
+    });
+  } catch (err) {
+    console.error('[Stripe Sub Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// STRIPE: Update instructor quantity
+// ============================================
+app.post('/api/stripe/update-quantity', authMiddleware, async (req, res) => {
+  if (!stripe) return res.status(500).json({ error: 'Stripe nicht konfiguriert' });
+  if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschulen' });
+
+  try {
+    const { quantity } = req.body;
+    const newQty = Math.max(1, parseInt(quantity) || 1);
+
+    const { data: sub } = await supabase.from('subscriptions')
+      .select('stripe_subscription_id').eq('school_id', req.user.id).single();
+    if (!sub?.stripe_subscription_id) return res.status(404).json({ error: 'Kein Abo gefunden' });
+
+    const stripeSub = await stripe.subscriptions.retrieve(sub.stripe_subscription_id);
+    await stripe.subscriptions.update(sub.stripe_subscription_id, {
+      items: [{ id: stripeSub.items.data[0].id, quantity: newQty }],
+      proration_behavior: 'create_prorations'
+    });
+
+    await supabase.from('subscriptions').update({
+      instructor_quantity: newQty, updated_at: new Date().toISOString()
+    }).eq('school_id', req.user.id);
+
+    res.json({ success: true, quantity: newQty });
+  } catch (err) {
+    console.error('[Stripe Update Error]', err);
     res.status(500).json({ error: err.message });
   }
 });
