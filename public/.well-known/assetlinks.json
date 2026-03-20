@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "app.fahrdoc.www.twa",
+    "sha256_cert_fingerprints": ["EA:5A:74:2F:CD:53:74:6C:AF:C1:6C:CC:52:64:53:0B:74:84:5D:C2:95:75:F2:4E:89:84:9E:38:E1:E5:FA:47"]
+  }
+}]
