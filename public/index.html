@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="light">
+<head>
+<!--
+   ______                            __
+  / ____/___  ____ ___  ____  __  __/ /____  _____
+ / /   / __ \/ __ `__ \/ __ \/ / / / __/ _ \/ ___/
+/ /___/ /_/ / / / / / / /_/ / /_/ / /_/  __/ /
+\____/\____/_/ /_/ /_/ .___/\__,_/\__/\___/_/
+                    /_/
+        Created with Perplexity Computer
+        https://www.perplexity.ai/computer
+-->
+
+<!-- Perplexity Computer Attribution — SEO Meta Tags -->
+<meta name="generator" content="Perplexity Computer">
+<meta name="author" content="Perplexity Computer">
+<meta property="og:see_also" content="https://www.perplexity.ai/computer">
+<link rel="author" href="https://www.perplexity.ai/computer">
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0d8f8b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FahrDoc">
+<meta name="description" content="FahrDoc — Transparenz für deine Fahrstunden. Dokumentation und Tracking für Fahrschulen, Fahrlehrer und Fahrschüler.">
+
+<title>FahrDoc — Transparenz für deine Fahrstunden</title>
+
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="./base.css">
+<link rel="stylesheet" href="./style.css">
+<script src="./i18n.js"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBmQDgxdaxNR6zImeWXj8Nv6cVW2M9mLKg&libraries=geometry&callback=Function.prototype" async defer></script>
+</head>
+<body>
+
+<div id="app">
+  <!-- Toast notification -->
+  <div id="toast" class="toast"></div>
+
+  <!-- Loading overlay -->
+  <div id="loading-overlay" class="loading-overlay hidden">
+    <div class="loading-spinner"></div>
+  </div>
+
+  <!-- ============================================
+       WELCOME SCREEN
+       ============================================ -->
+  <div id="screen-welcome" class="screen auth-screen active" style="display:flex;">
+    <div class="auth-logo" id="fahrdoc-logo-welcome"></div>
+    <h1 class="auth-title">FahrDoc</h1>
+    <p class="auth-subtitle" data-i18n="transparenz">Transparenz für deine Fahrstunden</p>
+    <div class="auth-form">
+      <button class="btn btn-primary btn-full btn-lg" onclick="App.navigate('login')">Anmelden</button>
+      <button class="btn btn-secondary btn-full btn-lg" onclick="App.navigate('signup')">Registrieren</button>
+    </div>
+    <footer class="app-footer" style="margin-top: var(--space-12);">
+      <a href="./datenschutz.html" style="margin-right:var(--space-4);">Datenschutz</a>
+      <a href="https://www.perplexity.ai/computer" target="_blank" rel="noopener noreferrer">Created with Perplexity Computer</a>
+    </footer>
+  </div>
+
+  <!-- ============================================
+       LOGIN SCREEN
+       ============================================ -->
+  <div id="screen-login" class="screen auth-screen">
+    <div class="auth-logo" id="fahrdoc-logo-login"></div>
+    <h1 class="auth-title">Willkommen zurück</h1>
+    <p class="auth-subtitle">Melde dich an, um fortzufahren</p>
+    <form class="auth-form" id="login-form" onsubmit="App.handleLogin(event)">
+      <div class="form-group">
+        <label class="form-label" for="login-email">E-Mail</label>
+        <input class="form-input" type="email" id="login-email" placeholder="name@fahrschule.de" required autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="login-password">Passwort</label>
+        <input class="form-input" type="password" id="login-password" placeholder="Passwort eingeben" required autocomplete="current-password">
+      </div>
+      <div id="login-error" class="form-error hidden"></div>
+      <button type="submit" class="btn btn-primary btn-full btn-lg">Anmelden</button>
+      <div class="auth-footer">
+        <span class="auth-link" onclick="App.showToast('Passwort-Reset wird per E-Mail gesendet')">Passwort vergessen?</span>
+        <br><br>
+        Noch kein Konto? <span class="auth-link" onclick="App.navigate('signup')">Registrieren</span>
+      </div>
+    </form>
+  </div>
+
+  <!-- ============================================
+       SIGNUP SCREEN (3-role)
+       ============================================ -->
+  <div id="screen-signup" class="screen auth-screen">
+    <div class="auth-logo" id="fahrdoc-logo-signup"></div>
+    <h1 class="auth-title">Konto erstellen</h1>
+    <p class="auth-subtitle">Registriere dich kostenlos</p>
+    <form class="auth-form" id="signup-form" onsubmit="App.handleSignup(event)">
+      <div class="form-group">
+        <label class="form-label">Ich bin</label>
+        <div class="role-toggle">
+          <button type="button" class="role-toggle-btn" data-role="school" onclick="App.setRole('school', this)">Fahrschule</button>
+          <button type="button" class="role-toggle-btn" data-role="instructor" onclick="App.setRole('instructor', this)">Fahrlehrer</button>
+          <button type="button" class="role-toggle-btn active" data-role="student" onclick="App.setRole('student', this)">Fahrschüler</button>
+        </div>
+      </div>
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label" for="signup-firstname">Vorname</label>
+          <input class="form-input" type="text" id="signup-firstname" placeholder="Max" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="signup-lastname">Nachname</label>
+          <input class="form-input" type="text" id="signup-lastname" placeholder="Mustermann" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="signup-email">E-Mail</label>
+        <input class="form-input" type="email" id="signup-email" placeholder="name@email.de" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="signup-password">Passwort</label>
+        <input class="form-input" type="password" id="signup-password" placeholder="Mindestens 6 Zeichen" required minlength="6">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="signup-password2">Passwort bestätigen</label>
+        <input class="form-input" type="password" id="signup-password2" placeholder="Passwort wiederholen" required>
+      </div>
+
+      <!-- School-specific fields -->
+      <div id="signup-school-fields" class="signup-conditional-fields hidden">
+        <div class="form-group">
+          <label class="form-label" for="signup-school-name">Fahrschulname</label>
+          <input class="form-input" type="text" id="signup-school-name" placeholder="Fahrschule Mustermann">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="signup-school-address">Adresse</label>
+          <input class="form-input" type="text" id="signup-school-address" placeholder="Musterstraße 1, 10115 Berlin">
+        </div>
+      </div>
+
+      <!-- Instructor-specific fields -->
+      <div id="signup-instructor-fields" class="signup-conditional-fields hidden">
+        <div class="form-group">
+          <label class="form-label" for="signup-school-code">Fahrschul-Code</label>
+          <input class="form-input" type="text" id="signup-school-code" placeholder="Code von deiner Fahrschule">
+        </div>
+      </div>
+
+      <!-- Student-specific fields -->
+      <div id="signup-student-fields" class="signup-conditional-fields hidden">
+        <div class="form-group">
+          <label class="form-label" for="signup-invite-code">Einladungscode</label>
+          <input class="form-input" type="text" id="signup-invite-code" placeholder="Code von deiner Fahrschule">
+        </div>
+      </div>
+
+      <!-- DSGVO Checkbox -->
+      <div class="form-group" style="margin-top:var(--space-3);">
+        <label style="display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-xs);color:var(--color-text-muted);cursor:pointer;">
+          <input type="checkbox" id="signup-dsgvo" required style="margin-top:2px;">
+          <span>Ich habe die <a href="./datenschutz.html" target="_blank" style="color:var(--color-primary);">Datenschutzerklärung</a> gelesen und stimme der Verarbeitung meiner Daten zu.</span>
+        </label>
+      </div>
+
+      <div id="signup-error" class="form-error hidden"></div>
+      <button type="submit" class="btn btn-primary btn-full btn-lg">Registrieren</button>
+      <div class="auth-footer">
+        Schon registriert? <span class="auth-link" onclick="App.navigate('login')">Anmelden</span>
+      </div>
+    </form>
+  </div>
+
+  <!-- ============================================
+       EMAIL VERIFICATION SCREEN
+       ============================================ -->
+  <div id="screen-verify-email" class="screen auth-screen">
+    <div class="auth-logo">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--color-primary);">
+        <rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+      </svg>
+    </div>
+    <h1 class="auth-title">E-Mail bestätigen</h1>
+    <p class="auth-subtitle">Wir haben dir einen 6-stelligen Code gesendet</p>
+    <div class="auth-form" style="align-items: center;">
+      <div class="code-input-group" id="code-inputs"></div>
+      <p class="text-xs text-muted" style="text-align:center;">Demo-Modus: Beliebiger 6-stelliger Code wird akzeptiert</p>
+      <div id="verify-error" class="form-error hidden"></div>
+      <button class="btn btn-primary btn-full btn-lg mt-4" onclick="App.verifyCode()">Bestätigen</button>
+    </div>
+  </div>
+
+  <!-- ============================================
+       FAHRSCHULE (SCHOOL ADMIN) DASHBOARD
+       ============================================ -->
+  <div id="screen-school-dashboard" class="screen">
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <div class="top-bar-logo" id="topbar-logo-school"></div>
+      </div>
+      <div class="top-bar-right">
+        <span class="top-bar-user" id="school-name-display"></span>
+        <div class="lang-selector-wrapper">
+          <button class="icon-btn" onclick="App.toggleLangMenu(this)" aria-label="Sprache">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/></svg>
+          </button>
+          <div class="lang-dropdown hidden"></div>
+        </div>
+        <button class="icon-btn" data-theme-toggle aria-label="Design wechseln">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <button class="icon-btn" onclick="App.logout()" aria-label="Abmelden">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div id="school-trial-banner" class="trial-banner hidden">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+      <span id="school-trial-text"></span>
+    </div>
+    <div class="main-content" id="school-main"></div>
+    <nav class="bottom-nav" id="school-nav">
+      <button class="bottom-nav-item active" data-tab="dashboard" onclick="App.switchSchoolTab('dashboard', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        <span data-i18n="dashboard">Dashboard</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="schedule" onclick="App.switchSchoolTab('schedule', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <span data-i18n="planung">Planung</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="instructors" onclick="App.switchSchoolTab('instructors', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span data-i18n="fahrlehrer">Fahrlehrer</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="students" onclick="App.switchSchoolTab('students', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span data-i18n="schueler">Schüler</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="abo" onclick="App.switchSchoolTab('abo', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        <span data-i18n="abo">Abo</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="profile" onclick="App.switchSchoolTab('profile', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span data-i18n="profil">Profil</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- ============================================
+       INSTRUCTOR DASHBOARD
+       ============================================ -->
+  <div id="screen-instructor-dashboard" class="screen">
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <div class="top-bar-logo" id="topbar-logo-instructor"></div>
+      </div>
+      <div class="top-bar-right">
+        <span class="top-bar-user" id="instructor-name-display"></span>
+        <div class="lang-selector-wrapper">
+          <button class="icon-btn" onclick="App.toggleLangMenu(this)" aria-label="Sprache">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/></svg>
+          </button>
+          <div class="lang-dropdown hidden"></div>
+        </div>
+        <button class="icon-btn" data-theme-toggle aria-label="Design wechseln">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <button class="icon-btn" onclick="App.logout()" aria-label="Abmelden">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div id="instructor-expired-banner" class="expired-banner hidden">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span data-i18n="aboAbgelaufenKontakt">Abo abgelaufen — bitte Fahrschule kontaktieren</span>
+    </div>
+    <div class="main-content" id="instructor-main"></div>
+    <nav class="bottom-nav" id="instructor-nav">
+      <button class="bottom-nav-item active" data-tab="dashboard" onclick="App.switchInstructorTab('dashboard', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        <span data-i18n="dashboard">Dashboard</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="students" onclick="App.switchInstructorTab('students', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span data-i18n="schueler">Schüler</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="lessons" onclick="App.switchInstructorTab('lessons', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+        <span data-i18n="fahrstunden">Fahrstunden</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="profile" onclick="App.switchInstructorTab('profile', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span data-i18n="profil">Profil</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- ============================================
+       STUDENT DASHBOARD
+       ============================================ -->
+  <div id="screen-student-dashboard" class="screen">
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <div class="top-bar-logo" id="topbar-logo-student"></div>
+      </div>
+      <div class="top-bar-right">
+        <span class="top-bar-user" id="student-name-display"></span>
+        <div class="lang-selector-wrapper">
+          <button class="icon-btn" onclick="App.toggleLangMenu(this)" aria-label="Sprache">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/></svg>
+          </button>
+          <div class="lang-dropdown hidden"></div>
+        </div>
+        <button class="icon-btn" data-theme-toggle aria-label="Design wechseln">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <button class="icon-btn" onclick="App.logout()" aria-label="Abmelden">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div id="student-expired-banner" class="expired-banner hidden">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span data-i18n="aboAbgelaufenKontakt">Abo abgelaufen — bitte Fahrschule kontaktieren</span>
+    </div>
+    <div class="main-content" id="student-main"></div>
+    <nav class="bottom-nav" id="student-nav">
+      <button class="bottom-nav-item active" data-tab="overview" onclick="App.switchStudentTab('overview', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        <span>Übersicht</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="lessons" onclick="App.switchStudentTab('lessons', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+        <span data-i18n="fahrstunden">Fahrstunden</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="profile" onclick="App.switchStudentTab('profile', this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span data-i18n="profil">Profil</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- ============================================
+       LESSON ACTIVE (Timer) SCREEN
+       ============================================ -->
+  <div id="screen-lesson-active" class="screen">
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <button class="icon-btn" onclick="App.stopLesson()" aria-label="Zurück">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
+        </button>
+        <span style="font-family: var(--font-display); font-weight: 600; font-size: var(--text-sm);" id="active-lesson-title">Fahrstunde</span>
+      </div>
+      <div class="top-bar-right">
+        <span class="badge badge-primary" id="active-lesson-type-badge"></span>
+      </div>
+    </div>
+    <div class="main-content" style="display:flex;flex-direction:column;height:calc(100vh - 56px);padding:0;position:relative;">
+      <!-- Map container -->
+      <div id="lesson-map" style="flex:1;min-height:0;"></div>
+      <!-- GPS status indicator -->
+      <div id="gps-status" class="gps-status">
+        <span class="gps-status-dot"></span>
+        <span id="gps-status-text">GPS wird gesucht...</span>
+      </div>
+      <!-- Bottom panel over the map -->
+      <div id="lesson-map-panel">
+        <div id="lesson-timer" style="font-family:var(--font-display);font-size:clamp(1.8rem,5vw,2.5rem);font-weight:700;text-align:center;margin-bottom:var(--space-2);font-variant-numeric:tabular-nums;">00:00:00</div>
+        <div class="lesson-stats-row">
+          <div class="lesson-stat"><span class="lesson-stat-value" id="lesson-distance">0,0 km</span><span class="lesson-stat-label">Strecke</span></div>
+          <div class="lesson-stat"><span class="lesson-stat-value" id="lesson-speed">0 km/h</span><span class="lesson-stat-label">Speed</span></div>
+          <div class="lesson-stat"><span class="lesson-stat-value" id="lesson-marker-count">0</span><span class="lesson-stat-label">Marker</span></div>
+        </div>
+        <div style="display:flex;gap:var(--space-3);">
+          <button class="btn btn-secondary flex-1" onclick="App.addRouteMarker()">📍 <span data-i18n="markierungSetzen">Markierung setzen</span></button>
+          <button class="btn btn-danger flex-1" onclick="App.finishLesson()">⏹ Beenden</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================
+       LESSON SETUP SCREEN
+       ============================================ -->
+  <div id="screen-lesson-setup" class="screen">
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <button class="icon-btn" onclick="App.navigate('instructor-dashboard')" aria-label="Zurück">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
+        </button>
+        <span style="font-family: var(--font-display); font-weight: 600; font-size: var(--text-sm);">Neue Fahrstunde</span>
+      </div>
+    </div>
+    <div class="main-content">
+      <div class="page-padding">
+        <form id="lesson-setup-form" onsubmit="App.startLesson(event)">
+          <div class="form-group mb-4">
+            <label class="form-label">Schüler auswählen</label>
+            <select class="form-select" id="lesson-student-select" required>
+              <option value="">Schüler wählen...</option>
+            </select>
+          </div>
+          <div class="form-group mb-4">
+            <label class="form-label">Fahrstundentyp</label>
+            <select class="form-select" id="lesson-type-select" required>
+              <option value="Übungsfahrt">Übungsfahrt</option>
+              <option value="Überlandfahrt">Überlandfahrt</option>
+              <option value="Autobahnfahrt">Autobahnfahrt</option>
+              <option value="Nachtfahrt">Nachtfahrt</option>
+              <option value="Prüfungsvorbereitung">Prüfungsvorbereitung</option>
+            </select>
+          </div>
+          <div class="form-group mb-4">
+            <label class="form-label">Führerscheinklasse</label>
+            <select class="form-select" id="lesson-class-select">
+              <option value="B">B</option>
+              <option value="A">A</option>
+              <option value="A1">A1</option>
+              <option value="A2">A2</option>
+              <option value="AM">AM</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary btn-full btn-lg mt-4">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5,3 19,12 5,21 5,3"/></svg>
+            Fahrstunde starten
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================
+       LESSON SUMMARY SCREEN
+       ============================================ -->
+  <div id="screen-lesson-summary" class="screen">
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <span style="font-family: var(--font-display); font-weight: 600; font-size: var(--text-sm);">Zusammenfassung</span>
+      </div>
+    </div>
+    <div class="main-content">
+      <div class="page-padding" id="lesson-summary-content"></div>
+    </div>
+  </div>
+
+  <!-- ============================================
+       LESSON REVIEW SCREEN
+       ============================================ -->
+  <div id="screen-lesson-review" class="screen">
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <button class="icon-btn" id="review-back-btn" aria-label="Zurück">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
+        </button>
+        <span style="font-family: var(--font-display); font-weight: 600; font-size: var(--text-sm);">Fahrstunde Details</span>
+      </div>
+    </div>
+    <div class="main-content">
+      <div class="page-padding" id="lesson-review-content"></div>
+    </div>
+  </div>
+
+  <!-- ============================================
+       STUDENT DETAIL SCREEN (for instructors)
+       ============================================ -->
+  <div id="screen-student-detail" class="screen">
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <button class="icon-btn" onclick="App.goBack()" aria-label="Zurück">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
+        </button>
+        <span style="font-family: var(--font-display); font-weight: 600; font-size: var(--text-sm);" id="student-detail-name">Schüler</span>
+      </div>
+    </div>
+    <div class="main-content" id="student-detail-content"></div>
+  </div>
+
+  <!-- ============================================
+       SHARE STUDENT SCREEN (within school)
+       ============================================ -->
+  <div id="screen-share-student" class="screen">
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <button class="icon-btn" onclick="App.goBack()" aria-label="Zurück">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
+        </button>
+        <span style="font-family: var(--font-display); font-weight: 600; font-size: var(--text-sm);">Schüler teilen</span>
+      </div>
+    </div>
+    <div class="main-content">
+      <div class="page-padding" id="share-student-content"></div>
+    </div>
+  </div>
+
+  <!-- ============================================
+       MODAL (reusable)
+       ============================================ -->
+  <div id="modal-backdrop" class="modal-backdrop" onclick="App.closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-handle"></div>
+      <h3 class="modal-title" id="modal-title"></h3>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="./app.js"></script>
+</body>
+</html>

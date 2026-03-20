@@ -1,0 +1,25 @@
+{
+  "name": "FahrDoc",
+  "short_name": "FahrDoc",
+  "description": "Transparenz für deine Fahrstunden — Dokumentation und Tracking für Fahrlehrer und Fahrschüler",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0d8f8b",
+  "background_color": "#f5f5f0",
+  "lang": "de",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

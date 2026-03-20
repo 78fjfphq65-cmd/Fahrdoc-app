@@ -1,0 +1,263 @@
+/* ============================================
+   FahrDoc — base.css
+   Design tokens + resets + foundational styles
+   ============================================ */
+
+:root {
+  /* Type Scale (fluid clamp) */
+  --text-xs:   clamp(0.75rem,  0.7rem  + 0.25vw, 0.875rem);
+  --text-sm:   clamp(0.875rem, 0.8rem  + 0.35vw, 1rem);
+  --text-base: clamp(1rem,     0.9rem  + 0.5vw,  1.125rem);
+  --text-lg:   clamp(1.125rem, 0.95rem + 0.85vw, 1.5rem);
+  --text-xl:   clamp(1.5rem,   1rem    + 1.5vw,  2.25rem);
+  --text-2xl:  clamp(2rem,     1.2rem  + 2.5vw,  3.5rem);
+
+  /* Spacing (4px base) */
+  --space-1:  0.25rem;
+  --space-2:  0.5rem;
+  --space-3:  0.75rem;
+  --space-4:  1rem;
+  --space-5:  1.25rem;
+  --space-6:  1.5rem;
+  --space-8:  2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+  --space-32: 8rem;
+
+  /* Font families */
+  --font-display: 'Outfit', system-ui, sans-serif;
+  --font-body: 'DM Sans', system-ui, sans-serif;
+
+  /* Radius (friendly rounded) */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.125rem;
+  --radius-2xl: 1.5rem;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-interactive: 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 350ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Content widths */
+  --content-narrow: 480px;
+  --content-default: 640px;
+  --content-wide: 960px;
+
+  /* Z-indices */
+  --z-base: 1;
+  --z-nav: 10;
+  --z-modal-backdrop: 50;
+  --z-modal: 60;
+  --z-toast: 70;
+  --z-fab: 40;
+}
+
+/* ============================================
+   LIGHT MODE — FahrDoc Custom Palette
+   Teal primary, warm neutral backgrounds
+   ============================================ */
+:root, [data-theme="light"] {
+  --color-bg:               #f5f5f0;
+  --color-surface:          #fafaf7;
+  --color-surface-2:        #ffffff;
+  --color-surface-offset:   #eeeee8;
+  --color-surface-offset-2: #e7e7e0;
+  --color-surface-dynamic:  #ddddd6;
+  --color-divider:          #d4d4cc;
+  --color-border:           #c8c8bf;
+
+  --color-text:             #1a1f1e;
+  --color-text-muted:       #6b7370;
+  --color-text-faint:       #a3aba8;
+  --color-text-inverse:     #f5f9f8;
+
+  --color-primary:          #0d8f8b;
+  --color-primary-hover:    #0a7572;
+  --color-primary-active:   #085c5a;
+  --color-primary-highlight: #d0edec;
+  --color-primary-subtle:   #e8f6f5;
+
+  --color-success:          #3a8a3e;
+  --color-success-hover:    #2b6e2e;
+  --color-success-highlight: #d4e8d5;
+
+  --color-error:            #c53030;
+  --color-error-hover:      #a02424;
+  --color-error-highlight:  #f5d5d5;
+
+  --color-warning:          #c47a1a;
+  --color-warning-hover:    #a06215;
+  --color-warning-highlight: #f2e4cc;
+
+  --color-blue:             #2563eb;
+  --color-blue-highlight:   #dbeafe;
+
+  --color-orange:           #ea580c;
+  --color-orange-highlight: #ffedd5;
+
+  --color-purple:           #7c3aed;
+  --color-purple-highlight: #ede9fe;
+
+  --shadow-sm: 0 1px 2px oklch(0.2 0.01 180 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.2 0.01 180 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.2 0.01 180 / 0.12);
+}
+
+/* ============================================
+   DARK MODE
+   ============================================ */
+[data-theme="dark"] {
+  --color-bg:               #111614;
+  --color-surface:          #181e1c;
+  --color-surface-2:        #1f2624;
+  --color-surface-offset:   #1b221f;
+  --color-surface-offset-2: #243029;
+  --color-surface-dynamic:  #2c3835;
+  --color-divider:          #2c3835;
+  --color-border:           #384845;
+
+  --color-text:             #d4dbd8;
+  --color-text-muted:       #8a9491;
+  --color-text-faint:       #596460;
+  --color-text-inverse:     #181e1c;
+
+  --color-primary:          #3abdb8;
+  --color-primary-hover:    #2aa09c;
+  --color-primary-active:   #1e8480;
+  --color-primary-highlight: #1e3332;
+  --color-primary-subtle:   #152524;
+
+  --color-success:          #5cba60;
+  --color-success-hover:    #47a04b;
+  --color-success-highlight: #1e3320;
+
+  --color-error:            #ef5350;
+  --color-error-hover:      #d43b39;
+  --color-error-highlight:  #3b2020;
+
+  --color-warning:          #f0a030;
+  --color-warning-hover:    #d08a20;
+  --color-warning-highlight: #3b3020;
+
+  --color-blue:             #60a5fa;
+  --color-blue-highlight:   #1e3a5f;
+
+  --color-orange:           #fb923c;
+  --color-orange-highlight: #3b2a15;
+
+  --color-purple:           #a78bfa;
+  --color-purple-highlight: #2e1f5e;
+
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.25);
+  --shadow-md: 0 4px 12px oklch(0 0 0 / 0.35);
+  --shadow-lg: 0 12px 32px oklch(0 0 0 / 0.45);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --color-bg:               #111614;
+    --color-surface:          #181e1c;
+    --color-surface-2:        #1f2624;
+    --color-surface-offset:   #1b221f;
+    --color-surface-offset-2: #243029;
+    --color-surface-dynamic:  #2c3835;
+    --color-divider:          #2c3835;
+    --color-border:           #384845;
+    --color-text:             #d4dbd8;
+    --color-text-muted:       #8a9491;
+    --color-text-faint:       #596460;
+    --color-text-inverse:     #181e1c;
+    --color-primary:          #3abdb8;
+    --color-primary-hover:    #2aa09c;
+    --color-primary-active:   #1e8480;
+    --color-primary-highlight: #1e3332;
+    --color-primary-subtle:   #152524;
+    --color-success:          #5cba60;
+    --color-success-hover:    #47a04b;
+    --color-success-highlight: #1e3320;
+    --color-error:            #ef5350;
+    --color-error-hover:      #d43b39;
+    --color-error-highlight:  #3b2020;
+    --color-warning:          #f0a030;
+    --color-warning-hover:    #d08a20;
+    --color-warning-highlight: #3b3020;
+    --color-blue:             #60a5fa;
+    --color-blue-highlight:   #1e3a5f;
+    --color-orange:           #fb923c;
+    --color-orange-highlight: #3b2a15;
+    --color-purple:           #a78bfa;
+    --color-purple-highlight: #2e1f5e;
+    --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.25);
+    --shadow-md: 0 4px 12px oklch(0 0 0 / 0.35);
+    --shadow-lg: 0 12px 32px oklch(0 0 0 / 0.45);
+  }
+}
+
+/* ============================================
+   RESETS & BASE
+   ============================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  -moz-text-size-adjust: none;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+  hanging-punctuation: first last;
+  height: 100%;
+}
+
+body {
+  min-height: 100dvh;
+  line-height: 1.6;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  overflow: hidden;
+  height: 100%;
+}
+
+img, picture, video, canvas, svg { display: block; max-width: 100%; height: auto; }
+ul[role="list"], ol[role="list"] { list-style: none; }
+input, button, textarea, select { font: inherit; color: inherit; }
+
+h1, h2, h3, h4, h5, h6 { text-wrap: balance; line-height: 1.15; font-family: var(--font-display); }
+p, li, figcaption { text-wrap: pretty; max-width: 72ch; }
+
+::selection {
+  background: oklch(from var(--color-primary) l c h / 0.25);
+  color: var(--color-text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+button { cursor: pointer; background: none; border: none; }
+table { border-collapse: collapse; width: 100%; }
+a { color: inherit; text-decoration: none; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0;
+}
