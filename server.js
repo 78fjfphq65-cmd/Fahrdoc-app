@@ -13,6 +13,7 @@ const Stripe = require('stripe');
 const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 const app = express();
+app.set('trust proxy', 1); // Railway runs behind a proxy
 const PORT = process.env.PORT || 5000;
 
 // ============================================
