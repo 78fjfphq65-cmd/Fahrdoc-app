@@ -315,6 +315,34 @@
   color: var(--primary);
 }
 
+/* Invite Code Modal */
+.invite-modal-content {
+  text-align: center;
+}
+.invite-code-display {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6) var(--space-4);
+  margin-bottom: var(--space-5);
+}
+.invite-code-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-2);
+}
+.invite-code-value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--color-text-primary);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.invite-email-section {
+  text-align: left;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
 .stat-card {
   background: var(--color-surface-2);
   border: 1px solid oklch(from var(--color-border) l c h / 0.4);

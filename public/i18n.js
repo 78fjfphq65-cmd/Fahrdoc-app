@@ -273,7 +273,19 @@ var TRANSLATIONS = {
   datenschutzBannerText: { de:'Diese App nutzt lokale Speicherung für Login und Einstellungen. Durch die Nutzung stimmst du unserer Datenschutzerklärung zu.', en:'This app uses local storage for login and settings. By using it you agree to our privacy policy.', tr:'Bu uygulama giriş ve ayarlar için yerel depolama kullanır.', ar:'يستخدم هذا التطبيق التخزين المحلي.', es:'Esta app usa almacenamiento local para inicio de sesión y configuración.', fr:'Cette application utilise le stockage local pour la connexion et les paramètres.' },
   datenschutzLink: { de:'Datenschutzerklärung lesen', en:'Read privacy policy', tr:'Gizlilik politikasını oku', ar:'اقرأ سياسة الخصوصية', es:'Leer política de privacidad', fr:'Lire la politique de confidentialité' },
   akzeptieren: { de:'Alle akzeptieren', en:'Accept all', tr:'Tümünü kabul et', ar:'قبول الكل', es:'Aceptar todo', fr:'Tout accepter' },
-  nurNotwendige: { de:'Nur notwendige', en:'Essential only', tr:'Yalnızca gerekli', ar:'الضرورية فقط', es:'Solo esenciales', fr:'Essentiels uniquement' }
+  nurNotwendige: { de:'Nur notwendige', en:'Essential only', tr:'Yalnızca gerekli', ar:'الضرورية فقط', es:'Solo esenciales', fr:'Essentiels uniquement' },
+
+  // ── Invite Email ──
+  einladungscode: { de:'Einladungscode', en:'Invitation Code', tr:'Davet Kodu', ar:'رمز الدعوة', es:'Código de invitación', fr:'Code d\'invitation' },
+  codeCopied: { de:'Code kopiert', en:'Code copied', tr:'Kod kopyalandı', ar:'تم نسخ الرمز', es:'Código copiado', fr:'Code copié' },
+  codeCopyBtn: { de:'Code kopieren', en:'Copy code', tr:'Kodu kopyala', ar:'نسخ الرمز', es:'Copiar código', fr:'Copier le code' },
+  inviteEmailDesc: { de:'Einladung per E-Mail versenden:', en:'Send invitation via email:', tr:'Daveti e-posta ile gönder:', ar:'إرسال الدعوة عبر البريد الإلكتروني:', es:'Enviar invitación por email:', fr:'Envoyer l\'invitation par email :' },
+  emailPlaceholder: { de:'E-Mail-Adresse eingeben', en:'Enter email address', tr:'E-posta adresini girin', ar:'أدخل عنوان البريد الإلكتروني', es:'Introducir dirección de email', fr:'Saisir l\'adresse email' },
+  sendInvite: { de:'Senden', en:'Send', tr:'Gönder', ar:'إرسال', es:'Enviar', fr:'Envoyer' },
+  emailRequired: { de:'Bitte E-Mail-Adresse eingeben', en:'Please enter an email address', tr:'Lütfen e-posta adresini girin', ar:'يرجى إدخال عنوان البريد الإلكتروني', es:'Por favor introduce una dirección de email', fr:'Veuillez saisir une adresse email' },
+  emailInvalid: { de:'Ungültige E-Mail-Adresse', en:'Invalid email address', tr:'Geçersiz e-posta adresi', ar:'عنوان بريد إلكتروني غير صالح', es:'Dirección de email no válida', fr:'Adresse email invalide' },
+  sending: { de:'Wird gesendet', en:'Sending', tr:'Gönderiliyor', ar:'جارٍ الإرسال', es:'Enviando', fr:'Envoi en cours' },
+  inviteSent: { de:'Einladung gesendet an', en:'Invitation sent to', tr:'Davet gönderildi:', ar:'تم إرسال الدعوة إلى', es:'Invitación enviada a', fr:'Invitation envoyée à' }
 };
 
 // ── Day names by language ──

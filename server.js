@@ -8,7 +8,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const { supabase, generateToken, generateId, hashPassword, verifyPassword } = require('./db');
-const { sendVerificationEmail, sendPasswordResetEmail, generateCode } = require('./email');
+const { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode } = require('./email');
 const Stripe = require('stripe');
 const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -648,6 +648,50 @@ app.post('/api/school/codes', authMiddleware, async (req, res) => {
     });
     res.json({ code, type, status: 'offen' });
   } catch (err) {
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// ── Send invite code via email (school or instructor) ──
+app.post('/api/invite-email', authMiddleware, async (req, res) => {
+  try {
+    const { email, code, type } = req.body;
+    if (!email || !code) return res.status(400).json({ error: 'E-Mail und Code erforderlich' });
+
+    // Determine sender context
+    var schoolName = '';
+    var senderName = '';
+    var senderRole = req.user.role;
+
+    if (req.user.role === 'school') {
+      schoolName = req.user.name || 'Fahrschule';
+      senderName = req.user.admin_name || req.user.name;
+    } else if (req.user.role === 'instructor') {
+      senderName = req.user.name || 'Fahrlehrer';
+      // Get school name from instructor's school
+      const { data: school } = await supabase.from('schools')
+        .select('name').eq('id', req.user.school_id).single();
+      schoolName = school ? school.name : 'Fahrschule';
+    } else {
+      return res.status(403).json({ error: 'Keine Berechtigung' });
+    }
+
+    var result = await sendInviteEmail({
+      to: email,
+      code: code,
+      type: type || 'student',
+      schoolName: schoolName,
+      senderName: senderName,
+      senderRole: senderRole
+    });
+
+    if (result.success) {
+      res.json({ success: true, message: 'Einladung gesendet' });
+    } else {
+      res.status(500).json({ error: 'E-Mail konnte nicht gesendet werden: ' + (result.error || 'Unbekannter Fehler') });
+    }
+  } catch (err) {
+    console.error('Invite email error:', err);
     res.status(500).json({ error: 'Serverfehler' });
   }
 });

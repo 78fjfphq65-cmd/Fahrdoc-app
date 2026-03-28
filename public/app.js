@@ -232,6 +232,29 @@ var App = {
     // Apply initial language
     applyLanguageToDOM();
     if (ApiClient.token) this.autoLogin();
+    // Handle invite code from URL (?code=XXX)
+    var urlParams = new URLSearchParams(window.location.search);
+    var inviteCode = urlParams.get('code');
+    if (inviteCode && !ApiClient.token) {
+      AppState._pendingInviteCode = inviteCode;
+      // Auto-navigate to signup with a short delay
+      setTimeout(function() {
+        App.navigate('signup');
+        setTimeout(function() {
+          // Pre-fill code into instructor or student invite field
+          var instField = document.getElementById('signup-school-code');
+          var studField = document.getElementById('signup-invite-code');
+          if (inviteCode.startsWith('FL') && instField) {
+            App.setRole('instructor', document.querySelector('[data-role="instructor"]'));
+            instField.value = inviteCode;
+          } else if (studField) {
+            App.setRole('student', document.querySelector('[data-role="student"]'));
+            studField.value = inviteCode;
+          }
+        }, 200);
+      }, 300);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   },
 
   autoLogin: async function() {
@@ -1795,11 +1818,58 @@ var App = {
   generateNewCode: async function(type) {
     try {
       var result = await ApiClient.post('/api/school/codes', { type: type });
-      this.showToast(t('neuerCode') + ': ' + result.code);
       // Keep the current view mode matching the code type
       this.dashboardViewMode = (type === 'instructor') ? 'instructors' : 'students';
       this.renderSchoolDashboardTab();
+      // Show modal with code + optional email send
+      this.showInviteCodeModal(result.code, type);
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+  },
+
+  showInviteCodeModal: function(code, type) {
+    var roleLabel = type === 'instructor' ? t('fahrlehrer') : t('fahrschueler');
+    var html = '<div class="invite-modal-content">' +
+      '<div class="invite-code-display">' +
+        '<div class="invite-code-label">' + t('neuerCode') + ' (' + roleLabel + ')</div>' +
+        '<div class="invite-code-value">' + code + '</div>' +
+        '<button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText(\'' + code + '\');App.showToast(\'' + t('codeCopied') + '\')" style="margin-top:8px;font-size:12px;">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;vertical-align:middle;margin-right:4px;"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+          t('codeCopyBtn') +
+        '</button>' +
+      '</div>' +
+      '<div class="invite-email-section">' +
+        '<p class="text-sm text-muted" style="margin-bottom:10px;">' + t('inviteEmailDesc') + '</p>' +
+        '<div style="display:flex;gap:8px;align-items:stretch;">' +
+          '<input type="email" id="invite-email-input" class="form-input" placeholder="' + t('emailPlaceholder') + '" style="flex:1;min-width:0;" onkeydown="if(event.key===\'Enter\')App.sendInviteEmail(\'' + code + '\',\'' + type + '\')">' +
+          '<button class="btn btn-primary" id="invite-send-btn" onclick="App.sendInviteEmail(\'' + code + '\', \'' + type + '\')" style="white-space:nowrap;">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;vertical-align:middle;margin-right:4px;"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>' +
+            t('sendInvite') +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+    this.openModal(t('einladungscode'), html);
+    // Focus email input
+    setTimeout(function() { var el = document.getElementById('invite-email-input'); if (el) el.focus(); }, 200);
+  },
+
+  sendInviteEmail: async function(code, type) {
+    var emailInput = document.getElementById('invite-email-input');
+    var sendBtn = document.getElementById('invite-send-btn');
+    if (!emailInput || !emailInput.value.trim()) { this.showToast(t('emailRequired')); return; }
+    var email = emailInput.value.trim();
+    // Basic email validation
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { this.showToast(t('emailInvalid')); return; }
+    // Disable button during send
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = t('sending') + '...'; }
+    try {
+      await ApiClient.post('/api/invite-email', { email: email, code: code, type: type });
+      this.showToast(t('inviteSent') + ' ' + email);
+      this.closeModalForce();
+    } catch (err) {
+      this.showToast(t('fehler') + ': ' + err.message);
+      if (sendBtn) { sendBtn.disabled = false; sendBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;vertical-align:middle;margin-right:4px;"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>' + t('sendInvite'); }
+    }
   },
 
   // ══════════════════════════════════════════
