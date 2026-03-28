@@ -235,25 +235,13 @@ var App = {
     // Handle invite code from URL (?code=XXX)
     var urlParams = new URLSearchParams(window.location.search);
     var inviteCode = urlParams.get('code');
-    if (inviteCode && !ApiClient.token) {
+    if (inviteCode) {
       AppState._pendingInviteCode = inviteCode;
-      // Auto-navigate to signup with a short delay
-      setTimeout(function() {
-        App.navigate('signup');
-        setTimeout(function() {
-          // Pre-fill code into instructor or student invite field
-          var instField = document.getElementById('signup-school-code');
-          var studField = document.getElementById('signup-invite-code');
-          if (inviteCode.startsWith('FL') && instField) {
-            App.setRole('instructor', document.querySelector('[data-role="instructor"]'));
-            instField.value = inviteCode;
-          } else if (studField) {
-            App.setRole('student', document.querySelector('[data-role="student"]'));
-            studField.value = inviteCode;
-          }
-        }, 200);
-      }, 300);
       window.history.replaceState({}, '', window.location.pathname);
+      // If not logged in, auto-navigate to signup after a short delay
+      if (!ApiClient.token) {
+        setTimeout(function() { App.navigate('signup'); }, 500);
+      }
     }
   },
 
@@ -371,6 +359,22 @@ var App = {
     var id = this.screenMap[screen] || ('screen-' + screen);
     var el = document.getElementById(id);
     if (el) el.classList.add('active');
+    // Auto-fill invite code when navigating to signup
+    if (screen === 'signup' && AppState._pendingInviteCode) {
+      var code = AppState._pendingInviteCode;
+      AppState._pendingInviteCode = null;
+      setTimeout(function() {
+        var instField = document.getElementById('signup-school-code');
+        var studField = document.getElementById('signup-invite-code');
+        if (code.startsWith('FL') && instField) {
+          App.setRole('instructor', document.querySelector('[data-role="instructor"]'));
+          instField.value = code;
+        } else if (studField) {
+          App.setRole('student', document.querySelector('[data-role="student"]'));
+          studField.value = code;
+        }
+      }, 100);
+    }
     if (screen === 'school-dashboard') this.initSchoolDashboard();
     if (screen === 'instructor-dashboard') this.initInstructorDashboard();
     if (screen === 'student-dashboard') this.initStudentDashboard();

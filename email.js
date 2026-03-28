@@ -97,7 +97,7 @@ async function sendInviteEmail({ to, code, type, schoolName, senderName, senderR
   try {
     const isInstructor = type === 'instructor';
     const roleLabel = isInstructor ? 'Fahrlehrer' : 'Fahrschüler';
-    const registerUrl = 'https://www.fahrdoc.app/register?code=' + encodeURIComponent(code);
+    const registerUrl = 'https://www.fahrdoc.app?code=' + encodeURIComponent(code);
     const inviterLine = senderRole === 'school'
       ? schoolName + ' hat dich als ' + roleLabel + ' eingeladen'
       : senderName + ' (' + schoolName + ') hat dich eingeladen';
