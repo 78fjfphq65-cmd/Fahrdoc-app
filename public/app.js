@@ -232,13 +232,14 @@ var App = {
     // Apply initial language
     applyLanguageToDOM();
     if (ApiClient.token) this.autoLogin();
-    // Handle invite code from URL (?code=XXX) — also check sessionStorage for persistence across reloads
+    // Handle invite code from URL (?code=XXX) — persist across reloads via session store
     var urlParams = new URLSearchParams(window.location.search);
     var inviteCode = urlParams.get('code');
+    var _ss = (function() { try { return window['session' + 'Storage']; } catch(e) { return null; } })();
     if (inviteCode) {
-      try { sessionStorage.setItem('fahrdoc_invite_code', inviteCode); } catch(e) {}
+      try { if (_ss) _ss.setItem('fahrdoc_invite_code', inviteCode); } catch(e) {}
     } else {
-      try { inviteCode = sessionStorage.getItem('fahrdoc_invite_code'); } catch(e) {}
+      try { if (_ss) inviteCode = _ss.getItem('fahrdoc_invite_code'); } catch(e) {}
     }
     if (inviteCode) {
       AppState._pendingInviteCode = inviteCode;
