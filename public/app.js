@@ -5,7 +5,7 @@
 // ============================================
 // API CLIENT
 // ============================================
-var API_BASE = '__PORT_5000__'.startsWith('__') ? '' : '__PORT_5000__';
+var API_BASE = '.';
 
 var ApiClient = {
   token: null,
@@ -17,10 +17,16 @@ var ApiClient = {
     if (body) opts.body = JSON.stringify(body);
     try {
       var res = await fetch(API_BASE + path, opts);
-      var data = await res.json();
+      var text = await res.text();
+      var data;
+      try { data = JSON.parse(text); } catch(e) {
+        console.error('[API] Non-JSON response for ' + path + ':', text.substring(0, 200));
+        throw new Error(t('serverfehler'));
+      }
       if (!res.ok) throw new Error(data.error || t('serverfehler'));
       return data;
     } catch (err) {
+      console.error('[API] Error for ' + method + ' ' + path + ':', err.message);
       if (err.message === t('sitzungAbgelaufen') || err.message === 'Nicht autorisiert') {
         this.setToken(null); App.navigate('welcome'); App.showToast(t('sitzungAbgelaufen')); throw err;
       }
@@ -628,11 +634,14 @@ var App = {
         html += '<div class="week-grid-slot ' + typeCls + (isOffen ? ' slot-offen' : '') + (pruef ? ' slot-pruefung' : '') + '" ' +
           'style="top:' + top + 'px;height:' + height + 'px;" onclick="event.stopPropagation();' + clickJs + '">';
         if (height >= 40) {
-          html += '<div class="week-grid-slot-time">' + slot.start_time + '–' + slot.end_time + '</div>';
+          html += '<div class="week-grid-slot-time">' + slot.start_time + '\u2013' + slot.end_time + '</div>';
+          if (slot.instructor_name) {
+            html += '<div class="week-grid-slot-instructor">' + slot.instructor_name + '</div>';
+          }
           html += '<div class="week-grid-slot-name">' + (slot.student_name || t('offen')) + '</div>';
-          html += '<div class="week-grid-slot-type">' + tType(slot.type) + (pruef ? ' 🏁' : '') + '</div>';
+          html += '<div class="week-grid-slot-type">' + tType(slot.type) + (pruef ? ' \ud83c\udfc1' : '') + '</div>';
         } else {
-          html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + (slot.student_name || slot.type) + '</div>';
+          html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + (slot.instructor_name || slot.student_name || slot.type) + '</div>';
         }
         html += '</div>';
       });
@@ -729,6 +738,8 @@ var App = {
     };
     var studentSel = document.getElementById('schedule-student');
     if (studentSel && studentSel.value) slotData.studentId = studentSel.value;
+    var vehicleSel = document.getElementById('schedule-vehicle');
+    if (vehicleSel && vehicleSel.value) slotData.vehicleId = vehicleSel.value;
     // Admin creating for instructor
     var instSel = document.getElementById('schedule-instructor-select');
     if (instSel && instSel.value) slotData.instructorId = instSel.value;
@@ -754,6 +765,8 @@ var App = {
     };
     var studentSel = document.getElementById('schedule-student');
     slotData.studentId = (studentSel && studentSel.value) ? studentSel.value : null;
+    var vehicleSel = document.getElementById('schedule-vehicle');
+    slotData.vehicleId = (vehicleSel && vehicleSel.value) ? vehicleSel.value : null;
     try {
       this.showLoading(true);
       await ApiClient.put('/api/schedule/' + id, slotData);
@@ -870,6 +883,11 @@ var App = {
     html += '<div class="form-group mb-3"><label class="form-label">' + t('schuelerLeer') + '</label>' +
       '<select class="form-select" id="schedule-student"><option value="">— Offener Block —</option></select></div>';
 
+    // Vehicle selector
+    var vehicleId = isEdit ? (editSlot.vehicle_id || '') : '';
+    html += '<div class="form-group mb-3"><label class="form-label">Fahrzeug</label>' +
+      '<select class="form-select" id="schedule-vehicle"><option value="">— Kein Fahrzeug —</option></select></div>';
+
     html += '<div class="form-row form-row-2 mb-3">' +
       '<div class="form-group"><label class="form-label">' + t('klasse') + '</label>' +
         '<select class="form-select" id="schedule-class">' +
@@ -908,7 +926,31 @@ var App = {
 
     // Load students - for schedule modals load ALL school students
     this.loadScheduleStudents(studentId, isEdit ? editSlot.instructor_id : instructorIdOverride);
+    this.loadScheduleVehicles(date, startTime, endTime, vehicleId);
     this.updateDurationDisplay();
+  },
+
+  loadScheduleVehicles: async function(date, startTime, endTime, preSelectId) {
+    try {
+      var sel = document.getElementById('schedule-vehicle');
+      if (!sel) return;
+      var data = await ApiClient.get('/api/vehicles/availability?date=' + date + '&startTime=' + startTime + '&endTime=' + endTime);
+      var vehicles = data.vehicles || [];
+      var optionsHtml = '<option value="">— Kein Fahrzeug —</option>';
+      vehicles.forEach(function(v) {
+        var disabled = !v.available;
+        var label = v.brand + ' · ' + v.license_plate + ' (' + v.transmission + ')';
+        if (disabled) {
+          if (v.conflictReason) label += ' — ' + v.conflictReason;
+          else if (v.conflictInstructor) label += ' — belegt von ' + v.conflictInstructor;
+        }
+        optionsHtml += '<option value="' + v.id + '"' +
+          (v.id === preSelectId ? ' selected' : '') +
+          (disabled && v.id !== preSelectId ? ' disabled style="color:var(--color-text-muted);"' : '') +
+          '>' + label + '</option>';
+      });
+      sel.innerHTML = optionsHtml;
+    } catch (err) { console.warn('Vehicle load error:', err); }
   },
 
   loadScheduleStudents: async function(preSelectId, instructorId) {
@@ -974,22 +1016,27 @@ var App = {
     }
     if (tab === 'dashboard') this.renderSchoolDashboardTab();
     else if (tab === 'schedule') this.renderSchoolScheduleTab();
-    else if (tab === 'instructors') this.renderSchoolInstructorsTab();
-    else if (tab === 'students') this.renderSchoolStudentsTab();
+    else if (tab === 'instructors') { this.dashboardViewMode = 'instructors'; this.renderSchoolDashboardTab(); }
+    else if (tab === 'vehicles') this.renderSchoolVehiclesTab();
     else if (tab === 'abo') this.renderSchoolAboTab();
     else if (tab === 'profile') this.renderSchoolProfileTab();
   },
+
+  dashboardViewMode: 'students',
 
   renderSchoolDashboardTab: async function() {
     var main = document.getElementById('school-main');
     main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
     try {
       var data = await ApiClient.get('/api/school/dashboard');
+      var studData = await ApiClient.get('/api/school/students');
+      var instData = await ApiClient.get('/api/school/instructors');
       var school = AppState.currentUser;
+      var mode = this.dashboardViewMode || 'students';
       var html = '<div class="page-padding">' +
         '<div class="welcome-msg"><h2>' + t('hallo') + ', ' + (school.admin_name || school.name) + '</h2><p>' + t('uebersichtSchule') + '</p></div>';
 
-      // ──── NEW STUDENTS THIS WEEK WIDGET (Fix 4) ────
+      // ──── NEW STUDENTS THIS WEEK WIDGET ────
       var newStudents = data.newStudentsThisWeek || [];
       html += '<div class="new-students-widget mb-4">' +
         '<div class="new-students-header">' +
@@ -1012,24 +1059,76 @@ var App = {
       }
       html += '</div>';
 
+      // ──── CLICKABLE STAT CARDS ────
       html += '<div class="stat-grid mb-4">' +
-          '<div class="stat-card"><div class="stat-card-label">' + t('fahrlehrer') + '</div><div class="stat-card-value">' + data.instructors.length + '</div></div>' +
-          '<div class="stat-card"><div class="stat-card-label">' + t('fahrschueler') + '</div><div class="stat-card-value">' + data.students.length + '</div></div>' +
-          '<div class="stat-card"><div class="stat-card-label">' + t('fahrstunden') + '</div><div class="stat-card-value">' + data.stats.totalLessons + '</div></div>' +
-        '</div>' +
-        '<div class="section-header"><span class="section-title">' + t('letzteAktivitaeten') + '</span></div><div class="activity-list">';
-      data.recentLessons.forEach(function(l) {
-        var avg = App.avgRating(l.ratings);
-        html += '<div class="list-item" onclick="App.showLessonReview(\'' + l.id + '\', \'' + l.student_id + '\', \'school\')">' +
-          App.avatarHtml(l.student_name, '') +
-          '<div class="list-item-content"><div class="list-item-title">' + l.student_name + '</div>' +
-          '<div class="list-item-subtitle">' + tType(l.type) + ' · ' + App.formatDate(l.date) + '</div></div>' +
-          '<div class="list-item-right">' + App.skillLevelHtml(avg) + '</div></div>';
-      });
-      html += '</div></div>';
+          '<div class="stat-card stat-card-clickable' + (mode === 'instructors' ? ' stat-card-active' : '') + '" onclick="App.dashboardViewMode=\'instructors\';App.renderDashboardContent();">' +
+            '<div class="stat-card-label">' + t('fahrlehrer') + '</div><div class="stat-card-value">' + data.instructors.length + '</div></div>' +
+          '<div class="stat-card stat-card-clickable' + (mode === 'students' ? ' stat-card-active' : '') + '" onclick="App.dashboardViewMode=\'students\';App.renderDashboardContent();">' +
+            '<div class="stat-card-label">' + t('fahrschueler') + '</div><div class="stat-card-value">' + data.students.length + '</div></div>' +
+        '</div>';
+
+      // ──── DYNAMIC CONTENT AREA ────
+      html += '<div id="dashboard-dynamic-content"></div>';
+      html += '</div>';
       main.innerHTML = html;
+
+      // Store data for toggling without re-fetching
+      this._dashStudData = studData;
+      this._dashInstData = instData;
+      this.renderDashboardContent();
     } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
   },
+
+  renderDashboardContent: function() {
+    var container = document.getElementById('dashboard-dynamic-content');
+    if (!container) return;
+    var mode = this.dashboardViewMode || 'students';
+
+    // Update active state on stat cards
+    var cards = document.querySelectorAll('.stat-card-clickable');
+    if (cards[0]) cards[0].classList.toggle('stat-card-active', mode === 'instructors');
+    if (cards[1]) cards[1].classList.toggle('stat-card-active', mode === 'students');
+
+    var html = '';
+    if (mode === 'students') {
+      var studData = this._dashStudData || { students: [], codes: [] };
+      var codes = studData.codes || [];
+      html += '<div class="section-header mt-4"><span class="section-title">' + t('schuelerCodes') + '</span>' +
+        '<span class="section-action" onclick="App.generateNewCode(\'student\')">+ ' + t('neuerCode') + '</span></div>';
+      codes.forEach(function(c) {
+        html += '<div class="code-row"><div><span class="code-value">' + c.code + '</span></div>' +
+          '<span class="badge ' + (c.status === 'offen' ? 'badge-success' : 'badge-neutral') + '">' + tStatus(c.status) + (c.used_by ? ' \u00b7 ' + c.used_by : '') + '</span></div>';
+      });
+      var students = studData.students || [];
+      html += '<div class="section-header mt-4"><span class="section-title">' + t('fahrschueler') + ' (' + students.length + ')</span></div>';
+      students.forEach(function(st) {
+        html += '<div class="card card-interactive mb-3" onclick="App.viewStudentDetail(\'' + st.id + '\')"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
+          App.avatarHtml(st.name, '') +
+          '<div class="flex-1"><div style="font-weight:600;font-size:var(--text-sm);">' + st.name + '</div>' +
+          '<div class="text-xs text-muted">' + t('klasse') + ' ' + st.license_class + ' \u00b7 ' + (st.instructor_name || '\u2014') + ' \u00b7 ' + st.lessonCount + ' ' + t('fahrstunden') + '</div></div>' +
+          '<div>' + App.skillLevelHtml(st.avgSkill || 0) + '</div></div></div>';
+      });
+    } else {
+      var instData = this._dashInstData || { instructors: [], codes: [] };
+      var instCodes = instData.codes || [];
+      html += '<div class="section-header mt-4"><span class="section-title">' + t('einladungscodes') + '</span>' +
+        '<span class="section-action" onclick="App.generateNewCode(\'instructor\')">+ ' + t('neuerCode') + '</span></div>';
+      instCodes.forEach(function(c) {
+        html += '<div class="code-row"><div><span class="code-value">' + c.code + '</span></div>' +
+          '<span class="badge ' + (c.status === 'offen' ? 'badge-success' : 'badge-neutral') + '">' + tStatus(c.status) + (c.used_by ? ' \u00b7 ' + c.used_by : '') + '</span></div>';
+      });
+      var instructors = instData.instructors || [];
+      html += '<div class="section-header mt-4"><span class="section-title">' + t('fahrlehrer') + ' (' + instructors.length + ')</span></div>';
+      instructors.forEach(function(inst) {
+        html += '<div class="card card-interactive mb-3"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
+          App.avatarHtml(inst.name, '') +
+          '<div class="flex-1"><div style="font-weight:600;font-size:var(--text-sm);">' + inst.name + '</div>' +
+          '<div class="text-xs text-muted">' + inst.email + ' \u00b7 ' + (inst.studentCount || 0) + ' ' + t('schueler') + '</div></div></div></div>';
+      });
+    }
+    container.innerHTML = html;
+  },
+
 
   renderSchoolScheduleTab: async function() {
     var main = document.getElementById('school-main');
@@ -1103,27 +1202,466 @@ var App = {
     } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
   },
 
-  renderSchoolStudentsTab: async function() {
+  // ──── VEHICLES TAB ────
+  vehiclesSubView: 'week', // 'week', 'list', 'detail'
+  vehiclesGanttDate: null,
+  vehiclesTransmissionFilter: 'all',
+  vehiclesWeekStart: null,
+  vehiclesWeekVehicleId: null,
+  vehiclesDetailId: null,
+
+  renderSchoolVehiclesTab: async function() {
+    var sub = this.vehiclesSubView || 'week';
+    if (sub === 'detail' && this.vehiclesDetailId) return this.renderVehicleDetail(this.vehiclesDetailId);
+    if (sub === 'list') return this.renderVehicleList();
+    return this.renderVehicleWeekView();
+  },
+
+  // ──── SUB-NAV ────
+  vehiclesSubNav: function(active) {
+    return '<div class="veh-subnav">' +
+      '<button class="veh-subnav-btn' + (active === 'week' ? ' active' : '') + '" onclick="App.vehiclesSubView=\'week\';App.renderSchoolVehiclesTab();">Wochenansicht</button>' +
+      '<button class="veh-subnav-btn' + (active === 'list' ? ' active' : '') + '" onclick="App.vehiclesSubView=\'list\';App.renderSchoolVehiclesTab();">Fahrzeugliste</button>' +
+    '</div>';
+  },
+
+  // ═══════════════════════════════════════
+  // VEHICLE LIST (with status badges)
+  // ═══════════════════════════════════════
+  renderVehicleList: async function() {
     var main = document.getElementById('school-main');
     main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
     try {
-      var data = await ApiClient.get('/api/school/students');
-      var html = '<div class="page-padding"><div class="section-header"><span class="section-title">' + t('fahrschueler') + ' (' + data.students.length + ')</span></div>';
-      data.students.forEach(function(st) {
-        html += '<div class="card card-interactive mb-3" onclick="App.viewStudentDetail(\'' + st.id + '\')"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
-          App.avatarHtml(st.name, '') +
-          '<div class="flex-1"><div style="font-weight:600;font-size:var(--text-sm);">' + st.name + '</div>' +
-          '<div class="text-xs text-muted">' + t('klasse') + ' ' + st.license_class + ' · ' + (st.instructor_name || '—') + ' · ' + st.lessonCount + ' ' + t('fahrstunden') + '</div></div>' +
-          '<div>' + App.skillLevelHtml(st.avgSkill || 0) + '</div></div></div>';
+      var vData = await ApiClient.get('/api/school/vehicles');
+      var vehicles = vData.vehicles || [];
+      var html = '<div class="page-padding">';
+      html += this.vehiclesSubNav('list');
+      html += '<div class="section-header"><span class="section-title">Fahrzeuge (' + vehicles.length + ')</span>' +
+        '<span class="section-action" onclick="App.openAddVehicleModal()">+ Fahrzeug</span></div>';
+
+      vehicles.forEach(function(v) {
+        var statusClass = v.status === 'Aktiv' ? 'veh-status-aktiv' : (v.status === 'Werkstatt' ? 'veh-status-werkstatt' : 'veh-status-ausser');
+        var cardClass = v.status !== 'Aktiv' ? ' veh-card-inactive' : '';
+
+        html += '<div class="card card-interactive mb-3 veh-card' + cardClass + '" onclick="App.vehiclesSubView=\'detail\';App.vehiclesDetailId=\'' + v.id + '\';App.renderSchoolVehiclesTab();">' +
+          '<div style="display:flex;align-items:center;gap:var(--space-3);">' +
+            '<div class="veh-icon' + (v.status !== 'Aktiv' ? ' veh-icon-inactive' : '') + '">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;"><path d="M5 17h14M5 17a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1l2-3h8l2 3h1a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2M5 17a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2"/><circle cx="7.5" cy="17" r="1.5"/><circle cx="16.5" cy="17" r="1.5"/></svg>' +
+            '</div>' +
+            '<div class="flex-1" style="min-width:0;">' +
+              '<div style="font-weight:600;font-size:var(--text-sm);">' + v.brand + '</div>' +
+              '<div class="text-xs text-muted">' + v.license_plate + '</div>' +
+              (v.status === 'Werkstatt' && v.available_from ? '<div class="text-xs" style="color:var(--color-warning);margin-top:2px;">⚠ Bis ' + App.formatDate(v.available_from) + ' in Werkstatt</div>' : '') +
+            '</div>' +
+            '<span class="badge ' + (v.transmission === 'Automatik' ? 'badge-blue' : 'badge-neutral') + '">' + v.transmission + '</span>' +
+            '<div class="veh-status-badge ' + statusClass + '" onclick="event.stopPropagation();App.toggleStatusDropdown(\'' + v.id + '\')">' +
+              '<span class="veh-status-dot"></span> ' + v.status +
+            '</div>' +
+            '<div class="veh-status-dropdown" id="veh-dd-' + v.id + '">' +
+              '<div class="veh-dd-option' + (v.status === 'Aktiv' ? ' active' : '') + '" onclick="event.stopPropagation();App.setVehicleStatus(\'' + v.id + '\',\'Aktiv\')"><span style="color:#22c55e;">●</span> Aktiv</div>' +
+              '<div class="veh-dd-option' + (v.status === 'Werkstatt' ? ' active' : '') + '" onclick="event.stopPropagation();App.setVehicleStatus(\'' + v.id + '\',\'Werkstatt\')"><span>🔧</span> Werkstatt</div>' +
+              '<div class="veh-dd-option' + (v.status === 'Außer Betrieb' ? ' active' : '') + '" onclick="event.stopPropagation();App.setVehicleStatus(\'' + v.id + '\',\'Außer Betrieb\')"><span style="color:#ef4444;">●</span> Außer Betrieb</div>' +
+              (v.status === 'Werkstatt' ? '<div class="veh-dd-date"><label class="text-xs">Verfügbar ab:</label><input type="date" class="form-input" style="font-size:12px;padding:4px 8px;" value="' + (v.available_from || '') + '" onchange="App.setVehicleAvailableFrom(\'' + v.id + '\',this.value)" onclick="event.stopPropagation();"></div>' : '') +
+            '</div>' +
+            '<button class="icon-btn" onclick="event.stopPropagation();App.deleteVehicle(\'' + v.id + '\')" title="Löschen">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;color:var(--color-error);"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' +
+            '</button>' +
+          '</div>' +
+        '</div>';
       });
-      html += '<div class="section-header mt-4"><span class="section-title">' + t('schuelerCodes') + '</span>' +
-        '<span class="section-action" onclick="App.generateNewCode(\'student\')">+ ' + t('neuerCode') + '</span></div>';
-      data.codes.forEach(function(c) {
-        html += '<div class="code-row"><div><span class="code-value">' + c.code + '</span></div>' +
-          '<span class="badge ' + (c.status === 'offen' ? 'badge-success' : 'badge-neutral') + '">' + tStatus(c.status) + (c.used_by ? ' · ' + c.used_by : '') + '</span></div>';
-      });
-      html += '</div>'; main.innerHTML = html;
+
+      html += '</div>';
+      main.innerHTML = html;
     } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
+  },
+
+  toggleStatusDropdown: function(vehicleId) {
+    var dd = document.getElementById('veh-dd-' + vehicleId);
+    if (!dd) return;
+    var isOpen = dd.classList.contains('open');
+    // Close all first
+    document.querySelectorAll('.veh-status-dropdown.open').forEach(function(el) { el.classList.remove('open'); });
+    if (!isOpen) {
+      dd.classList.add('open');
+      // Close on click outside
+      setTimeout(function() {
+        var handler = function(e) {
+          if (!dd.contains(e.target) && !e.target.closest('.veh-status-badge')) {
+            dd.classList.remove('open');
+            document.removeEventListener('click', handler);
+          }
+        };
+        document.addEventListener('click', handler);
+      }, 10);
+    }
+  },
+
+  setVehicleStatus: async function(vehicleId, status) {
+    try {
+      this.showLoading(true);
+      var result = await ApiClient.put('/api/school/vehicles/' + vehicleId, { status: status });
+      document.querySelectorAll('.veh-status-dropdown.open').forEach(function(el) { el.classList.remove('open'); });
+      if (result.warning) {
+        this.showToast('Status kann erst ge\u00e4ndert werden nach SQL-Migration in Supabase');
+      } else {
+        this.showToast('Status ge\u00e4ndert');
+      }
+      this.renderVehicleList();
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+    finally { this.showLoading(false); }
+  },
+
+  setVehicleAvailableFrom: async function(vehicleId, date) {
+    try {
+      await ApiClient.put('/api/school/vehicles/' + vehicleId, { availableFrom: date || null });
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+  },
+
+  // ═══════════════════════════════════════
+  // VEHICLE DETAIL PAGE
+  // ═══════════════════════════════════════
+  renderVehicleDetail: async function(vehicleId) {
+    var main = document.getElementById('school-main');
+    main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
+    try {
+      var data = await ApiClient.get('/api/school/vehicles/' + vehicleId + '/detail');
+      var v = data.vehicle;
+      var u = data.utilization;
+      var hist = data.history || [];
+
+      var html = '<div class="page-padding">';
+      // Back button
+      html += '<div style="margin-bottom:var(--space-4);"><a href="#" onclick="event.preventDefault();App.vehiclesSubView=\'list\';App.renderSchoolVehiclesTab();" class="text-sm" style="color:var(--color-text-muted);text-decoration:none;">← Fahrzeuge</a></div>';
+
+      // Header
+      var statusClass = v.status === 'Aktiv' ? 'veh-status-aktiv' : (v.status === 'Werkstatt' ? 'veh-status-werkstatt' : 'veh-status-ausser');
+      html += '<div class="veh-detail-header">' +
+        '<div><h2 style="margin:0;font-size:var(--text-xl);">' + v.brand + '</h2>' +
+          '<div class="text-sm text-muted" style="margin-top:2px;">' + v.license_plate + '</div>' +
+          '<div style="margin-top:var(--space-2);display:flex;gap:var(--space-2);flex-wrap:wrap;">' +
+            '<span class="badge ' + (v.transmission === 'Automatik' ? 'badge-blue' : 'badge-neutral') + '">' + v.transmission + '</span>' +
+            '<span class="veh-status-badge ' + statusClass + '">' + v.status + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:var(--space-2);">' +
+          '<button class="btn btn-ghost btn-sm" onclick="App.openEditVehicleModal(\'' + v.id + '\')">✎ Bearbeiten</button>' +
+          '<button class="btn btn-ghost btn-sm" onclick="App.deleteVehicle(\'' + v.id + '\')" style="color:var(--color-error);">✕ Löschen</button>' +
+        '</div>' +
+      '</div>';
+
+      // ──── Auslastung ────
+      html += '<div class="section-header"><span class="section-title">Auslastung</span></div>';
+      html += '<div class="veh-util-grid">';
+      // Big pct card
+      html += '<div class="veh-util-big">' +
+        '<div class="veh-util-pct">' + u.currentWeekPct + '%</div>' +
+        '<div class="veh-util-label">Diese Woche</div>' +
+        '<div class="veh-util-sub">' +
+          '<div class="veh-util-sub-item"><span class="veh-util-sub-val">' + u.monthHours + 'h</span><span class="veh-util-sub-lbl">Diesen Monat</span></div>' +
+          '<div class="veh-util-sub-item"><span class="veh-util-sub-val">' + u.totalHours + 'h</span><span class="veh-util-sub-lbl">Gesamt</span></div>' +
+        '</div>' +
+      '</div>';
+      // Weekly bar chart
+      html += '<div class="veh-util-chart"><div class="veh-util-chart-title">Auslastung nach Kalenderwoche</div><div class="veh-util-bars">';
+      var maxPct = Math.max.apply(null, u.weeks.map(function(w) { return w.pct; }).concat([10]));
+      u.weeks.forEach(function(w, i) {
+        var isLast = i === u.weeks.length - 1;
+        var barH = Math.max(4, (w.pct / Math.max(maxPct, 1)) * 120);
+        html += '<div class="veh-bar-col">' +
+          '<div class="veh-bar-val">' + w.pct + '%</div>' +
+          '<div class="veh-bar" style="height:' + barH + 'px;' + (isLast ? 'background:var(--color-primary);' : '') + '"></div>' +
+          '<div class="veh-bar-label' + (isLast ? ' active' : '') + '">KW ' + w.kw + '</div>' +
+        '</div>';
+      });
+      html += '</div></div></div>';
+
+      // ──── Termine & Wartung ────
+      html += '<div class="section-header mt-4"><span class="section-title">Termine & Wartung</span></div>';
+      html += '<div class="veh-maint-grid">';
+      // HU/AU
+      var huDate = v.hu_au_date;
+      var huBadge = '';
+      if (huDate) {
+        var daysLeft = Math.round((new Date(huDate) - new Date()) / 86400000);
+        if (daysLeft < 0) huBadge = '<span class="badge badge-error">überfällig</span>';
+        else if (daysLeft < 30) huBadge = '<span class="badge badge-warning">bald fällig</span>';
+        else huBadge = '<span class="badge badge-success">noch ' + daysLeft + ' Tage</span>';
+      }
+      html += '<div class="card"><div class="text-xs text-muted" style="text-transform:uppercase;letter-spacing:0.5px;">HU / AU</div>' +
+        '<div style="font-weight:600;font-size:var(--text-base);margin-top:4px;">' + (huDate ? App.formatDate(huDate) : '—') + '</div>' +
+        (huBadge ? '<div style="margin-top:6px;">' + huBadge + '</div>' : '') +
+        (!huDate ? '<div style="margin-top:6px;"><a href="#" class="text-xs" style="color:var(--color-primary);" onclick="event.preventDefault();App.openEditVehicleModal(\'' + v.id + '\')">Datum setzen</a></div>' : '') +
+      '</div>';
+      // Service
+      var svcBadge = '';
+      if (v.next_service_km && v.current_km) {
+        var kmLeft = v.next_service_km - v.current_km;
+        if (kmLeft < 0) svcBadge = '<span class="badge badge-error">überfällig</span>';
+        else if (kmLeft < 1000) svcBadge = '<span class="badge badge-warning">bald fällig</span>';
+        else svcBadge = '<span class="badge badge-success">noch ' + kmLeft + ' km</span>';
+      }
+      html += '<div class="card"><div class="text-xs text-muted" style="text-transform:uppercase;letter-spacing:0.5px;">Nächster Service</div>' +
+        '<div style="font-weight:600;font-size:var(--text-base);margin-top:4px;">' + (v.next_service_km ? v.next_service_km.toLocaleString('de-DE') + ' km' : '—') + '</div>' +
+        (v.current_km ? '<div class="text-xs text-muted" style="margin-top:2px;">Aktuell: ' + v.current_km.toLocaleString('de-DE') + ' km</div>' : '') +
+        (svcBadge ? '<div style="margin-top:6px;">' + svcBadge + '</div>' : '') +
+      '</div>';
+      // Werkstatt
+      html += '<div class="card"><div class="text-xs text-muted" style="text-transform:uppercase;letter-spacing:0.5px;">Werkstatt-Blockierung</div>' +
+        '<div style="font-weight:600;font-size:var(--text-base);margin-top:4px;">' + (v.status === 'Werkstatt' ? 'Bis ' + (v.available_from ? App.formatDate(v.available_from) : 'auf Weiteres') : 'Keine geplant') + '</div>' +
+        '<div style="margin-top:6px;"><a href="#" class="text-xs" style="color:var(--color-primary);" onclick="event.preventDefault();App.openEditVehicleModal(\'' + v.id + '\')">Bearbeiten</a></div>' +
+      '</div>';
+      html += '</div>';
+
+      // ──── Belegungshistorie ────
+      html += '<div class="section-header mt-4"><span class="section-title">Belegungshistorie</span></div>';
+      if (hist.length === 0) {
+        html += '<div class="card"><p class="text-sm text-muted">Noch keine Fahrstunden mit diesem Fahrzeug</p></div>';
+      } else {
+        html += '<div class="card" style="padding:0;overflow:hidden;"><table class="veh-hist-table"><thead><tr>' +
+          '<th>Datum</th><th>Zeit</th><th>Fahrlehrer</th><th>Fahrschüler</th><th>Typ</th></tr></thead><tbody>';
+        hist.forEach(function(l) {
+          html += '<tr>' +
+            '<td>' + App.formatDate(l.date) + '</td>' +
+            '<td>' + l.start_time.substring(0,5) + '–' + l.end_time.substring(0,5) + '</td>' +
+            '<td><span class="veh-inst-dot" style="background:' + App.instructorColor(l.instructor_id) + ';"></span>' + l.instructor_name + '</td>' +
+            '<td>' + l.student_name + '</td>' +
+            '<td>' + l.type + '</td>' +
+          '</tr>';
+        });
+        html += '</tbody></table></div>';
+      }
+
+      html += '</div>';
+      main.innerHTML = html;
+    } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
+  },
+
+  openEditVehicleModal: function(vehicleId) {
+    // Fetch current data and show edit modal
+    ApiClient.get('/api/school/vehicles/' + vehicleId + '/detail').then(function(data) {
+      var v = data.vehicle;
+      var html = '<form id="vehicle-edit-form" onsubmit="event.preventDefault();">' +
+        '<div class="form-group mb-3"><label class="form-label">Marke</label>' +
+          '<input class="form-input" type="text" id="vedit-brand" value="' + v.brand + '"></div>' +
+        '<div class="form-group mb-3"><label class="form-label">Kennzeichen</label>' +
+          '<input class="form-input" type="text" id="vedit-plate" value="' + v.license_plate + '"></div>' +
+        '<div class="form-group mb-3"><label class="form-label">Getriebeart</label>' +
+          '<select class="form-select" id="vedit-transmission">' +
+            '<option value="Schaltung"' + (v.transmission === 'Schaltung' ? ' selected' : '') + '>Schaltung</option>' +
+            '<option value="Automatik"' + (v.transmission === 'Automatik' ? ' selected' : '') + '>Automatik</option>' +
+          '</select></div>' +
+        '<div class="form-group mb-3"><label class="form-label">HU/AU Datum</label>' +
+          '<input class="form-input" type="date" id="vedit-huau" value="' + (v.hu_au_date || '') + '"></div>' +
+        '<div class="form-group mb-3"><label class="form-label">Nächster Service (km)</label>' +
+          '<input class="form-input" type="number" id="vedit-svc-km" value="' + (v.next_service_km || '') + '" placeholder="z.B. 15000"></div>' +
+        '<div class="form-group mb-3"><label class="form-label">Aktueller KM-Stand</label>' +
+          '<input class="form-input" type="number" id="vedit-cur-km" value="' + (v.current_km || '') + '" placeholder="z.B. 12500"></div>' +
+        '<button type="button" class="btn btn-primary btn-full btn-lg" onclick="App.saveVehicleEdit(\'' + v.id + '\')">Speichern</button>' +
+      '</form>';
+      App.openModal('Fahrzeug bearbeiten', html);
+    });
+  },
+
+  saveVehicleEdit: async function(vehicleId) {
+    var brand = document.getElementById('vedit-brand').value.trim();
+    var plate = document.getElementById('vedit-plate').value.trim();
+    var trans = document.getElementById('vedit-transmission').value;
+    var huau = document.getElementById('vedit-huau').value;
+    var svcKm = document.getElementById('vedit-svc-km').value;
+    var curKm = document.getElementById('vedit-cur-km').value;
+    if (!brand || !plate) return this.showToast('Marke und Kennzeichen sind Pflichtfelder');
+    try {
+      this.showLoading(true);
+      await ApiClient.put('/api/school/vehicles/' + vehicleId, {
+        brand: brand, licensePlate: plate, transmission: trans,
+        huAuDate: huau || null,
+        nextServiceKm: svcKm ? parseInt(svcKm) : null,
+        currentKm: curKm ? parseInt(curKm) : null
+      });
+      this.closeModalForce();
+      this.showToast('Fahrzeug aktualisiert');
+      this.renderVehicleDetail(vehicleId);
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+    finally { this.showLoading(false); }
+  },
+
+  instructorColor: function(instructorId) {
+    // Simple hash to pick a color
+    if (!instructorId) return '#888';
+    var hash = 0;
+    for (var i = 0; i < instructorId.length; i++) hash = instructorId.charCodeAt(i) + ((hash << 5) - hash);
+    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+  },
+
+  // ═══════════════════════════════════════
+  // WEEK VIEW (same grid as Fahrstundenplanung, Mo-Sa, tabs per vehicle)
+  // ═══════════════════════════════════════
+  renderVehicleWeekView: async function() {
+    var main = document.getElementById('school-main');
+    main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
+    try {
+      var vData = await ApiClient.get('/api/school/vehicles');
+      var vehicles = (vData.vehicles || []).filter(function(v) { return v.status === 'Aktiv'; });
+
+      // Init week (reuse existing getWeekDates for Mo-Sa)
+      if (!this.vehiclesWeekStart) {
+        var w = this.getWeekDates(new Date());
+        this.vehiclesWeekStart = w.monday;
+      } else if (typeof this.vehiclesWeekStart === 'string') {
+        this.vehiclesWeekStart = new Date(this.vehiclesWeekStart + 'T00:00:00');
+      }
+      var w = this.getWeekDates(this.vehiclesWeekStart);
+
+      if (!this.vehiclesWeekVehicleId && vehicles.length > 0) {
+        this.vehiclesWeekVehicleId = vehicles[0].id;
+      }
+
+      // Fetch bookings for selected vehicle
+      var bookings = [];
+      var wsStr = w.monday.toISOString().split('T')[0];
+      if (this.vehiclesWeekVehicleId) {
+        var bData = await ApiClient.get('/api/school/vehicles/' + this.vehiclesWeekVehicleId + '/week?weekStart=' + wsStr);
+        bookings = bData.bookings || [];
+      }
+
+      // Map bookings to slot format used by renderWeekGridHtml
+      var slots = bookings.map(function(b) {
+        return {
+          date: b.date,
+          start_time: b.start_time,
+          end_time: b.end_time,
+          type: b.type || 'Fahrstunde',
+          student_name: b.student_name !== '\u2014' ? b.student_name : null,
+          student_id: b.student_name !== '\u2014' ? 'x' : null,
+          instructor_name: b.instructor_name,
+          instructor_id: b.instructor_id
+        };
+      });
+
+      var html = '<div class="page-padding">';
+      html += this.vehiclesSubNav('week');
+
+      // Vehicle tabs
+      if (vehicles.length === 0) {
+        html += '<div class="card"><p class="text-sm text-muted">Keine aktiven Fahrzeuge vorhanden</p></div></div>';
+        main.innerHTML = html;
+        return;
+      }
+
+      html += '<div class="veh-tabs-row">';
+      var self = this;
+      vehicles.forEach(function(v) {
+        var isActive = v.id === self.vehiclesWeekVehicleId;
+        html += '<button class="veh-tab' + (isActive ? ' active' : '') + '" onclick="App.vehiclesWeekVehicleId=\'' + v.id + '\';App.renderVehicleWeekView();">' +
+          '<div class="veh-tab-brand">' + v.brand + '</div>' +
+          '<div class="veh-tab-plate">' + v.license_plate + '</div>' +
+          '<span class="badge ' + (v.transmission === 'Automatik' ? 'badge-blue' : 'badge-neutral') + '" style="font-size:9px;padding:1px 6px;">' + v.transmission + '</span>' +
+        '</button>';
+      });
+      html += '</div>';
+
+      // Week navigation (same style as schedule)
+      var oneJan = new Date(w.monday.getFullYear(), 0, 1);
+      var kwNum = Math.ceil(((w.monday - oneJan) / 86400000 + oneJan.getDay() + 1) / 7);
+      var months = getMonthNames();
+      var weekLbl = 'KW ' + kwNum + ' \u00b7 ' + w.monday.getDate() + '.\u2013' + w.saturday.getDate() + '. ' + months[w.monday.getMonth()] + ' ' + w.monday.getFullYear();
+
+      html += '<div class="schedule-week-nav">' +
+        '<button class="btn btn-ghost btn-sm" onclick="App.shiftVehicleWeek(-1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polyline points="15,18 9,12 15,6"/></svg></button>' +
+        '<span class="schedule-week-label">' + weekLbl + '</span>' +
+        '<button class="btn btn-ghost btn-sm" onclick="App.shiftVehicleWeek(1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polyline points="9,18 15,12 9,6"/></svg></button></div>';
+
+      // Reuse the same week grid as Fahrstundenplanung (Mo-Sa, absolute positioned slots)
+      html += this.renderWeekGridHtml(
+        w.days, slots,
+        "void(0)",
+        "void(0)"
+      );
+
+      // Legend
+      html += '<div class="gantt-legend" style="margin-top:var(--space-3);">';
+      var seenInstructors = {};
+      bookings.forEach(function(b) {
+        if (!seenInstructors[b.instructor_id]) {
+          seenInstructors[b.instructor_id] = true;
+          html += '<div class="gantt-legend-item"><span class="gantt-legend-dot" style="background:' + App.instructorColor(b.instructor_id) + ';"></span>' + b.instructor_name + '</div>';
+        }
+      });
+      html += '</div>';
+
+      html += '</div>';
+      main.innerHTML = html;
+    } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
+  },
+
+  shiftVehicleWeek: function(dir) {
+    var d = new Date(this.vehiclesWeekStart);
+    d.setDate(d.getDate() + dir * 7);
+    this.vehiclesWeekStart = d;
+    this.renderVehicleWeekView();
+  },
+
+  getISOWeek: function(d) {
+    var date = new Date(d.getTime());
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+    var week1 = new Date(date.getFullYear(), 0, 4);
+    return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+  },
+
+  shiftGanttDate: function(offset) {
+    var d = new Date(this.vehiclesGanttDate + 'T00:00:00');
+    d.setDate(d.getDate() + offset);
+    this.vehiclesGanttDate = d.toISOString().split('T')[0];
+    this.renderSchoolVehiclesTab();
+  },
+
+  setVehicleFilter: function(filter) {
+    this.vehiclesTransmissionFilter = filter;
+    this.renderSchoolVehiclesTab();
+  },
+
+  openAddVehicleModal: function() {
+    var html = '<form id="vehicle-form" onsubmit="event.preventDefault();">' +
+      '<div class="form-group mb-3"><label class="form-label">Marke</label>' +
+        '<input class="form-input" type="text" id="vehicle-brand" placeholder="z.B. VW Golf" required></div>' +
+      '<div class="form-group mb-3"><label class="form-label">Kennzeichen</label>' +
+        '<input class="form-input" type="text" id="vehicle-plate" placeholder="z.B. B-AB 1234" required></div>' +
+      '<div class="form-group mb-3"><label class="form-label">Getriebeart</label>' +
+        '<select class="form-select" id="vehicle-transmission">' +
+          '<option value="Schaltung">Schaltung</option>' +
+          '<option value="Automatik">Automatik</option>' +
+        '</select></div>' +
+      '<button type="button" class="btn btn-primary btn-full btn-lg" onclick="App.createVehicle()">Fahrzeug hinzufügen</button>' +
+    '</form>';
+    this.openModal('Neues Fahrzeug', html);
+  },
+
+  createVehicle: async function() {
+    var brand = document.getElementById('vehicle-brand').value.trim();
+    var plate = document.getElementById('vehicle-plate').value.trim();
+    var trans = document.getElementById('vehicle-transmission').value;
+    if (!brand || !plate) return this.showToast('Bitte alle Felder ausfüllen');
+    try {
+      this.showLoading(true);
+      await ApiClient.post('/api/school/vehicles', { brand: brand, licensePlate: plate, transmission: trans });
+      this.closeModalForce();
+      this.showToast('Fahrzeug hinzugefügt');
+      this.renderSchoolVehiclesTab();
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+    finally { this.showLoading(false); }
+  },
+
+  deleteVehicle: async function(id) {
+    if (!confirm('Fahrzeug wirklich löschen?')) return;
+    try {
+      this.showLoading(true);
+      await ApiClient.del('/api/school/vehicles/' + id);
+      this.showToast('Fahrzeug gelöscht');
+      this.vehiclesSubView = 'week';
+      this.renderSchoolVehiclesTab();
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+    finally { this.showLoading(false); }
   },
 
   renderSchoolAboTab: async function() {
@@ -1258,8 +1796,9 @@ var App = {
     try {
       var result = await ApiClient.post('/api/school/codes', { type: type });
       this.showToast(t('neuerCode') + ': ' + result.code);
-      if (type === 'instructor') this.renderSchoolInstructorsTab();
-      else this.renderSchoolStudentsTab();
+      // Keep the current view mode matching the code type
+      this.dashboardViewMode = (type === 'instructor') ? 'instructors' : 'students';
+      this.renderSchoolDashboardTab();
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
   },
 

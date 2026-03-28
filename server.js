@@ -95,24 +95,36 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
 // ============================================
 // RATE LIMITING
 // ============================================
+// Use X-Visitor-Id or X-Forwarded-For for rate limiting in proxy environments
+const visitorKeyGenerator = (req) => req.headers['x-visitor-id'] || req.headers['x-forwarded-for'] || req.ip;
+
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100,
+  max: 200,
+  keyGenerator: visitorKeyGenerator,
   message: { error: 'Zu viele Anfragen. Bitte warte kurz.' },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  validate: false
 });
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 30,
+  keyGenerator: visitorKeyGenerator,
   message: { error: 'Zu viele Anmeldeversuche. Bitte warte 15 Minuten.' },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  validate: false
 });
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+// Log API requests for debugging
+app.use('/api/', (req, res, next) => {
+  console.log(`[API] ${req.method} ${req.path} (visitor: ${req.headers['x-visitor-id'] || 'none'})`);
+  next();
+});
 app.use('/api/', apiLimiter);
 app.use('/api/auth/', authLimiter);
 app.use(express.static(path.join(__dirname, 'public'), { dotfiles: 'allow' }));
@@ -1079,7 +1091,7 @@ app.get('/api/schedule', authMiddleware, async (req, res) => {
     }
 
     let query = supabase.from('scheduled_lessons')
-      .select('*, students(name, license_class), instructors(name)')
+      .select('*, students(name, license_class), instructors(name), vehicles(brand, license_plate)')
       .eq('school_id', schoolId)
       .gte('date', weekStart)
       .lte('date', weekEnd);
@@ -1096,8 +1108,11 @@ app.get('/api/schedule', authMiddleware, async (req, res) => {
       s.student_name = s.students?.name || null;
       s.student_license_class = s.students?.license_class || null;
       s.instructor_name = s.instructors?.name || null;
+      s.vehicle_brand = s.vehicles?.brand || null;
+      s.vehicle_plate = s.vehicles?.license_plate || null;
       delete s.students;
       delete s.instructors;
+      delete s.vehicles;
     }
 
     let instructors = [];
@@ -1117,7 +1132,7 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
   try {
     if (req.user.role === 'student') return res.status(403).json({ error: 'Kein Zugriff' });
 
-    const { instructorId, studentId, date, startTime, endTime, type, licenseClass, notes } = req.body;
+    const { instructorId, studentId, date, startTime, endTime, type, licenseClass, notes, vehicleId } = req.body;
     if (!date || !startTime || !endTime) return res.status(400).json({ error: 'Datum, Start- und Endzeit erforderlich' });
 
     let targetInstructorId = instructorId;
@@ -1152,6 +1167,7 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
       student_id: studentId || null, date, start_time: startTime, end_time: endTime,
       type: type || 'Übungsfahrt', license_class: licenseClass || 'B',
       status, notes: notes || null,
+      vehicle_id: vehicleId || null,
       created_by_role: req.user.role, created_by_id: req.user.id
     });
 
@@ -1182,7 +1198,7 @@ app.put('/api/schedule/:id', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Kein Zugriff auf diesen Termin' });
     }
 
-    const { studentId, date, startTime, endTime, type, licenseClass, status, notes } = req.body;
+    const { studentId, date, startTime, endTime, type, licenseClass, status, notes, vehicleId } = req.body;
 
     // Check overlap if time changed
     if ((date && date !== slot.date) || (startTime && startTime !== slot.start_time) || (endTime && endTime !== slot.end_time)) {
@@ -1215,6 +1231,7 @@ app.put('/api/schedule/:id', authMiddleware, async (req, res) => {
     if (licenseClass) updates.license_class = licenseClass;
     if (newStatus) updates.status = newStatus;
     if (notes !== undefined) updates.notes = notes;
+    if (vehicleId !== undefined) updates.vehicle_id = vehicleId || null;
 
     if (Object.keys(updates).length > 0) {
       await supabase.from('scheduled_lessons').update(updates).eq('id', req.params.id);
@@ -1546,6 +1563,324 @@ app.post('/api/stripe/update-quantity', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('[Stripe Update Error]', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// VEHICLES
+// ============================================
+app.get('/api/school/vehicles', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const schoolId = req.user.id;
+
+    const { data: vehicles } = await supabase.from('vehicles')
+      .select('*').eq('school_id', schoolId).order('created_at', { ascending: false });
+
+    // Add defaults for missing columns (before migration)
+    const result = (vehicles || []).map(v => ({
+      ...v,
+      status: v.status || 'Aktiv',
+      available_from: v.available_from || null,
+      hu_au_date: v.hu_au_date || null,
+      next_service_km: v.next_service_km || null,
+      current_km: v.current_km || null
+    }));
+
+    res.json({ vehicles: result });
+  } catch (err) {
+    console.error('Vehicles error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+app.post('/api/school/vehicles', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const { brand, licensePlate, transmission } = req.body;
+    if (!brand || !licensePlate || !transmission) return res.status(400).json({ error: 'Marke, Kennzeichen und Getriebeart erforderlich' });
+    if (!['Schaltung', 'Automatik'].includes(transmission)) return res.status(400).json({ error: 'Ungültige Getriebeart' });
+
+    const id = generateId();
+    const insertData = { id, school_id: req.user.id, brand, license_plate: licensePlate, transmission };
+    // Try with status column first, fallback without it
+    let { error } = await supabase.from('vehicles').insert({ ...insertData, status: 'Aktiv' });
+    if (error && error.code === '42703') {
+      // Column doesn't exist yet, insert without it
+      ({ error } = await supabase.from('vehicles').insert(insertData));
+    }
+    if (error) throw error;
+    res.json({ id, success: true });
+  } catch (err) {
+    console.error('Vehicle create error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+app.put('/api/school/vehicles/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const { data: vehicle } = await supabase.from('vehicles')
+      .select('id').eq('id', req.params.id).eq('school_id', req.user.id).single();
+    if (!vehicle) return res.status(404).json({ error: 'Fahrzeug nicht gefunden' });
+
+    const updates = {};
+    const { brand, licensePlate, transmission, status, availableFrom, huAuDate, nextServiceKm, currentKm } = req.body;
+    if (brand) updates.brand = brand;
+    if (licensePlate) updates.license_plate = licensePlate;
+    if (transmission) updates.transmission = transmission;
+    if (status) {
+      if (!['Aktiv', 'Werkstatt', 'Außer Betrieb'].includes(status)) return res.status(400).json({ error: 'Ungültiger Status' });
+      updates.status = status;
+    }
+    if (availableFrom !== undefined) updates.available_from = availableFrom || null;
+    if (huAuDate !== undefined) updates.hu_au_date = huAuDate || null;
+    if (nextServiceKm !== undefined) updates.next_service_km = nextServiceKm || null;
+    if (currentKm !== undefined) updates.current_km = currentKm || null;
+
+    if (Object.keys(updates).length > 0) {
+      let { error } = await supabase.from('vehicles').update(updates).eq('id', req.params.id);
+      if (error && (error.code === '42703' || error.code === 'PGRST204' || (error.message && error.message.includes('schema cache')))) {
+        // Some columns don't exist yet, try with only basic columns
+        const basicUpdates = {};
+        if (updates.brand) basicUpdates.brand = updates.brand;
+        if (updates.license_plate) basicUpdates.license_plate = updates.license_plate;
+        if (updates.transmission) basicUpdates.transmission = updates.transmission;
+        if (Object.keys(basicUpdates).length > 0) {
+          await supabase.from('vehicles').update(basicUpdates).eq('id', req.params.id);
+        }
+        // Inform client that status columns are not available yet
+        return res.json({ success: true, warning: 'Status-Spalten noch nicht in der Datenbank. Bitte SQL-Migration ausführen.' });
+      } else if (error) throw error;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Vehicle update error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+app.delete('/api/school/vehicles/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const { data: vehicle } = await supabase.from('vehicles')
+      .select('id').eq('id', req.params.id).eq('school_id', req.user.id).single();
+    if (!vehicle) return res.status(404).json({ error: 'Fahrzeug nicht gefunden' });
+
+    await supabase.from('vehicles').delete().eq('id', req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Vehicle delete error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Vehicle detail with utilization stats
+app.get('/api/school/vehicles/:id/detail', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    let { data: vehicle } = await supabase.from('vehicles')
+      .select('*').eq('id', req.params.id).eq('school_id', req.user.id).single();
+    if (!vehicle) return res.status(404).json({ error: 'Fahrzeug nicht gefunden' });
+    // Add defaults for missing columns
+    vehicle = { ...vehicle, status: vehicle.status || 'Aktiv', available_from: vehicle.available_from || null, hu_au_date: vehicle.hu_au_date || null, next_service_km: vehicle.next_service_km || null, current_km: vehicle.current_km || null };
+
+    // Calculate utilization for last 4 weeks
+    var now = new Date();
+    var dayOfWeek = now.getDay() || 7; // Mon=1
+    var thisMonday = new Date(now);
+    thisMonday.setDate(now.getDate() - dayOfWeek + 1);
+    thisMonday.setHours(0,0,0,0);
+
+    var weeks = [];
+    for (var w = 3; w >= 0; w--) {
+      var weekStart = new Date(thisMonday);
+      weekStart.setDate(thisMonday.getDate() - w * 7);
+      var weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 4); // Mon-Fri
+      var wsStr = weekStart.toISOString().split('T')[0];
+      var weStr = weekEnd.toISOString().split('T')[0];
+      var kwNum = getISOWeek(weekStart);
+
+      const { data: lessons } = await supabase.from('scheduled_lessons')
+        .select('start_time, end_time')
+        .eq('vehicle_id', req.params.id)
+        .gte('date', wsStr).lte('date', weStr);
+
+      var totalMins = 0;
+      (lessons || []).forEach(function(l) {
+        var s = l.start_time.split(':'), e = l.end_time.split(':');
+        totalMins += (parseInt(e[0])*60 + parseInt(e[1])) - (parseInt(s[0])*60 + parseInt(s[1]));
+      });
+      var maxMins = 5 * 12 * 60; // 5 days * 12h (07-19)
+      weeks.push({ kw: kwNum, hours: Math.round(totalMins / 60 * 10) / 10, pct: Math.round(totalMins / maxMins * 100) });
+    }
+
+    // Month total
+    var monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    var monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+    const { data: monthLessons } = await supabase.from('scheduled_lessons')
+      .select('start_time, end_time').eq('vehicle_id', req.params.id)
+      .gte('date', monthStart).lte('date', monthEnd);
+    var monthMins = 0;
+    (monthLessons || []).forEach(function(l) {
+      var s = l.start_time.split(':'), e = l.end_time.split(':');
+      monthMins += (parseInt(e[0])*60 + parseInt(e[1])) - (parseInt(s[0])*60 + parseInt(s[1]));
+    });
+
+    // Total hours all time
+    const { data: allLessons } = await supabase.from('scheduled_lessons')
+      .select('start_time, end_time').eq('vehicle_id', req.params.id);
+    var allMins = 0;
+    (allLessons || []).forEach(function(l) {
+      var s = l.start_time.split(':'), e = l.end_time.split(':');
+      allMins += (parseInt(e[0])*60 + parseInt(e[1])) - (parseInt(s[0])*60 + parseInt(s[1]));
+    });
+
+    // Recent lessons
+    const { data: recent } = await supabase.from('scheduled_lessons')
+      .select('id, date, start_time, end_time, type, instructor_id, student_id, instructors(name), students(name)')
+      .eq('vehicle_id', req.params.id)
+      .order('date', { ascending: false }).order('start_time', { ascending: false })
+      .limit(20);
+
+    var history = (recent || []).map(function(l) {
+      return {
+        id: l.id, date: l.date, start_time: l.start_time, end_time: l.end_time,
+        type: l.type, instructor_id: l.instructor_id,
+        instructor_name: l.instructors?.name || '?',
+        student_name: l.students?.name || '—'
+      };
+    });
+
+    res.json({
+      vehicle: vehicle,
+      utilization: {
+        currentWeekPct: weeks.length > 0 ? weeks[weeks.length - 1].pct : 0,
+        monthHours: Math.round(monthMins / 60 * 10) / 10,
+        totalHours: Math.round(allMins / 60 * 10) / 10,
+        weeks: weeks
+      },
+      history: history
+    });
+  } catch (err) {
+    console.error('Vehicle detail error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+function getISOWeek(d) {
+  var date = new Date(d.getTime());
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+  var week1 = new Date(date.getFullYear(), 0, 4);
+  return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+}
+
+app.get('/api/vehicles/availability', authMiddleware, async (req, res) => {
+  try {
+    const { date, startTime, endTime } = req.query;
+    if (!date || !startTime || !endTime) return res.status(400).json({ error: 'date, startTime und endTime erforderlich' });
+
+    let schoolId;
+    if (req.user.role === 'school') schoolId = req.user.id;
+    else if (req.user.role === 'instructor') schoolId = req.user.school_id;
+    else return res.status(403).json({ error: 'Kein Zugriff' });
+
+    const { data: vehicles } = await supabase.from('vehicles')
+      .select('*').eq('school_id', schoolId).order('brand');
+
+    for (const v of (vehicles || [])) {
+      // Default status if column doesn't exist yet
+      v.status = v.status || 'Aktiv';
+      // Non-active vehicles are always unavailable
+      if (v.status !== 'Aktiv') {
+        v.available = false;
+        v.conflictReason = v.status === 'Werkstatt' ? 'In Werkstatt' : 'Außer Betrieb';
+        continue;
+      }
+      const { data: conflicts } = await supabase.from('scheduled_lessons')
+        .select('id, instructor_id, instructors(name)')
+        .eq('vehicle_id', v.id)
+        .eq('date', date)
+        .lt('start_time', endTime)
+        .gt('end_time', startTime);
+
+      if (conflicts && conflicts.length > 0) {
+        v.available = false;
+        v.conflictInstructor = conflicts[0].instructors?.name || '?';
+      } else {
+        v.available = true;
+      }
+    }
+
+    res.json({ vehicles: vehicles || [] });
+  } catch (err) {
+    console.error('Vehicle availability error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Weekly bookings for a single vehicle (Variante 1: Tabs pro Fahrzeug)
+app.get('/api/school/vehicles/:id/week', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const { weekStart } = req.query; // Monday date
+    if (!weekStart) return res.status(400).json({ error: 'weekStart erforderlich' });
+    var ws = new Date(weekStart + 'T00:00:00');
+    var we = new Date(ws); we.setDate(ws.getDate() + 5); // Saturday (Mo-Sa = 6 days)
+
+    const { data: bookings } = await supabase.from('scheduled_lessons')
+      .select('id, date, start_time, end_time, type, instructor_id, student_id, instructors(name), students(name)')
+      .eq('vehicle_id', req.params.id)
+      .gte('date', weekStart)
+      .lte('date', we.toISOString().split('T')[0])
+      .order('date').order('start_time');
+
+    var result = (bookings || []).map(function(b) {
+      return {
+        id: b.id, date: b.date, start_time: b.start_time, end_time: b.end_time,
+        type: b.type, instructor_id: b.instructor_id,
+        instructor_name: b.instructors?.name || '?',
+        student_name: b.students?.name || '—'
+      };
+    });
+    res.json({ bookings: result });
+  } catch (err) {
+    console.error('Vehicle week error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Bookings for a specific date (Gantt overview)
+app.get('/api/school/vehicles/bookings', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ error: 'date erforderlich' });
+    const schoolId = req.user.id;
+
+    const { data: vehicles } = await supabase.from('vehicles')
+      .select('*').eq('school_id', schoolId).order('brand');
+
+    const { data: instructors } = await supabase.from('instructors')
+      .select('id, name').eq('school_id', schoolId);
+
+    for (const v of (vehicles || [])) {
+      const { data: bookings } = await supabase.from('scheduled_lessons')
+        .select('id, date, start_time, end_time, type, instructor_id, instructors(name)')
+        .eq('vehicle_id', v.id)
+        .eq('date', date);
+      v.bookings = (bookings || []).map(b => ({
+        id: b.id, date: b.date, start_time: b.start_time, end_time: b.end_time,
+        type: b.type, instructor_id: b.instructor_id, instructor_name: b.instructors?.name || '?'
+      }));
+    }
+
+    res.json({ vehicles: vehicles || [], instructors: instructors || [] });
+  } catch (err) {
+    console.error('Vehicle bookings error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
   }
 });
 

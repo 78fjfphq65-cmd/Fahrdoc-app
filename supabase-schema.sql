@@ -188,6 +188,25 @@ CREATE TABLE IF NOT EXISTS feedback (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Vehicles (Fahrzeuge)
+CREATE TABLE IF NOT EXISTS vehicles (
+  id TEXT PRIMARY KEY DEFAULT encode(gen_random_bytes(8), 'hex'),
+  school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  brand TEXT NOT NULL,
+  license_plate TEXT NOT NULL,
+  transmission TEXT NOT NULL CHECK(transmission IN ('Schaltung', 'Automatik')),
+  status TEXT NOT NULL DEFAULT 'Aktiv' CHECK(status IN ('Aktiv', 'Werkstatt', 'Außer Betrieb')),
+  available_from DATE,
+  hu_au_date DATE,
+  next_service_km INTEGER,
+  current_km INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_vehicles_school ON vehicles(school_id);
+
+-- Add vehicle_id to scheduled_lessons
+ALTER TABLE scheduled_lessons ADD COLUMN IF NOT EXISTS vehicle_id TEXT REFERENCES vehicles(id) ON DELETE SET NULL;
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_schedule_instructor_date ON scheduled_lessons(instructor_id, date);
 CREATE INDEX IF NOT EXISTS idx_schedule_school_date ON scheduled_lessons(school_id, date);

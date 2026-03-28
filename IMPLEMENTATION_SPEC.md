@@ -131,6 +131,6 @@ Builds the HTML for the weekly view. Different layout for:
 ### CRITICAL NOTES
 - Keep `formatCost` function definition (it's harmless) but remove all USES of it
 - Do NOT use localStorage/sessionStorage — blocked in iframe
-- API_BASE uses `__PORT_5000__` pattern
+- API_BASE uses relative paths (empty string)
 - All string concatenation (no template literals for compatibility)
 - Keep all existing functionality that isn't being replaced
