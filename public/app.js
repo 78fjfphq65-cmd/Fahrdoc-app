@@ -232,15 +232,23 @@ var App = {
     // Apply initial language
     applyLanguageToDOM();
     if (ApiClient.token) this.autoLogin();
-    // Handle invite code from URL (?code=XXX)
+    // Handle invite code from URL (?code=XXX) — also check sessionStorage for persistence across reloads
     var urlParams = new URLSearchParams(window.location.search);
     var inviteCode = urlParams.get('code');
     if (inviteCode) {
+      try { sessionStorage.setItem('fahrdoc_invite_code', inviteCode); } catch(e) {}
+    } else {
+      try { inviteCode = sessionStorage.getItem('fahrdoc_invite_code'); } catch(e) {}
+    }
+    if (inviteCode) {
       AppState._pendingInviteCode = inviteCode;
-      window.history.replaceState({}, '', window.location.pathname);
-      // If not logged in, auto-navigate to signup after a short delay
+      // Clean URL but keep code in sessionStorage until consumed
+      if (window.location.search.indexOf('code=') !== -1) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+      // If not logged in, auto-navigate to signup
       if (!ApiClient.token) {
-        setTimeout(function() { App.navigate('signup'); }, 500);
+        setTimeout(function() { App.navigate('signup'); }, 600);
       }
     }
   },
