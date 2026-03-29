@@ -285,7 +285,23 @@ var TRANSLATIONS = {
   emailRequired: { de:'Bitte E-Mail-Adresse eingeben', en:'Please enter an email address', tr:'Lütfen e-posta adresini girin', ar:'يرجى إدخال عنوان البريد الإلكتروني', es:'Por favor introduce una dirección de email', fr:'Veuillez saisir une adresse email' },
   emailInvalid: { de:'Ungültige E-Mail-Adresse', en:'Invalid email address', tr:'Geçersiz e-posta adresi', ar:'عنوان بريد إلكتروني غير صالح', es:'Dirección de email no válida', fr:'Adresse email invalide' },
   sending: { de:'Wird gesendet', en:'Sending', tr:'Gönderiliyor', ar:'جارٍ الإرسال', es:'Enviando', fr:'Envoi en cours' },
-  inviteSent: { de:'Einladung gesendet an', en:'Invitation sent to', tr:'Davet gönderildi:', ar:'تم إرسال الدعوة إلى', es:'Invitación enviada a', fr:'Invitation envoyée à' }
+  inviteSent: { de:'Einladung gesendet an', en:'Invitation sent to', tr:'Davet gönderildi:', ar:'تم إرسال الدعوة إلى', es:'Invitación enviada a', fr:'Invitation envoyée à' },
+  probefahrt: { de:'Probefahrt', en:'Test drive' },
+  ohneSchueler: { de:'ohne Schüler', en:'without student' },
+  sonnenuntergang: { de:'Sonnenuntergang', en:'Sunset' },
+  ruhezeit11h: { de:'11h Ruhezeit', en:'11h rest period' },
+  ruhezeitWarnung: { de:'Achtung: Die 11-Stunden-Ruhezeit (§5 ArbZG) wird nicht eingehalten!', en:'Warning: The 11-hour rest period is not met!' },
+  ruhezeitBis: { de:'Ruhezeit bis', en:'Rest period until' },
+  passwortAendern: { de:'Passwort ändern', en:'Change password' },
+  aktuellesPasswort: { de:'Aktuelles Passwort', en:'Current password' },
+  neuesPasswort: { de:'Neues Passwort', en:'New password' },
+  neuesPasswortBestaetigen: { de:'Neues Passwort bestätigen', en:'Confirm new password' },
+  passwortGeaendert: { de:'Passwort erfolgreich geändert', en:'Password changed successfully' },
+  passwortFalsch: { de:'Aktuelles Passwort ist falsch', en:'Current password is incorrect' },
+  passwortZuKurz: { de:'Passwort muss mindestens 6 Zeichen haben', en:'Password must be at least 6 characters' },
+  pause: { de:'Pause', en:'Pause' },
+  fortsetzen: { de:'Fortsetzen', en:'Resume' },
+  pausiert: { de:'PAUSIERT', en:'PAUSED' }
 };
 
 // ── Day names by language ──

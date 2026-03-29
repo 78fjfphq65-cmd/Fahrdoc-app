@@ -86,7 +86,7 @@
       </div>
       <div class="form-group">
         <label class="form-label" for="login-password">Passwort</label>
-        <input class="form-input" type="password" id="login-password" placeholder="Passwort eingeben" required autocomplete="current-password">
+        <div class="password-input-wrapper"><input class="form-input" type="password" id="login-password" placeholder="Passwort eingeben" required autocomplete="current-password"><button type="button" class="password-toggle-btn" onclick="App.togglePw('login-password',this)" aria-label="Passwort anzeigen"><svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button></div>
       </div>
       <div id="login-error" class="form-error hidden"></div>
       <button type="submit" class="btn btn-primary btn-full btn-lg">Anmelden</button>
@@ -130,11 +130,11 @@
       </div>
       <div class="form-group">
         <label class="form-label" for="signup-password">Passwort</label>
-        <input class="form-input" type="password" id="signup-password" placeholder="Mindestens 6 Zeichen" required minlength="6">
+        <div class="password-input-wrapper"><input class="form-input" type="password" id="signup-password" placeholder="Mindestens 6 Zeichen" required minlength="6"><button type="button" class="password-toggle-btn" onclick="App.togglePw('signup-password',this)" aria-label="Passwort anzeigen"><svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button></div>
       </div>
       <div class="form-group">
         <label class="form-label" for="signup-password2">Passwort bestätigen</label>
-        <input class="form-input" type="password" id="signup-password2" placeholder="Passwort wiederholen" required>
+        <div class="password-input-wrapper"><input class="form-input" type="password" id="signup-password2" placeholder="Passwort wiederholen" required><button type="button" class="password-toggle-btn" onclick="App.togglePw('signup-password2',this)" aria-label="Passwort anzeigen"><svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button></div>
       </div>
 
       <!-- School-specific fields -->
@@ -380,7 +380,11 @@
         </div>
         <div style="display:flex;gap:var(--space-3);">
           <button class="btn btn-secondary flex-1" onclick="App.addRouteMarker()">📍 <span data-i18n="markierungSetzen">Markierung setzen</span></button>
+          <button class="btn btn-warning flex-1" id="lesson-pause-btn" onclick="App.toggleLessonPause()">⏸ <span data-i18n="pause">Pause</span></button>
           <button class="btn btn-danger flex-1" onclick="App.finishLesson()">⏹ Beenden</button>
+        </div>
+        <div id="lesson-paused-overlay" class="lesson-paused-overlay">
+          <div class="lesson-paused-badge" data-i18n="pausiert">PAUSIERT</div>
         </div>
       </div>
     </div>
@@ -403,7 +407,7 @@
         <form id="lesson-setup-form" onsubmit="App.startLesson(event)">
           <div class="form-group mb-4">
             <label class="form-label">Schüler auswählen</label>
-            <select class="form-select" id="lesson-student-select" required>
+            <select class="form-select" id="lesson-student-select">
               <option value="">Schüler wählen...</option>
             </select>
           </div>

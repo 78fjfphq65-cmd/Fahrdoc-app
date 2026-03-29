@@ -119,7 +119,7 @@ var SCHEDULE_TYPE_CLASS = {
   'Praktische Prüfung': 'type-prakt-pruef', 'Theoretische Prüfung': 'type-theo-pruef'
 };
 var GRID_START_HOUR = 7;
-var GRID_END_HOUR = 19;
+var GRID_END_HOUR = 21;
 var PX_PER_MIN = 1; // 1 minute = 1 pixel
 var HOUR_HEIGHT = 60; // 60 min * 1px
 
@@ -400,6 +400,17 @@ var App = {
   },
 
   // ──── AUTH ────
+  togglePw: function(inputId, btn) {
+    var inp = document.getElementById(inputId);
+    if (!inp) return;
+    var isHidden = inp.type === 'password';
+    inp.type = isHidden ? 'text' : 'password';
+    var open = btn.querySelector('.eye-open');
+    var closed = btn.querySelector('.eye-closed');
+    if (open) open.style.display = isHidden ? 'none' : '';
+    if (closed) closed.style.display = isHidden ? '' : 'none';
+  },
+
   setRole: function(role, btn) {
     AppState.signupRole = role;
     document.querySelectorAll('.role-toggle-btn').forEach(function(b) { b.classList.remove('active'); });
@@ -627,6 +638,23 @@ var App = {
     return 'KW ' + weekNum + ' · ' + mon.getDate() + '.–' + sat.getDate() + '. ' + months[mon.getMonth()] + ' ' + mon.getFullYear();
   },
 
+  // Sunset time calculator for Germany (~51°N latitude)
+  getSunsetTime: function(date) {
+    var dayOfYear = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 86400000);
+    var lat = 51.0 * Math.PI / 180;
+    var decl = -23.45 * Math.cos(2 * Math.PI * (dayOfYear + 10) / 365) * Math.PI / 180;
+    var cosHA = -Math.tan(lat) * Math.tan(decl);
+    if (cosHA < -1) cosHA = -1; if (cosHA > 1) cosHA = 1;
+    var ha = Math.acos(cosHA) * 180 / Math.PI;
+    var sunsetUTC = 12 + ha / 15;
+    var sunsetLocal = sunsetUTC + 1;
+    var isDST = date.getMonth() >= 2 && date.getMonth() <= 9;
+    if (isDST) sunsetLocal += 1;
+    var hours = Math.floor(sunsetLocal);
+    var mins = Math.round((sunsetLocal - hours) * 60);
+    return { hours: hours, minutes: mins, formatted: String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') };
+  },
+
   // Shared week grid renderer (admin + instructor)
   renderWeekGridHtml: function(days, slots, onCellClick, onSlotClick) {
     var totalMinutes = (GRID_END_HOUR - GRID_START_HOUR) * 60;
@@ -658,6 +686,13 @@ var App = {
       // Hour lines
       for (var hh = GRID_START_HOUR; hh < GRID_END_HOUR; hh++) {
         html += '<div class="week-grid-hour-line" style="top:' + ((hh - GRID_START_HOUR) * HOUR_HEIGHT) + 'px;"></div>';
+      }
+      // Sunset line
+      var sunset = App.getSunsetTime(day);
+      var sunsetMinFromStart = (sunset.hours * 60 + sunset.minutes) - GRID_START_HOUR * 60;
+      if (sunsetMinFromStart > 0 && sunsetMinFromStart < totalMinutes) {
+        var sunsetTopPx = sunsetMinFromStart * PX_PER_MIN;
+        html += '<div class="sunset-line" style="top:' + sunsetTopPx + 'px;"><span class="sunset-label">\u2600\ufe0f\u2193 ' + sunset.formatted + '</span></div>';
       }
       // Slots
       daySlots.forEach(function(slot) {
@@ -1803,6 +1838,40 @@ var App = {
     } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
   },
 
+  changePasswordHtml: function() {
+    return '<div class="change-password-card">' +
+      '<h4>' + t('passwortAendern') + '</h4>' +
+      '<div class="form-group mb-3"><label class="form-label">' + t('aktuellesPasswort') + '</label>' +
+        '<div class="password-input-wrapper"><input class="form-input" type="password" id="cp-current"><button type="button" class="password-toggle-btn" onclick="App.togglePw(\'cp-current\',this)" aria-label="Anzeigen"><svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button></div></div>' +
+      '<div class="form-group mb-3"><label class="form-label">' + t('neuesPasswort') + '</label>' +
+        '<div class="password-input-wrapper"><input class="form-input" type="password" id="cp-new" placeholder="Min. 6 Zeichen"><button type="button" class="password-toggle-btn" onclick="App.togglePw(\'cp-new\',this)" aria-label="Anzeigen"><svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button></div></div>' +
+      '<div class="form-group mb-3"><label class="form-label">' + t('neuesPasswortBestaetigen') + '</label>' +
+        '<div class="password-input-wrapper"><input class="form-input" type="password" id="cp-confirm"><button type="button" class="password-toggle-btn" onclick="App.togglePw(\'cp-confirm\',this)" aria-label="Anzeigen"><svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button></div></div>' +
+      '<div id="cp-error" class="form-error hidden" style="margin-bottom:12px"></div>' +
+      '<button class="btn btn-primary btn-full" onclick="App.changePassword()">' + t('passwortAendern') + '</button></div>';
+  },
+
+  changePassword: async function() {
+    var cur = document.getElementById('cp-current').value;
+    var newPw = document.getElementById('cp-new').value;
+    var confirm = document.getElementById('cp-confirm').value;
+    var errEl = document.getElementById('cp-error');
+    errEl.classList.add('hidden');
+    if (!cur || !newPw || !confirm) { errEl.textContent = 'Alle Felder ausf\u00fcllen'; errEl.classList.remove('hidden'); return; }
+    if (newPw.length < 6) { errEl.textContent = t('passwortZuKurz'); errEl.classList.remove('hidden'); return; }
+    if (newPw !== confirm) { errEl.textContent = t('passwortNichtGleich'); errEl.classList.remove('hidden'); return; }
+    try {
+      await ApiClient.post('/api/auth/change-password', { currentPassword: cur, newPassword: newPw });
+      this.showToast(t('passwortGeaendert'));
+      document.getElementById('cp-current').value = '';
+      document.getElementById('cp-new').value = '';
+      document.getElementById('cp-confirm').value = '';
+    } catch(e) {
+      errEl.textContent = e.message || t('passwortFalsch');
+      errEl.classList.remove('hidden');
+    }
+  },
+
   renderSchoolProfileTab: function() {
     var u = AppState.currentUser;
     var html = '<div class="page-padding"><div class="profile-header">' + this.avatarHtml(u.admin_name || u.name, 'lg') +
@@ -1824,7 +1893,8 @@ var App = {
         '<div class="form-group mb-3"><label class="form-label">' + t('feedbackNachricht') + '</label>' +
           '<textarea class="form-textarea" id="feedback-message" rows="4" placeholder="' + t('feedbackPlaceholder') + '"></textarea></div>' +
         '<button class="btn btn-primary btn-full" onclick="App.sendFeedback()">' + t('feedbackSenden') + '</button></div>' +
-      '<button class="btn btn-secondary btn-full" onclick="App.logout()">' + t('abmelden') + '</button></div>';
+      this.changePasswordHtml() +
+      '<button class="btn btn-secondary btn-full" style="margin-top:20px" onclick="App.logout()">' + t('abmelden') + '</button></div>';
     document.getElementById('school-main').innerHTML = html;
   },
 
@@ -2077,7 +2147,8 @@ var App = {
           '<div class="form-group mb-3"><label class="form-label">' + t('feedbackNachricht') + '</label>' +
             '<textarea class="form-textarea" id="feedback-message" rows="4" placeholder="' + t('feedbackPlaceholder') + '"></textarea></div>' +
           '<button class="btn btn-primary btn-full" onclick="App.sendFeedback()">' + t('feedbackSenden') + '</button></div>' +
-        '<button class="btn btn-secondary btn-full" onclick="App.logout()">' + t('abmelden') + '</button></div>';
+        this.changePasswordHtml() +
+        '<button class="btn btn-secondary btn-full" style="margin-top:20px" onclick="App.logout()">' + t('abmelden') + '</button></div>';
       main.innerHTML = html;
     } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
   },
@@ -2174,7 +2245,8 @@ var App = {
       // Instructor sees ALL school students (not just linked ones)
       var students = await ApiClient.get('/api/instructor/school-students');
       var sel = document.getElementById('lesson-student-select');
-      sel.innerHTML = '<option value="">' + t('schuelerWaehlen') + '...</option>';
+      sel.innerHTML = '<option value="">' + t('schuelerWaehlen') + '...</option>' +
+        '<option value="__probe__">' + t('probefahrt') + ' (' + t('ohneSchueler') + ')</option>';
       students.forEach(function(st) { sel.innerHTML += '<option value="' + st.id + '">' + st.name + ' (Klasse ' + st.license_class + ')</option>'; });
     } catch (e) {}
   },
@@ -2184,24 +2256,59 @@ var App = {
     var studentId = document.getElementById('lesson-student-select').value;
     var type = document.getElementById('lesson-type-select').value;
     var licenseClass = document.getElementById('lesson-class-select').value;
-    if (!studentId) { this.showToast(t('bitteSchuelerWaehlen')); return; }
-    var studentName = document.getElementById('lesson-student-select').selectedOptions[0].textContent.split(' (')[0];
+    var studentName;
+    if (!studentId || studentId === '__probe__') {
+      studentId = null;
+      studentName = t('probefahrt');
+    } else {
+      studentName = document.getElementById('lesson-student-select').selectedOptions[0].textContent.split(' (')[0];
+    }
     AppState.activeLesson = { studentId: studentId, studentName: studentName, type: type, licenseClass: licenseClass, startTime: new Date() };
     AppState.lessonStartTime = Date.now();
+    AppState.lessonPaused = false;
+    AppState.pausedDuration = 0;
+    AppState.pauseStartTime = null;
     AppState.pendingImages = [];
     this.navigate('lesson-active');
     document.getElementById('active-lesson-title').textContent = t('fahrstunden') + ' · ' + studentName;
     document.getElementById('active-lesson-type-badge').textContent = type;
     if (AppState.lessonTimer) clearInterval(AppState.lessonTimer);
     AppState.lessonTimer = setInterval(function() {
-      var elapsed = Date.now() - AppState.lessonStartTime;
+      if (AppState.lessonPaused) return;
+      var elapsed = Date.now() - AppState.lessonStartTime - AppState.pausedDuration;
       var s = Math.floor(elapsed / 1000);
       var h = Math.floor(s / 3600); var m = Math.floor((s % 3600) / 60); var sec = s % 60;
       document.getElementById('lesson-timer').textContent = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
     }, 1000);
+    // Reset pause button
+    var pauseBtn = document.getElementById('lesson-pause-btn');
+    if (pauseBtn) pauseBtn.innerHTML = '\u23f8 ' + t('pause');
+    var overlay = document.getElementById('lesson-paused-overlay');
+    if (overlay) overlay.classList.remove('visible');
     // Initialize route tracking
     this.initRouteMap();
     this.startGPS();
+  },
+
+  toggleLessonPause: function() {
+    if (!AppState.lessonPaused) {
+      AppState.lessonPaused = true;
+      AppState.pauseStartTime = Date.now();
+      if (AppState.gpsWatchId) { navigator.geolocation.clearWatch(AppState.gpsWatchId); AppState.gpsWatchId = null; }
+      var btn = document.getElementById('lesson-pause-btn');
+      if (btn) { btn.innerHTML = '\u25b6 ' + t('fortsetzen'); btn.classList.remove('btn-warning'); btn.classList.add('btn-primary'); }
+      var overlay = document.getElementById('lesson-paused-overlay');
+      if (overlay) overlay.classList.add('visible');
+    } else {
+      AppState.lessonPaused = false;
+      AppState.pausedDuration += Date.now() - AppState.pauseStartTime;
+      AppState.pauseStartTime = null;
+      this.startGPS();
+      var btn = document.getElementById('lesson-pause-btn');
+      if (btn) { btn.innerHTML = '\u23f8 ' + t('pause'); btn.classList.remove('btn-primary'); btn.classList.add('btn-warning'); }
+      var overlay = document.getElementById('lesson-paused-overlay');
+      if (overlay) overlay.classList.remove('visible');
+    }
   },
 
   // Start lesson directly from schedule slot (no setup screen)
@@ -2760,7 +2867,8 @@ var App = {
         '<div class="profile-row"><span class="profile-row-label">' + t('fahrschule') + '</span><span class="profile-row-value">' + (data.school ? data.school.name : '—') + '</span></div>' +
         '<div class="profile-row"><span class="profile-row-label">' + t('fahrlehrer') + '</span><span class="profile-row-value">' + (data.instructorName || '—') + '</span></div>' +
         '<div class="profile-row"><span class="profile-row-label">' + t('fuehrerscheinklasse') + '</span><span class="profile-row-value">' + u.license_class + '</span></div></div>' +
-      '<button class="btn btn-secondary btn-full" onclick="App.logout()">Abmelden</button></div>';
+      this.changePasswordHtml() +
+      '<button class="btn btn-secondary btn-full" style="margin-top:20px" onclick="App.logout()">Abmelden</button></div>';
     main.innerHTML = html;
   },
 
@@ -2889,9 +2997,10 @@ var App = {
     AppState.mapCurrentPos = new google.maps.Marker({
       map: AppState.map,
       icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: 8, fillColor: '#4285F4', fillOpacity: 1,
-        strokeColor: '#ffffff', strokeWeight: 2
+        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+        scale: 6, fillColor: '#4285F4', fillOpacity: 1,
+        strokeColor: '#ffffff', strokeWeight: 2,
+        rotation: 0
       }
     });
   },
@@ -2977,6 +3086,16 @@ var App = {
           path.push(new google.maps.LatLng(smoothLat, smoothLng));
           AppState.mapCurrentPos.setPosition({ lat: smoothLat, lng: smoothLng });
           AppState.map.panTo({ lat: smoothLat, lng: smoothLng });
+          // Rotate map to driving direction
+          var heading = pos.coords.heading;
+          var spd = pos.coords.speed;
+          if (heading != null && !isNaN(heading) && spd && spd > 0.8) {
+            AppState.map.setHeading(heading);
+            if (AppState.mapCurrentPos && AppState.mapCurrentPos.getIcon) {
+              var icon = AppState.mapCurrentPos.getIcon();
+              if (icon) { icon.rotation = heading; AppState.mapCurrentPos.setIcon(icon); }
+            }
+          }
         }
 
         // Update stats

@@ -431,6 +431,34 @@ app.post('/api/auth/resend-code', async (req, res) => {
   }
 });
 
+// Change password (authenticated)
+app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Alle Felder erforderlich' });
+    if (newPassword.length < 6) return res.status(400).json({ error: 'Passwort muss mindestens 6 Zeichen haben' });
+
+    const tableMap = { school: 'schools', instructor: 'instructors', student: 'students' };
+    const table = tableMap[req.user.role];
+    if (!table) return res.status(400).json({ error: 'Ung\u00fcltige Rolle' });
+
+    const { data: user } = await supabase.from(table).select('password_hash').eq('id', req.user.id).single();
+    if (!user) return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+
+    if (!verifyPassword(currentPassword, user.password_hash)) {
+      return res.status(401).json({ error: 'Aktuelles Passwort ist falsch' });
+    }
+
+    const newHash = hashPassword(newPassword);
+    await supabase.from(table).update({ password_hash: newHash }).eq('id', req.user.id);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Change password error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
 // Request password reset
 app.post('/api/auth/forgot-password', async (req, res) => {
   try {
@@ -945,23 +973,26 @@ app.post('/api/lessons', authMiddleware, async (req, res) => {
     if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur Fahrlehrer können Fahrstunden erstellen' });
     const { studentId, type, duration, notes, ratings, licenseClass, date, images } = req.body;
 
-    if (!studentId || !type || !duration) return res.status(400).json({ error: 'Pflichtfelder fehlen' });
+    if (!type || !duration) return res.status(400).json({ error: 'Pflichtfelder fehlen' });
 
-    const { data: student } = await supabase.from('students')
-      .select('school_id').eq('id', studentId).eq('school_id', req.user.school_id).single();
-    if (!student) return res.status(403).json({ error: 'Schüler nicht in dieser Fahrschule' });
-
-    await linkStudentInstructor(studentId, req.user.id);
+    var schoolId = req.user.school_id;
+    if (studentId) {
+      const { data: student } = await supabase.from('students')
+        .select('school_id').eq('id', studentId).eq('school_id', req.user.school_id).single();
+      if (!student) return res.status(403).json({ error: 'Schüler nicht in dieser Fahrschule' });
+      schoolId = student.school_id;
+      await linkStudentInstructor(studentId, req.user.id);
+    }
 
     const id = generateId();
     const lessonDate = date || new Date().toISOString().split('T')[0];
 
     await supabase.from('lessons').insert({
-      id, student_id: studentId, instructor_id: req.user.id, school_id: student.school_id,
+      id, student_id: studentId || null, instructor_id: req.user.id, school_id: schoolId,
       date: lessonDate, type, duration, notes: notes || '', license_class: licenseClass || 'B'
     });
 
-    if (ratings && typeof ratings === 'object') {
+    if (studentId && ratings && typeof ratings === 'object') {
       const ratingRows = Object.keys(ratings).map(skill => ({
         id: generateId(), lesson_id: id, student_id: studentId,
         skill_name: skill, rating: ratings[skill]
@@ -1202,6 +1233,38 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
       .gt('end_time', startTime);
 
     if (overlaps && overlaps.length > 0) return res.status(409).json({ error: 'Zeitüberschneidung mit bestehendem Termin' });
+
+    // 11-hour rest period check (§5 ArbZG)
+    const prevDate = new Date(date); prevDate.setDate(prevDate.getDate() - 1);
+    const prevDateStr = prevDate.toISOString().split('T')[0];
+    const { data: prevSlots } = await supabase.from('scheduled_lessons')
+      .select('end_time').eq('instructor_id', targetInstructorId).eq('date', prevDateStr)
+      .order('end_time', { ascending: false }).limit(1);
+    if (prevSlots && prevSlots.length > 0) {
+      const prevEnd = prevSlots[0].end_time.split(':');
+      const prevEndMin = parseInt(prevEnd[0]) * 60 + parseInt(prevEnd[1]);
+      const newStartMin = parseInt(startTime.split(':')[0]) * 60 + parseInt(startTime.split(':')[1]);
+      const restMinutes = (24 * 60 - prevEndMin) + newStartMin;
+      if (restMinutes < 660) {
+        const earliest = prevEndMin + 660 - 24*60;
+        const eh = Math.floor(earliest/60); const em = earliest%60;
+        return res.status(409).json({ error: '11-Stunden-Ruhezeit (§5 ArbZG) nicht eingehalten. Frühester Start: ' + String(eh).padStart(2,'0') + ':' + String(em).padStart(2,'0') });
+      }
+    }
+    const nextDate = new Date(date); nextDate.setDate(nextDate.getDate() + 1);
+    const nextDateStr = nextDate.toISOString().split('T')[0];
+    const { data: nextSlots } = await supabase.from('scheduled_lessons')
+      .select('start_time').eq('instructor_id', targetInstructorId).eq('date', nextDateStr)
+      .order('start_time', { ascending: true }).limit(1);
+    if (nextSlots && nextSlots.length > 0) {
+      const thisEndMin = parseInt(endTime.split(':')[0]) * 60 + parseInt(endTime.split(':')[1]);
+      const nextStartParts = nextSlots[0].start_time.split(':');
+      const nextStartMin = parseInt(nextStartParts[0]) * 60 + parseInt(nextStartParts[1]);
+      const restToNext = (24 * 60 - thisEndMin) + nextStartMin;
+      if (restToNext < 660) {
+        return res.status(409).json({ error: '11-Stunden-Ruhezeit (§5 ArbZG) zum nächsten Tag wird nicht eingehalten.' });
+      }
+    }
 
     const id = generateId();
     const status = studentId ? 'geplant' : 'offen';
