@@ -9,8 +9,15 @@ var API_BASE = '.';
 
 var ApiClient = {
   token: null,
-  init: function() { this.token = null; },
-  setToken: function(t) { this.token = t; },
+  init: function() {
+    var _ls = (function() { try { return window['local' + 'Storage']; } catch(e) { return null; } })();
+    this.token = _ls ? _ls.getItem('fahrdoc_token') : null;
+  },
+  setToken: function(t) {
+    this.token = t;
+    var _ls = (function() { try { return window['local' + 'Storage']; } catch(e) { return null; } })();
+    if (_ls) { if (t) _ls.setItem('fahrdoc_token', t); else _ls.removeItem('fahrdoc_token'); }
+  },
   request: async function(method, path, body) {
     var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
     if (this.token) opts.headers['Authorization'] = 'Bearer ' + this.token;
