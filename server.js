@@ -1992,29 +1992,6 @@ app.get('/api/school/vehicles/bookings', authMiddleware, async (req, res) => {
 });
 
 // ============================================
-// TEMP DEBUG - remove after testing
-app.get('/api/debug/check-login', async (req, res) => {
-  try {
-    const bcryptCheck = require('bcryptjs');
-    const { data: school } = await supabase.from('schools')
-      .select('id, email, password_hash').eq('email', 'admin@fahrschule-weber.de').maybeSingle();
-    if (!school) return res.json({ found: false, supabaseUrl: process.env.SUPABASE_URL });
-    const match = verifyPassword('demo123', school.password_hash);
-    const directMatch = bcryptCheck.compareSync('demo123', school.password_hash);
-    res.json({ 
-      found: true, 
-      hashPrefix: school.password_hash.substring(0, 20),
-      hashLength: school.password_hash.length,
-      isBcrypt: school.password_hash.startsWith('$2'),
-      verifyPasswordResult: match,
-      directBcryptResult: directMatch,
-      bcryptVersion: bcryptCheck.version || 'unknown',
-      nodeVersion: process.version,
-      supabaseUrl: process.env.SUPABASE_URL ? process.env.SUPABASE_URL.substring(0, 40) : 'NOT SET'
-    });
-  } catch(e) { res.json({ error: e.message, stack: e.stack }); }
-});
-
 // FALLBACK: SPA
 // ============================================
 app.get('*', (req, res) => {
