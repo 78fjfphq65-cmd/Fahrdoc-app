@@ -1992,15 +1992,6 @@ app.get('/api/school/vehicles/bookings', authMiddleware, async (req, res) => {
 });
 
 // ============================================
-// FALLBACK: SPA
-// ============================================
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// ============================================
-// START
-// ============================================
 // TEMP DEBUG - remove after testing
 app.get('/api/debug/check-login', async (req, res) => {
   try {
@@ -2024,6 +2015,15 @@ app.get('/api/debug/check-login', async (req, res) => {
   } catch(e) { res.json({ error: e.message, stack: e.stack }); }
 });
 
+// FALLBACK: SPA
+// ============================================
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ============================================
+// START
+// ============================================
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[FahrDoc] Server running on port ${PORT} (Supabase)`);
 });
