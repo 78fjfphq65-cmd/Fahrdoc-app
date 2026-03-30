@@ -1165,7 +1165,7 @@ app.get('/api/schedule/blocks', authMiddleware, async (req, res) => {
     let query = supabase.from('scheduled_lessons')
       .select('*, instructors(name)')
       .eq('school_id', schoolId)
-      .eq('slot_type', 'block')
+      .eq('type', 'Zeitsperre')
       .gte('date', weekStart)
       .lte('date', weekEnd);
     if (filterInstructorId) query = query.eq('instructor_id', filterInstructorId);
@@ -1211,10 +1211,9 @@ app.post('/api/schedule/blocks', authMiddleware, async (req, res) => {
     await supabase.from('scheduled_lessons').insert({
       id, instructor_id: targetInstructorId, school_id: schoolId,
       student_id: null, date, start_time: startTime, end_time: endTime,
-      type: 'Zeitsperre', license_class: 'B', status: 'offen',
+      type: 'Zeitsperre', license_class: null, status: 'bestätigt',
       notes: notes || null, vehicle_id: null,
-      created_by_role: req.user.role, created_by_id: req.user.id,
-      slot_type: 'block', confirmed: true
+      created_by_role: req.user.role, created_by_id: req.user.id
     });
 
     res.json({ id, success: true });
@@ -1227,7 +1226,7 @@ app.delete('/api/schedule/blocks/:id', authMiddleware, async (req, res) => {
   try {
     if (req.user.role === 'student') return res.status(403).json({ error: 'Kein Zugriff' });
     const { data: block } = await supabase.from('scheduled_lessons')
-      .select('*').eq('id', req.params.id).eq('slot_type', 'block').single();
+      .select('*').eq('id', req.params.id).eq('type', 'Zeitsperre').single();
     if (!block) return res.status(404).json({ error: 'Zeitsperre nicht gefunden' });
 
     if (req.user.role === 'instructor' && block.instructor_id !== req.user.id) {
@@ -1285,9 +1284,10 @@ app.get('/api/schedule', authMiddleware, async (req, res) => {
       s.instructor_name = s.instructors?.name || null;
       s.vehicle_brand = s.vehicles?.brand || null;
       s.vehicle_plate = s.vehicles?.license_plate || null;
-      // Ensure new fields have defaults for old rows
-      if (s.slot_type === undefined || s.slot_type === null) s.slot_type = 'lesson';
-      if (s.confirmed === undefined || s.confirmed === null) s.confirmed = true;
+      // Derive slot_type and confirmed from existing DB fields
+      s.slot_type = s.type === 'Zeitsperre' ? 'block' : 'lesson';
+      // Admin-created slots with status 'geplant' need instructor confirmation
+      s.confirmed = !(s.status === 'geplant' && s.created_by_role === 'school');
       delete s.students;
       delete s.instructors;
       delete s.vehicles;
@@ -1370,19 +1370,24 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
     }
 
     const id = generateId();
-    const status = studentId ? 'geplant' : 'offen';
-    // Confirmation logic: instructor self-created = confirmed, admin-created = needs confirmation
-    const confirmed = req.user.role === 'instructor';
+    // Confirmation logic: instructor self-created = auto-confirmed, admin-created = needs confirmation
+    let status;
+    if (req.user.role === 'instructor') {
+      status = studentId ? 'bestätigt' : 'offen';
+    } else {
+      // Admin/Büro creates for instructor → status 'geplant' (needs instructor confirmation)
+      status = 'geplant';
+    }
 
-    await supabase.from('scheduled_lessons').insert({
+    const { error: insertErr } = await supabase.from('scheduled_lessons').insert({
       id, instructor_id: targetInstructorId, school_id: schoolId,
       student_id: studentId || null, date, start_time: startTime, end_time: endTime,
       type: type || 'Übungsfahrt', license_class: licenseClass || 'B',
       status, notes: notes || null,
       vehicle_id: vehicleId || null,
-      created_by_role: req.user.role, created_by_id: req.user.id,
-      slot_type: 'lesson', confirmed
+      created_by_role: req.user.role, created_by_id: req.user.id
     });
+    if (insertErr) { console.error('[Schedule] Insert error:', insertErr.message); return res.status(500).json({ error: insertErr.message }); }
 
     if (req.user.role === 'school') {
       const dayStr = new Date(date).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -1499,25 +1504,21 @@ app.post('/api/schedule/:id/confirm', authMiddleware, async (req, res) => {
       .select('*').eq('id', req.params.id).single();
     if (!slot) return res.status(404).json({ error: 'Termin nicht gefunden' });
 
-    // Allow confirming both 'geplant' status and unconfirmed slots
-    const updates = { confirmed: true };
-    if (slot.status === 'geplant') updates.status = 'bestätigt';
-
+    // Update status to 'bestätigt'
     await supabase.from('scheduled_lessons')
-      .update(updates).eq('id', req.params.id);
+      .update({ status: 'bestätigt' }).eq('id', req.params.id);
 
+    const dayStr = new Date(slot.date).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
     if (req.user.role === 'school') {
-      const dayStr = new Date(slot.date).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
       await createNotification(slot.instructor_id, 'instructor', 'schedule_confirmed',
-        'Termin bestätigt', `Termin am ${dayStr} um ${slot.start_time} wurde bestätigt`, req.params.id);
+        'Termin bestätigt', 'Termin am ' + dayStr + ' um ' + slot.start_time + ' wurde bestätigt', req.params.id);
     }
-    if (req.user.role === 'instructor' && !slot.confirmed) {
+    if (req.user.role === 'instructor' && slot.status === 'geplant' && slot.created_by_role === 'school') {
       // Notify school that instructor confirmed
-      const dayStr = new Date(slot.date).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
       const { data: inst } = await supabase.from('instructors').select('school_id, name').eq('id', req.user.id).single();
       if (inst) {
         await createNotification(inst.school_id, 'school', 'schedule_confirmed',
-          'Termin bestätigt', `${inst.name} hat den Termin am ${dayStr} um ${slot.start_time} bestätigt`, req.params.id);
+          'Termin bestätigt', inst.name + ' hat den Termin am ' + dayStr + ' um ' + slot.start_time + ' bestätigt', req.params.id);
       }
     }
 
@@ -2110,22 +2111,6 @@ app.get('/api/school/vehicles/bookings', authMiddleware, async (req, res) => {
 });
 
 // ============================================
-// MIGRATION: Add slot_type and confirmed columns
-// ============================================
-app.post('/api/migrate', authMiddleware, async (req, res) => {
-  try {
-    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Admins' });
-    // Add slot_type column if not exists (default 'lesson')
-    await supabase.rpc('exec_sql', { sql: "ALTER TABLE scheduled_lessons ADD COLUMN IF NOT EXISTS slot_type TEXT NOT NULL DEFAULT 'lesson'" }).catch(() => {});
-    // Add confirmed column if not exists (default true)
-    await supabase.rpc('exec_sql', { sql: "ALTER TABLE scheduled_lessons ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT true" }).catch(() => {});
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: 'Migration fehlgeschlagen' });
-  }
-});
-
-// ============================================
 // FALLBACK: SPA
 // ============================================
 app.get('*', (req, res) => {
@@ -2133,29 +2118,8 @@ app.get('*', (req, res) => {
 });
 
 // ============================================
-// DB MIGRATION: Add new columns on startup
-// ============================================
-async function runMigrations() {
-  try {
-    // Try to add slot_type column — if it already exists, Supabase will return an error we can ignore
-    const { error: e1 } = await supabase.rpc('exec_sql', {
-      sql: "ALTER TABLE scheduled_lessons ADD COLUMN IF NOT EXISTS slot_type TEXT NOT NULL DEFAULT 'lesson';"
-    });
-    if (e1) console.log('[Migration] slot_type column may already exist or rpc not available:', e1.message);
-
-    const { error: e2 } = await supabase.rpc('exec_sql', {
-      sql: "ALTER TABLE scheduled_lessons ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT true;"
-    });
-    if (e2) console.log('[Migration] confirmed column may already exist or rpc not available:', e2.message);
-  } catch (err) {
-    console.log('[Migration] Skipping — columns may need manual addition via Supabase dashboard');
-  }
-}
-
-// ============================================
 // START
 // ============================================
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[FahrDoc] Server running on port ${PORT} (Supabase)`);
-  runMigrations();
+  console.log('[FahrDoc] Server running on port ' + PORT + ' (Supabase)');
 });
