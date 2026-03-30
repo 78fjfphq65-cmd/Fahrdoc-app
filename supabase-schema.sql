@@ -130,6 +130,9 @@ CREATE TABLE IF NOT EXISTS scheduled_lessons (
   notes TEXT,
   created_by_role TEXT NOT NULL DEFAULT 'instructor' CHECK(created_by_role IN ('instructor', 'school')),
   created_by_id TEXT NOT NULL,
+  vehicle_id TEXT REFERENCES vehicles(id) ON DELETE SET NULL,
+  slot_type TEXT NOT NULL DEFAULT 'lesson',
+  confirmed BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

@@ -301,7 +301,21 @@ var TRANSLATIONS = {
   passwortZuKurz: { de:'Passwort muss mindestens 6 Zeichen haben', en:'Password must be at least 6 characters' },
   pause: { de:'Pause', en:'Pause' },
   fortsetzen: { de:'Fortsetzen', en:'Resume' },
-  pausiert: { de:'PAUSIERT', en:'PAUSED' }
+  pausiert: { de:'PAUSIERT', en:'PAUSED' },
+
+  // ── Time Blocks (Zeitsperren) ──
+  zeitsperre: { de:'Zeitsperre', en:'Time block', tr:'Zaman engeli', ar:'حظر الوقت', es:'Bloqueo de tiempo', fr:'Blocage horaire' },
+  zeitsperreErstellen: { de:'Zeitsperre erstellen', en:'Create time block', tr:'Zaman engeli oluştur', ar:'إنشاء حظر وقت', es:'Crear bloqueo de tiempo', fr:'Créer un blocage horaire' },
+  zeitsperreLoeschen: { de:'Zeitsperre aufheben', en:'Remove time block', tr:'Zaman engelini kaldır', ar:'إزالة حظر الوقت', es:'Eliminar bloqueo', fr:'Supprimer le blocage' },
+  zeitsperreWirklichLoeschen: { de:'Zeitsperre wirklich aufheben?', en:'Really remove this time block?', tr:'Zaman engeli gerçekten kaldırılsın mı?', ar:'هل تريد حقاً إزالة حظر الوقت؟', es:'¿Eliminar este bloqueo?', fr:'Vraiment supprimer ce blocage ?' },
+  zeitsperreErstellt: { de:'Zeitsperre erstellt', en:'Time block created', tr:'Zaman engeli oluşturuldu', ar:'تم إنشاء حظر الوقت', es:'Bloqueo creado', fr:'Blocage créé' },
+  zeitsperreGeloescht: { de:'Zeitsperre aufgehoben', en:'Time block removed', tr:'Zaman engeli kaldırıldı', ar:'تم إزالة حظر الوقت', es:'Bloqueo eliminado', fr:'Blocage supprimé' },
+  nichtVerfuegbar: { de:'Nicht verfügbar', en:'Unavailable', tr:'Müsait değil', ar:'غير متاح', es:'No disponible', fr:'Indisponible' },
+  plusZeitsperre: { de:'+ Zeitsperre', en:'+ Time block', tr:'+ Zaman engeli', ar:'+ حظر وقت', es:'+ Bloqueo', fr:'+ Blocage' },
+
+  // ── Confirmation ──
+  unbestaetigt: { de:'Unbestätigt', en:'Unconfirmed', tr:'Onaylanmamış', ar:'غير مؤكد', es:'Sin confirmar', fr:'Non confirmé' },
+  wartaufBestaetigung: { de:'Wartet auf Bestätigung', en:'Awaiting confirmation', tr:'Onay bekleniyor', ar:'في انتظار التأكيد', es:'Pendiente de confirmación', fr:'En attente de confirmation' }
 };
 
 // ── Day names by language ──
@@ -337,7 +351,8 @@ var TYPE_KEY_MAP = {
   'Übungsfahrt': 'uebungsfahrt', 'Überlandfahrt': 'ueberlandfahrt',
   'Autobahnfahrt': 'autobahnfahrt', 'Nachtfahrt': 'nachtfahrt',
   'Prüfungsvorbereitung': 'pruefungsvorbereitung',
-  'Praktische Prüfung': 'praktischePruefung', 'Theoretische Prüfung': 'theoretischePruefung'
+  'Praktische Prüfung': 'praktischePruefung', 'Theoretische Prüfung': 'theoretischePruefung',
+  'Zeitsperre': 'zeitsperre'
 };
 
 // ── Skill task key map ──

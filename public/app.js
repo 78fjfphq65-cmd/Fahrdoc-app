@@ -689,7 +689,7 @@ var App = {
       var dayStr = day.toISOString().split('T')[0];
       var isToday = day.toDateString() === new Date().toDateString();
       var daySlots = slots.filter(function(s) { return s.date === dayStr; });
-      html += '<div class="week-grid-day-col' + (isToday ? ' today' : '') + '" onclick="' + onCellClick.replace('{DAY}', dayStr) + '">';
+      html += '<div class="week-grid-day-col' + (isToday ? ' today' : '') + '" onclick="App.onWeekGridCellClick(event, \'' + dayStr + '\', ' + JSON.stringify(onCellClick).replace(/"/g, '&quot;') + ')">';
       // Hour lines
       for (var hh = GRID_START_HOUR; hh < GRID_END_HOUR; hh++) {
         html += '<div class="week-grid-hour-line" style="top:' + ((hh - GRID_START_HOUR) * HOUR_HEIGHT) + 'px;"></div>';
@@ -705,19 +705,43 @@ var App = {
       daySlots.forEach(function(slot) {
         var top = slotTopPx(slot.start_time);
         var height = slotHeightPx(slot.start_time, slot.end_time);
-        var typeCls = slotTypeClass(slot.type);
-        var isOffen = !slot.student_id;
-        var pruef = isPruefung(slot.type);
-        var clickJs = onSlotClick.replace('{SLOT}', JSON.stringify(slot).replace(/"/g, '&quot;'));
-        html += '<div class="week-grid-slot ' + typeCls + (isOffen ? ' slot-offen' : '') + (pruef ? ' slot-pruefung' : '') + '" ' +
+        var isBlock = slot.slot_type === 'block';
+        var typeCls = isBlock ? 'slot-block' : slotTypeClass(slot.type);
+        var isOffen = !slot.student_id && !isBlock;
+        var pruef = !isBlock && isPruefung(slot.type);
+        var isUnconfirmed = !isBlock && slot.confirmed === false;
+        var isConfirmed = !isBlock && slot.confirmed !== false;
+        var isAdminView = AppState.currentUser && AppState.currentUser.role === 'school';
+        var clickJs;
+        if (isBlock) {
+          clickJs = 'App.openBlockDetail(' + JSON.stringify(slot).replace(/"/g, '&quot;') + ')';
+        } else {
+          clickJs = onSlotClick.replace('{SLOT}', JSON.stringify(slot).replace(/"/g, '&quot;'));
+        }
+        html += '<div class="week-grid-slot ' + typeCls + (isOffen ? ' slot-offen' : '') + (pruef ? ' slot-pruefung' : '') + (isUnconfirmed ? ' slot-unconfirmed' : '') + '" ' +
           'style="top:' + top + 'px;height:' + height + 'px;" onclick="event.stopPropagation();' + clickJs + '">';
-        if (height >= 40) {
+        // Green checkmark for confirmed slots in admin view
+        if (isAdminView && isConfirmed && !isBlock) {
+          html += '<span class="slot-confirmed-check" title="' + t('bestaetigt') + '">\u2713</span>';
+        }
+        if (isBlock) {
+          // Block display
+          if (height >= 40) {
+            html += '<div class="week-grid-slot-time">' + slot.start_time + '\u2013' + slot.end_time + '</div>';
+            if (slot.instructor_name) {
+              html += '<div class="week-grid-slot-instructor">' + slot.instructor_name + '</div>';
+            }
+            html += '<div class="week-grid-slot-name">' + t('nichtVerfuegbar') + '</div>';
+          } else {
+            html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + t('nichtVerfuegbar') + '</div>';
+          }
+        } else if (height >= 40) {
           html += '<div class="week-grid-slot-time">' + slot.start_time + '\u2013' + slot.end_time + '</div>';
           if (slot.instructor_name) {
             html += '<div class="week-grid-slot-instructor">' + slot.instructor_name + '</div>';
           }
           html += '<div class="week-grid-slot-name">' + (slot.student_name || t('offen')) + '</div>';
-          html += '<div class="week-grid-slot-type">' + tType(slot.type) + (pruef ? ' \ud83c\udfc1' : '') + '</div>';
+          html += '<div class="week-grid-slot-type">' + tType(slot.type) + (pruef ? ' \ud83c\udfc1' : '') + (isUnconfirmed ? ' \u231b' : '') + '</div>';
         } else {
           html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + (slot.instructor_name || slot.student_name || slot.type) + '</div>';
         }
@@ -905,6 +929,27 @@ var App = {
     this.updateDurationDisplay();
   },
 
+  // Click-to-time: calculate clicked time from mouse position in week grid column
+  onWeekGridCellClick: function(event, dayStr, onCellClickTemplate) {
+    var col = event.currentTarget;
+    var rect = col.getBoundingClientRect();
+    // getBoundingClientRect is viewport-relative, so clientY - rect.top gives correct offset
+    var yOffset = event.clientY - rect.top;
+    // Convert pixel offset to minutes from grid start
+    var minutesFromStart = Math.round(yOffset / PX_PER_MIN);
+    var totalMinutes = GRID_START_HOUR * 60 + minutesFromStart;
+    // Round to nearest 30-min step
+    totalMinutes = Math.round(totalMinutes / 30) * 30;
+    if (totalMinutes < GRID_START_HOUR * 60) totalMinutes = GRID_START_HOUR * 60;
+    if (totalMinutes >= GRID_END_HOUR * 60) totalMinutes = (GRID_END_HOUR - 1) * 60 + 30;
+    var hours = Math.floor(totalMinutes / 60);
+    var mins = totalMinutes % 60;
+    var timeStr = String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0');
+    // Execute the callback with the computed time
+    var callStr = onCellClickTemplate.replace('{DAY}', dayStr).replace("'09:00'", "'" + timeStr + "'");
+    eval(callStr);
+  },
+
   // ──── SCHEDULE MODAL ────
   openScheduleModal: function(prefillDate, prefillTime, editSlot, instructorIdOverride) {
     AppState.scheduleManualEndTime = false;
@@ -983,9 +1028,14 @@ var App = {
       '<textarea class="form-textarea" id="schedule-notes" placeholder="' + t('optional') + '">' + notes + '</textarea></div>';
 
     if (isEdit) {
+      // Show unconfirmed banner if applicable
+      if (editSlot.confirmed === false) {
+        html += '<div style="background:var(--color-warning-bg, #fff3cd);border:1px solid var(--color-warning, #f0ad4e);border-radius:var(--radius-sm);padding:var(--space-2) var(--space-3);margin-bottom:var(--space-3);font-size:var(--text-sm);color:#856404;">' +
+          '\u231b ' + t('wartaufBestaetigung') + '</div>';
+      }
       html += '<div style="display:flex;gap:var(--space-3);flex-wrap:wrap;">';
       html += '<button type="button" class="btn btn-primary flex-1" onclick="App.updateScheduleSlot(\'' + editSlot.id + '\')">'+t('speichern')+'</button>';
-      if (editSlot.status === 'geplant') {
+      if (editSlot.status === 'geplant' || editSlot.confirmed === false) {
         html += '<button type="button" class="btn btn-success flex-1" onclick="App.confirmScheduleSlot(\'' + editSlot.id + '\')">'+t('bestaetigenBtn')+'</button>';
       }
       html += '<button type="button" class="btn btn-danger" onclick="App.deleteScheduleSlot(\'' + editSlot.id + '\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
@@ -1050,6 +1100,97 @@ var App = {
         sel.innerHTML += '<option value="' + st.id + '"' + selected + '>' + st.name + ' (Klasse ' + st.license_class + ')</option>';
       });
     } catch(e) {}
+  },
+
+  // ──── TIME BLOCK (Zeitsperre) MODAL ────
+  openBlockModal: function(prefillDate, prefillTime, instructorIdOverride) {
+    var title = t('zeitsperreErstellen');
+    var date = prefillDate || new Date().toISOString().split('T')[0];
+    var startTime = prefillTime || '09:00';
+    // Default 2 hour block
+    var sp = startTime.split(':');
+    var sm = parseInt(sp[0]) * 60 + parseInt(sp[1]);
+    var em = sm + 120;
+    var endTime = String(Math.floor(em / 60)).padStart(2, '0') + ':' + String(em % 60).padStart(2, '0');
+
+    var html = '<form id="block-form" onsubmit="event.preventDefault();">';
+
+    // If admin — show instructor selector
+    if (AppState.currentUser.role === 'school') {
+      var insts = (AppState.scheduleData && AppState.scheduleData.instructors) || [];
+      var selInstId = instructorIdOverride || AppState.scheduleSelectedInstructor || (insts.length > 0 ? insts[0].id : '');
+      html += '<div class="form-group mb-3"><label class="form-label">' + t('fahrlehrer') + '</label><select class="form-select" id="block-instructor-select">';
+      insts.forEach(function(inst) {
+        html += '<option value="' + inst.id + '"' + (inst.id === selInstId ? ' selected' : '') + '>' + inst.name + '</option>';
+      });
+      html += '</select></div>';
+    }
+
+    html += '<div class="form-group mb-3"><label class="form-label">' + t('datum') + '</label>' +
+      '<input class="form-input" type="date" id="block-date" value="' + date + '"></div>';
+
+    html += '<div class="form-row form-row-2 mb-3">' +
+      '<div class="form-group"><label class="form-label">' + t('start') + '</label>' +
+        '<input class="form-input" type="time" id="block-start-time" value="' + startTime + '" step="1800"></div>' +
+      '<div class="form-group"><label class="form-label">' + t('ende') + '</label>' +
+        '<input class="form-input" type="time" id="block-end-time" value="' + endTime + '" step="1800"></div>' +
+    '</div>';
+
+    html += '<div class="form-group mb-3"><label class="form-label">' + t('notizen') + '</label>' +
+      '<textarea class="form-textarea" id="block-notes" placeholder="' + t('optional') + '"></textarea></div>';
+
+    html += '<button type="button" class="btn btn-primary btn-full btn-lg" onclick="App.createBlock()">' + t('zeitsperreErstellen') + '</button>';
+    html += '</form>';
+    this.openModal(title, html);
+  },
+
+  openBlockDetail: function(block) {
+    var title = t('zeitsperre');
+    var html = '<div style="margin-bottom:var(--space-3);">';
+    html += '<div class="form-group mb-2"><label class="form-label">' + t('datum') + '</label><div>' + block.date + '</div></div>';
+    html += '<div class="form-group mb-2"><label class="form-label">' + t('start') + ' \u2013 ' + t('ende') + '</label><div>' + block.start_time + ' \u2013 ' + block.end_time + '</div></div>';
+    if (block.instructor_name) {
+      html += '<div class="form-group mb-2"><label class="form-label">' + t('fahrlehrer') + '</label><div>' + block.instructor_name + '</div></div>';
+    }
+    if (block.notes) {
+      html += '<div class="form-group mb-2"><label class="form-label">' + t('notizen') + '</label><div>' + block.notes + '</div></div>';
+    }
+    html += '</div>';
+    html += '<button type="button" class="btn btn-danger btn-full" onclick="App.deleteBlock(\'' + block.id + '\')">' + t('zeitsperreLoeschen') + '</button>';
+    this.openModal(title, html);
+  },
+
+  createBlock: async function() {
+    var blockData = {
+      date: document.getElementById('block-date').value,
+      startTime: document.getElementById('block-start-time').value,
+      endTime: document.getElementById('block-end-time').value,
+      notes: document.getElementById('block-notes').value
+    };
+    var instSel = document.getElementById('block-instructor-select');
+    if (instSel && instSel.value) blockData.instructorId = instSel.value;
+    try {
+      this.showLoading(true);
+      await ApiClient.post('/api/schedule/blocks', blockData);
+      this.closeModalForce(); this.showToast(t('zeitsperreErstellt'));
+      AppState.scheduleData = null;
+      if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
+      else this.renderSchoolScheduleTab();
+    } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
+    finally { this.showLoading(false); }
+  },
+
+  deleteBlock: async function(id) {
+    if (!confirm(t('zeitsperreWirklichLoeschen'))) return;
+    try {
+      this.showLoading(true);
+      await ApiClient.del('/api/schedule/blocks/' + id);
+      this.closeModalForce(); this.showToast(t('zeitsperreGeloescht'));
+      AppState.scheduleData = null;
+      if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
+      else this.renderSchoolScheduleTab();
+    } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
+    finally { this.showLoading(false); }
   },
 
   updateDurationDisplay: function() {
@@ -1238,7 +1379,8 @@ var App = {
         html += '<option value="' + inst.id + '"' + (inst.id === AppState.scheduleSelectedInstructor ? ' selected' : '') + '>' + inst.name + '</option>';
       });
       html += '</select>' +
-        '<button class="btn btn-primary btn-sm" onclick="App.openScheduleModal(null, null, null, AppState.scheduleSelectedInstructor)">' + t('plusTermin') + '</button></div>';
+        '<button class="btn btn-primary btn-sm" onclick="App.openScheduleModal(null, null, null, AppState.scheduleSelectedInstructor)">' + t('plusTermin') + '</button>' +
+        '<button class="btn btn-ghost btn-sm" style="border:1px solid var(--color-border);" onclick="App.openBlockModal(null, null, AppState.scheduleSelectedInstructor)">' + t('plusZeitsperre') + '</button></div>';
 
       // Week nav
       html += '<div class="schedule-week-nav">' +
@@ -2065,7 +2207,10 @@ var App = {
       html += '</div>';
 
       html += '<div class="schedule-day-header"><span>' + getDayNamesLong()[selectedDay] + ', ' + selectedDate.getDate() + '.' + String(selectedDate.getMonth() + 1).padStart(2, '0') + '.</span>' +
-        '<button class="btn btn-primary btn-sm" onclick="App.openScheduleModal(\'' + selectedDateStr + '\', \'09:00\')">' + t('plusTermin') + '</button></div>';
+        '<div style="display:flex;gap:var(--space-2);">' +
+        '<button class="btn btn-primary btn-sm" onclick="App.openScheduleModal(\'' + selectedDateStr + '\', \'09:00\')">' + t('plusTermin') + '</button>' +
+        '<button class="btn btn-ghost btn-sm" style="border:1px solid var(--color-border);" onclick="App.openBlockModal(\'' + selectedDateStr + '\', \'09:00\')">' + t('plusZeitsperre') + '</button>' +
+        '</div></div>';
 
       if (daySlots.length === 0) {
         html += '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:48px;height:48px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
@@ -2073,17 +2218,29 @@ var App = {
       } else {
         html += '<div class="schedule-slot-list">';
         daySlots.forEach(function(slot) {
+          var isBlock = slot.slot_type === 'block';
+          var isUnconfirmed = !isBlock && slot.confirmed === false;
           var statusCls = 'schedule-slot-card schedule-slot-' + slot.status;
-          html += '<div class="' + statusCls + '" onclick="App.openScheduleModal(null, null, ' + JSON.stringify(slot).replace(/"/g, '&quot;') + ')">' +
+          if (isBlock) statusCls = 'schedule-slot-card';
+          if (isUnconfirmed) statusCls += ' slot-unconfirmed-card';
+          var clickAction;
+          if (isBlock) {
+            clickAction = 'App.openBlockDetail(' + JSON.stringify(slot).replace(/"/g, '&quot;') + ')';
+          } else {
+            clickAction = 'App.openScheduleModal(null, null, ' + JSON.stringify(slot).replace(/"/g, '&quot;') + ')';
+          }
+          html += '<div class="' + statusCls + '" style="' + (isBlock ? 'background:repeating-linear-gradient(-45deg,#e0e0e0,#e0e0e0 4px,#d0d0d0 4px,#d0d0d0 8px);border-left:3px solid #757575;' : '') + '" onclick="' + clickAction + '">' +
             '<div class="schedule-slot-card-left">' +
               '<div class="schedule-slot-card-time">' + slot.start_time + '</div>' +
               '<div class="schedule-slot-card-end">' + slot.end_time + '</div>' +
             '</div>' +
             '<div class="schedule-slot-card-body">' +
-              '<div class="schedule-slot-card-title">' + (slot.student_name || t('offenerBlock')) + '</div>' +
-              '<div class="schedule-slot-card-meta">' + tType(slot.type) + (slot.license_class ? ' · ' + t('klasse') + ' ' + slot.license_class : '') + '</div>' +
+              '<div class="schedule-slot-card-title">' + (isBlock ? t('nichtVerfuegbar') : (slot.student_name || t('offenerBlock'))) + '</div>' +
+              '<div class="schedule-slot-card-meta">' + (isBlock ? t('zeitsperre') : (tType(slot.type) + (slot.license_class ? ' \u00b7 ' + t('klasse') + ' ' + slot.license_class : ''))) + '</div>' +
             '</div>' +
-            '<span class="badge ' + App.statusBadgeClass(slot.status) + '">' + tStatus(slot.status) + '</span>' +
+            (isBlock ? '<span class="badge badge-muted">' + t('zeitsperre') + '</span>' :
+              (isUnconfirmed ? '<span class="badge badge-warning">' + t('unbestaetigt') + '</span>' :
+                '<span class="badge ' + App.statusBadgeClass(slot.status) + '">' + tStatus(slot.status) + '</span>')) +
           '</div>';
         });
         html += '</div>';

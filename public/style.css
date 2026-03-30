@@ -1352,6 +1352,69 @@
   font-weight: 600;
 }
 
+/* Time block (Zeitsperre) — Gray striped */
+.slot-block {
+  background: repeating-linear-gradient(
+    -45deg,
+    #e0e0e0,
+    #e0e0e0 4px,
+    #d0d0d0 4px,
+    #d0d0d0 8px
+  ) !important;
+  border-left-color: #757575 !important;
+  color: #424242 !important;
+  border-right: 1px solid #bdbdbd;
+  border-top: 1px solid #bdbdbd;
+  border-bottom: 1px solid #bdbdbd;
+}
+.slot-block .week-grid-slot-time {
+  font-weight: 700;
+}
+
+/* Unconfirmed slot — dashed border + muted */
+.slot-unconfirmed {
+  border-right: 2px dashed var(--color-warning, #f0ad4e) !important;
+  border-top: 2px dashed var(--color-warning, #f0ad4e) !important;
+  border-bottom: 2px dashed var(--color-warning, #f0ad4e) !important;
+  opacity: 0.8;
+}
+
+/* Green checkmark for confirmed slots */
+.slot-confirmed-check {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  width: 14px;
+  height: 14px;
+  color: #28a745;
+  font-size: 12px;
+  line-height: 14px;
+  font-weight: 700;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Schedule toolbar with block button */
+.schedule-toolbar {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+/* Day view: unconfirmed slot card */
+.schedule-slot-card.slot-unconfirmed-card {
+  border-left: 3px dashed var(--color-warning, #f0ad4e);
+  opacity: 0.8;
+}
+.schedule-slot-card .confirmed-badge {
+  color: #28a745;
+  font-size: 14px;
+  font-weight: 700;
+  margin-left: var(--space-1);
+}
+
 /* ============================================
    NOTIFICATION PANEL
    ============================================ */

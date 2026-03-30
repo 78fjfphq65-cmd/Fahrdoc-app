@@ -1145,6 +1145,106 @@ app.get('/api/share-student/:id', authMiddleware, async (req, res) => {
 });
 
 // ============================================
+// TIME BLOCKS (Zeitsperren) CRUD — must be before /api/schedule/:id routes
+// ============================================
+app.get('/api/schedule/blocks', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role === 'student') return res.status(403).json({ error: 'Kein Zugriff' });
+    const { weekStart, weekEnd, instructorId } = req.query;
+    if (!weekStart || !weekEnd) return res.status(400).json({ error: 'weekStart und weekEnd erforderlich' });
+
+    let schoolId;
+    let filterInstructorId = instructorId;
+    if (req.user.role === 'school') {
+      schoolId = req.user.id;
+    } else {
+      schoolId = req.user.school_id;
+      filterInstructorId = filterInstructorId || req.user.id;
+    }
+
+    let query = supabase.from('scheduled_lessons')
+      .select('*, instructors(name)')
+      .eq('school_id', schoolId)
+      .eq('slot_type', 'block')
+      .gte('date', weekStart)
+      .lte('date', weekEnd);
+    if (filterInstructorId) query = query.eq('instructor_id', filterInstructorId);
+    query = query.order('date').order('start_time');
+    const { data: blocks } = await query;
+
+    for (const b of (blocks || [])) {
+      b.instructor_name = b.instructors?.name || null;
+      delete b.instructors;
+    }
+    res.json({ blocks: blocks || [] });
+  } catch (err) {
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+app.post('/api/schedule/blocks', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role === 'student') return res.status(403).json({ error: 'Kein Zugriff' });
+    const { instructorId, date, startTime, endTime, notes } = req.body;
+    if (!date || !startTime || !endTime) return res.status(400).json({ error: 'Datum, Start- und Endzeit erforderlich' });
+
+    let targetInstructorId = instructorId;
+    let schoolId;
+    if (req.user.role === 'instructor') {
+      targetInstructorId = req.user.id;
+      schoolId = req.user.school_id;
+    } else if (req.user.role === 'school') {
+      if (!targetInstructorId) return res.status(400).json({ error: 'Fahrlehrer-ID erforderlich' });
+      schoolId = req.user.id;
+    }
+
+    // Check overlap with existing lessons/blocks
+    const { data: overlaps } = await supabase.from('scheduled_lessons')
+      .select('id')
+      .eq('instructor_id', targetInstructorId)
+      .eq('date', date)
+      .lt('start_time', endTime)
+      .gt('end_time', startTime);
+    if (overlaps && overlaps.length > 0) return res.status(409).json({ error: 'Zeitüberschneidung mit bestehendem Termin oder Sperre' });
+
+    const id = generateId();
+    await supabase.from('scheduled_lessons').insert({
+      id, instructor_id: targetInstructorId, school_id: schoolId,
+      student_id: null, date, start_time: startTime, end_time: endTime,
+      type: 'Zeitsperre', license_class: 'B', status: 'offen',
+      notes: notes || null, vehicle_id: null,
+      created_by_role: req.user.role, created_by_id: req.user.id,
+      slot_type: 'block', confirmed: true
+    });
+
+    res.json({ id, success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+app.delete('/api/schedule/blocks/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role === 'student') return res.status(403).json({ error: 'Kein Zugriff' });
+    const { data: block } = await supabase.from('scheduled_lessons')
+      .select('*').eq('id', req.params.id).eq('slot_type', 'block').single();
+    if (!block) return res.status(404).json({ error: 'Zeitsperre nicht gefunden' });
+
+    if (req.user.role === 'instructor' && block.instructor_id !== req.user.id) {
+      return res.status(403).json({ error: 'Kein Zugriff auf diese Zeitsperre' });
+    }
+    if (req.user.role === 'school' && block.school_id !== req.user.id) {
+      return res.status(403).json({ error: 'Kein Zugriff auf diese Zeitsperre' });
+    }
+
+    await supabase.from('scheduled_lessons').delete().eq('id', req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// ============================================
 // SCHEDULE ROUTES
 // ============================================
 
@@ -1185,6 +1285,9 @@ app.get('/api/schedule', authMiddleware, async (req, res) => {
       s.instructor_name = s.instructors?.name || null;
       s.vehicle_brand = s.vehicles?.brand || null;
       s.vehicle_plate = s.vehicles?.license_plate || null;
+      // Ensure new fields have defaults for old rows
+      if (s.slot_type === undefined || s.slot_type === null) s.slot_type = 'lesson';
+      if (s.confirmed === undefined || s.confirmed === null) s.confirmed = true;
       delete s.students;
       delete s.instructors;
       delete s.vehicles;
@@ -1268,6 +1371,8 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
 
     const id = generateId();
     const status = studentId ? 'geplant' : 'offen';
+    // Confirmation logic: instructor self-created = confirmed, admin-created = needs confirmation
+    const confirmed = req.user.role === 'instructor';
 
     await supabase.from('scheduled_lessons').insert({
       id, instructor_id: targetInstructorId, school_id: schoolId,
@@ -1275,7 +1380,8 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
       type: type || 'Übungsfahrt', license_class: licenseClass || 'B',
       status, notes: notes || null,
       vehicle_id: vehicleId || null,
-      created_by_role: req.user.role, created_by_id: req.user.id
+      created_by_role: req.user.role, created_by_id: req.user.id,
+      slot_type: 'lesson', confirmed
     });
 
     if (req.user.role === 'school') {
@@ -1392,15 +1498,27 @@ app.post('/api/schedule/:id/confirm', authMiddleware, async (req, res) => {
     const { data: slot } = await supabase.from('scheduled_lessons')
       .select('*').eq('id', req.params.id).single();
     if (!slot) return res.status(404).json({ error: 'Termin nicht gefunden' });
-    if (slot.status !== 'geplant') return res.status(400).json({ error: 'Nur geplante Termine können bestätigt werden' });
+
+    // Allow confirming both 'geplant' status and unconfirmed slots
+    const updates = { confirmed: true };
+    if (slot.status === 'geplant') updates.status = 'bestätigt';
 
     await supabase.from('scheduled_lessons')
-      .update({ status: 'bestätigt' }).eq('id', req.params.id);
+      .update(updates).eq('id', req.params.id);
 
     if (req.user.role === 'school') {
       const dayStr = new Date(slot.date).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
       await createNotification(slot.instructor_id, 'instructor', 'schedule_confirmed',
         'Termin bestätigt', `Termin am ${dayStr} um ${slot.start_time} wurde bestätigt`, req.params.id);
+    }
+    if (req.user.role === 'instructor' && !slot.confirmed) {
+      // Notify school that instructor confirmed
+      const dayStr = new Date(slot.date).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+      const { data: inst } = await supabase.from('instructors').select('school_id, name').eq('id', req.user.id).single();
+      if (inst) {
+        await createNotification(inst.school_id, 'school', 'schedule_confirmed',
+          'Termin bestätigt', `${inst.name} hat den Termin am ${dayStr} um ${slot.start_time} bestätigt`, req.params.id);
+      }
     }
 
     res.json({ success: true });
@@ -1992,6 +2110,22 @@ app.get('/api/school/vehicles/bookings', authMiddleware, async (req, res) => {
 });
 
 // ============================================
+// MIGRATION: Add slot_type and confirmed columns
+// ============================================
+app.post('/api/migrate', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Admins' });
+    // Add slot_type column if not exists (default 'lesson')
+    await supabase.rpc('exec_sql', { sql: "ALTER TABLE scheduled_lessons ADD COLUMN IF NOT EXISTS slot_type TEXT NOT NULL DEFAULT 'lesson'" }).catch(() => {});
+    // Add confirmed column if not exists (default true)
+    await supabase.rpc('exec_sql', { sql: "ALTER TABLE scheduled_lessons ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT true" }).catch(() => {});
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Migration fehlgeschlagen' });
+  }
+});
+
+// ============================================
 // FALLBACK: SPA
 // ============================================
 app.get('*', (req, res) => {
@@ -1999,8 +2133,29 @@ app.get('*', (req, res) => {
 });
 
 // ============================================
+// DB MIGRATION: Add new columns on startup
+// ============================================
+async function runMigrations() {
+  try {
+    // Try to add slot_type column — if it already exists, Supabase will return an error we can ignore
+    const { error: e1 } = await supabase.rpc('exec_sql', {
+      sql: "ALTER TABLE scheduled_lessons ADD COLUMN IF NOT EXISTS slot_type TEXT NOT NULL DEFAULT 'lesson';"
+    });
+    if (e1) console.log('[Migration] slot_type column may already exist or rpc not available:', e1.message);
+
+    const { error: e2 } = await supabase.rpc('exec_sql', {
+      sql: "ALTER TABLE scheduled_lessons ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT true;"
+    });
+    if (e2) console.log('[Migration] confirmed column may already exist or rpc not available:', e2.message);
+  } catch (err) {
+    console.log('[Migration] Skipping — columns may need manual addition via Supabase dashboard');
+  }
+}
+
+// ============================================
 // START
 // ============================================
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[FahrDoc] Server running on port ${PORT} (Supabase)`);
+  runMigrations();
 });
