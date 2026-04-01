@@ -51,10 +51,11 @@
   /* Z-indices */
   --z-base: 1;
   --z-nav: 10;
+  --z-dropdown: 30;
+  --z-fab: 40;
   --z-modal-backdrop: 50;
   --z-modal: 60;
   --z-toast: 70;
-  --z-fab: 40;
 }
 
 /* ============================================
