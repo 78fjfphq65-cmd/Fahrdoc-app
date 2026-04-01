@@ -2886,3 +2886,84 @@ html[dir="rtl"] .notif-panel {
 .recurring-delete-dialog h4{margin:0 0 16px 0;font-size:var(--text-base);font-weight:600}
 .recurring-delete-dialog .btn{width:100%;margin-bottom:8px;text-align:center}
 .recurring-delete-dialog .btn:last-child{margin-bottom:0}
+/* ══════════════════════════════════════════ */
+/* THEORY PLANNING                           */
+/* ══════════════════════════════════════════ */
+
+/* Theory Management View */
+.theory-section{margin-bottom:var(--space-8)}
+.theory-section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-4)}
+.theory-section-header .section-title{margin:0}
+
+/* Room Cards */
+.theory-room-card{display:flex;align-items:center;justify-content:space-between;padding:var(--space-3) var(--space-4);background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);margin-bottom:var(--space-2)}
+.theory-room-info{display:flex;align-items:center;gap:var(--space-3)}
+.theory-room-icon{width:36px;height:36px;border-radius:var(--radius-md);background:var(--color-purple-highlight);color:var(--color-purple);display:flex;align-items:center;justify-content:center}
+.theory-room-icon svg{width:18px;height:18px}
+.theory-room-name{font-weight:600;font-size:var(--text-sm)}
+.theory-room-seats{font-size:var(--text-xs);color:var(--color-text-muted)}
+.theory-room-actions{display:flex;gap:var(--space-2)}
+
+/* Room Form */
+.theory-room-form{display:flex;gap:var(--space-2);align-items:flex-end;padding:var(--space-3);background:var(--color-surface-offset);border-radius:var(--radius-md);margin-bottom:var(--space-3)}
+.theory-room-form .form-group{margin-bottom:0;flex:1}
+.theory-room-form .form-group:last-of-type{flex:0 0 100px}
+
+/* Topic List */
+.theory-topic-list{display:flex;flex-direction:column;gap:var(--space-1)}
+.theory-topic-item{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) var(--space-3);background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:var(--text-sm)}
+.theory-topic-number{width:28px;height:28px;border-radius:var(--radius-full);background:var(--color-purple);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0}
+.theory-topic-title{flex:1;font-size:var(--text-sm)}
+.theory-topic-badge{font-size:10px;padding:2px 8px;border-radius:var(--radius-full);font-weight:600}
+.theory-topic-badge.basic{background:var(--color-primary-highlight);color:var(--color-primary)}
+.theory-topic-badge.additional{background:var(--color-purple-highlight);color:var(--color-purple)}
+
+/* Rotation Form */
+.theory-rotation-form{padding:var(--space-4);background:var(--color-surface-offset);border-radius:var(--radius-md);margin-bottom:var(--space-4)}
+.theory-rotation-form .form-group{margin-bottom:var(--space-3)}
+.theory-rotation-days{display:flex;gap:var(--space-2);flex-wrap:wrap}
+.theory-day-check{display:flex;align-items:center;gap:var(--space-1);cursor:pointer;padding:var(--space-1) var(--space-2);border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:var(--text-sm);transition:var(--transition-interactive);user-select:none}
+.theory-day-check:hover{border-color:var(--color-purple)}
+.theory-day-check.selected{background:var(--color-purple);color:#fff;border-color:var(--color-purple)}
+.theory-rotation-times{display:flex;gap:var(--space-3);align-items:flex-end}
+.theory-rotation-times .form-group{margin-bottom:0;flex:1}
+.theory-rotation-current{padding:var(--space-3);background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:var(--text-sm);margin-bottom:var(--space-3)}
+
+/* Theory Week Grid Blocks */
+.week-grid-slot.theory-slot{background:rgba(124,58,237,0.12);border:2px dashed var(--color-purple);color:var(--color-purple);cursor:pointer}
+.week-grid-slot.theory-slot:hover{background:rgba(124,58,237,0.2)}
+.week-grid-slot.theory-slot-assigned{background:var(--color-purple);border:2px solid var(--color-purple);color:#fff;cursor:pointer}
+.week-grid-slot.theory-slot-assigned:hover{opacity:0.9}
+.theory-slot-label{font-size:10px;font-weight:600;line-height:1.2}
+.theory-slot-time{font-size:9px;opacity:0.8}
+
+/* Theory Detail Modal */
+.theory-detail-header{display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:1px solid var(--color-divider)}
+.theory-detail-topic-num{width:40px;height:40px;border-radius:var(--radius-full);background:var(--color-purple);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0}
+.theory-detail-info h4{margin:0;font-size:var(--text-base);font-weight:600}
+.theory-detail-info p{margin:2px 0 0;font-size:var(--text-xs);color:var(--color-text-muted)}
+.theory-detail-row{display:flex;align-items:center;justify-content:space-between;padding:var(--space-2) 0;border-bottom:1px solid var(--color-divider);font-size:var(--text-sm)}
+.theory-detail-row:last-child{border-bottom:none}
+.theory-detail-label{color:var(--color-text-muted);font-size:var(--text-xs)}
+.theory-detail-value{font-weight:500}
+.theory-assign-row{display:flex;align-items:center;gap:var(--space-2);margin:var(--space-3) 0}
+.theory-assign-row select{flex:1}
+
+/* Attendance Section */
+.theory-attendance-section{margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-divider)}
+.theory-attendance-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)}
+.theory-attendance-counter{font-size:var(--text-sm);font-weight:600;color:var(--color-purple)}
+.theory-attendance-list{max-height:300px;overflow-y:auto}
+.theory-attendance-item{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) 0;border-bottom:1px solid var(--color-divider);font-size:var(--text-sm)}
+.theory-attendance-item:last-child{border-bottom:none}
+.theory-attendance-item label{display:flex;align-items:center;gap:var(--space-2);cursor:pointer;flex:1}
+.theory-attendance-item input[type="checkbox"]{width:18px;height:18px;accent-color:var(--color-purple)}
+
+/* Theory Progress Grid */
+.theory-progress-section{margin-top:var(--space-4)}
+.theory-progress-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:var(--space-2);margin-bottom:var(--space-3)}
+.theory-progress-box{width:100%;aspect-ratio:1;border-radius:var(--radius-md);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:1px solid var(--color-border);background:var(--color-surface);color:var(--color-text-muted);transition:var(--transition-interactive)}
+.theory-progress-box.attended{background:var(--color-success);color:#fff;border-color:var(--color-success)}
+.theory-progress-box .topic-num{font-size:14px;line-height:1}
+.theory-progress-box .topic-check{font-size:10px;margin-top:2px}
+.theory-progress-summary{font-size:var(--text-sm);color:var(--color-text-muted);text-align:center;font-weight:500}

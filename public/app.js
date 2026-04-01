@@ -712,9 +712,17 @@ var App = {
         var isUnconfirmed = !isBlock && slot.confirmed === false;
         var isRecurring = !isBlock && slot.notes && slot.notes.indexOf('[recurring:') !== -1;
         var isConfirmed = !isBlock && slot.confirmed !== false;
+        var isTheory = slot.slot_type === 'theory';
+        var typeCls = isBlock ? 'slot-block' : (isTheory ? (slot.instructor_id ? 'theory-slot-assigned' : 'theory-slot') : slotTypeClass(slot.type));
+        var isOffen = !slot.student_id && !isBlock && !isTheory;
+        var pruef = !isBlock && !isTheory && isPruefung(slot.type);
+        var isUnconfirmed = !isBlock && !isTheory && slot.confirmed === false;
+        var isConfirmed = !isBlock && !isTheory && slot.confirmed !== false;
         var isAdminView = AppState.currentUser && AppState.currentUser.role === 'school';
         var clickJs;
-        if (isBlock) {
+        if (isTheory) {
+          clickJs = 'App.openTheoryDetail(&quot;' + slot.id + '&quot;)';
+        } else if (isBlock) {
           clickJs = 'App.openBlockDetail(' + JSON.stringify(slot).replace(/"/g, '&quot;') + ')';
         } else {
           clickJs = onSlotClick.replace('{SLOT}', JSON.stringify(slot).replace(/"/g, '&quot;'));
@@ -722,10 +730,21 @@ var App = {
         html += '<div class="week-grid-slot ' + typeCls + (isOffen ? ' slot-offen' : '') + (pruef ? ' slot-pruefung' : '') + (isUnconfirmed ? ' slot-unconfirmed' : '') + '" ' +
           'style="top:' + top + 'px;height:' + height + 'px;" onclick="event.stopPropagation();' + clickJs + '">';
         // Green checkmark for confirmed slots in admin view
-        if (isAdminView && isConfirmed && !isBlock) {
+        if (isAdminView && isConfirmed && !isBlock && !isTheory) {
           html += '<span class="slot-confirmed-check" title="' + t('bestaetigt') + '">\u2713</span>';
         }
-        if (isBlock) {
+        if (isTheory) {
+          // Theory block display
+          if (height >= 40) {
+            html += '<div class="theory-slot-label">' + t('theorieThema') + ' ' + (slot.theory_topic_number || '') + '</div>';
+            html += '<div class="theory-slot-time">' + slot.start_time + '\u2013' + slot.end_time + '</div>';
+            if (slot.instructor_name) {
+              html += '<div class="theory-slot-time">' + slot.instructor_name + '</div>';
+            }
+          } else {
+            html += '<div class="theory-slot-label">' + t('theorieThema') + ' ' + (slot.theory_topic_number || '') + '</div>';
+          }
+        } else if (isBlock) {
           // Block display
           if (height >= 40) {
             html += '<div class="week-grid-slot-time">' + slot.start_time + '\u2013' + slot.end_time + '</div>';
@@ -1307,6 +1326,7 @@ var App = {
     if (tab === 'dashboard') this.renderSchoolDashboardTab();
     else if (tab === 'schedule') this.renderSchoolScheduleTab();
     else if (tab === 'instructors') { this.dashboardViewMode = 'instructors'; this.renderSchoolDashboardTab(); }
+    else if (tab === 'theory') this.showTheoryView();
     else if (tab === 'vehicles') this.renderSchoolVehiclesTab();
     else if (tab === 'abo') this.renderSchoolAboTab();
     else if (tab === 'profile') this.renderSchoolProfileTab();
@@ -1461,6 +1481,32 @@ var App = {
 
       // Desktop week grid (absolute positioned)
       var slots = data.slots || [];
+
+      // Fetch theory schedule for this week and merge into slots
+      try {
+        var theorySchedule = await ApiClient.get('/api/theory/schedule?week_start=' + wsStr);
+        var selectedInst = AppState.scheduleSelectedInstructor;
+        (theorySchedule || []).forEach(function(ts) {
+          var isAssignedToSelected = ts.instructor_id && ts.instructor_id === selectedInst;
+          var isUnassigned = !ts.instructor_id;
+          // Show unassigned theory blocks (admin only) or assigned to selected instructor
+          if (isUnassigned || isAssignedToSelected) {
+            slots.push({
+              id: ts.id,
+              date: ts.date,
+              start_time: ts.start_time,
+              end_time: ts.end_time,
+              slot_type: 'theory',
+              theory_topic_number: ts.theory_topics ? ts.theory_topics.topic_number : '?',
+              theory_topic_title: ts.theory_topics ? ts.theory_topics.title : '',
+              instructor_id: ts.instructor_id,
+              instructor_name: ts.instructor_name,
+              status: ts.status
+            });
+          }
+        });
+      } catch(e) {}
+
       html += this.renderWeekGridHtml(
         w.days, slots,
         "App.openScheduleModal('{DAY}', '09:00', null, AppState.scheduleSelectedInstructor)",
@@ -1469,6 +1515,347 @@ var App = {
       html += '</div>';
       main.innerHTML = html;
     } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
+  },
+
+  // ══════════════════════════════════════════
+  //  THEORY PLANNING (Admin View)
+  // ══════════════════════════════════════════
+  _theoryRooms: [],
+  _theoryTopics: [],
+  _theoryRotations: [],
+  _theoryShowRoomForm: false,
+  _theoryEditRoomId: null,
+
+  showTheoryView: async function() {
+    var main = document.getElementById('school-main');
+    main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
+    try {
+      var rooms = await ApiClient.get('/api/theory/rooms');
+      var topics = await ApiClient.get('/api/theory/topics');
+      if ((!topics || topics.length === 0) && (!topics || !topics.message)) {
+        topics = await ApiClient.post('/api/theory/topics', {});
+        if (topics && topics.message) {
+          topics = await ApiClient.get('/api/theory/topics');
+        }
+      }
+      var rotations = await ApiClient.get('/api/theory/rotation');
+      this._theoryRooms = rooms || [];
+      this._theoryTopics = Array.isArray(topics) ? topics : [];
+      this._theoryRotations = rotations || [];
+
+      var html = '<div class="page-padding">';
+      html += '<h2 style="margin-bottom:var(--space-4);">' + t('theorieVerwaltung') + '</h2>';
+
+      // ── ROOMS SECTION ──
+      html += '<div class="theory-section">';
+      html += '<div class="theory-section-header"><span class="section-title">' + t('raeume') + '</span>' +
+        '<button class="btn btn-primary btn-sm" onclick="App._theoryShowRoomForm=!App._theoryShowRoomForm;App._theoryEditRoomId=null;App.showTheoryView();">' + t('raumHinzufuegen') + '</button></div>';
+
+      if (this._theoryShowRoomForm || this._theoryEditRoomId) {
+        var editRoom = null;
+        if (this._theoryEditRoomId) {
+          for (var ri = 0; ri < this._theoryRooms.length; ri++) {
+            if (this._theoryRooms[ri].id === this._theoryEditRoomId) { editRoom = this._theoryRooms[ri]; break; }
+          }
+        }
+        html += '<div class="theory-room-form">' +
+          '<div class="form-group"><label class="form-label">' + t('raumName') + '</label>' +
+          '<input class="form-input" id="theory-room-name" value="' + (editRoom ? editRoom.name : '') + '"></div>' +
+          '<div class="form-group"><label class="form-label">' + t('sitzplaetze') + '</label>' +
+          '<input class="form-input" type="number" id="theory-room-seats" value="' + (editRoom ? editRoom.seat_limit : '25') + '" min="1"></div>' +
+          '<button class="btn btn-primary btn-sm" onclick="App.saveTheoryRoom(\'' + (editRoom ? editRoom.id : '') + '\')">' + t('speichern') + '</button></div>';
+      }
+
+      if (this._theoryRooms.length === 0) {
+        html += '<div class="text-sm text-muted" style="padding:var(--space-3);">' + t('keineRaeume') + '</div>';
+      } else {
+        this._theoryRooms.forEach(function(room) {
+          html += '<div class="theory-room-card">' +
+            '<div class="theory-room-info">' +
+              '<div class="theory-room-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg></div>' +
+              '<div><div class="theory-room-name">' + room.name + '</div>' +
+              '<div class="theory-room-seats">' + room.seat_limit + ' ' + t('sitzplaetze') + '</div></div>' +
+            '</div>' +
+            '<div class="theory-room-actions">' +
+              '<button class="btn btn-ghost btn-sm" onclick="App._theoryEditRoomId=\'' + room.id + '\';App._theoryShowRoomForm=true;App.showTheoryView();">' + t('bearbeiten') + '</button>' +
+              '<button class="btn btn-ghost btn-sm" style="color:var(--color-error);" onclick="App.deleteTheoryRoom(\'' + room.id + '\')">' + t('loeschen') + '</button>' +
+            '</div></div>';
+        });
+      }
+      html += '</div>';
+
+      // ── TOPICS SECTION ──
+      html += '<div class="theory-section">';
+      html += '<div class="theory-section-header"><span class="section-title">' + t('themen') + ' (14)</span></div>';
+      html += '<div class="theory-topic-list">';
+      this._theoryTopics.forEach(function(topic) {
+        var badgeCls = topic.is_basic ? 'basic' : 'additional';
+        var badgeText = topic.is_basic ? t('grundstoff') : t('zusatzstoff');
+        html += '<div class="theory-topic-item">' +
+          '<div class="theory-topic-number">' + topic.topic_number + '</div>' +
+          '<div class="theory-topic-title">' + topic.title + '</div>' +
+          '<span class="theory-topic-badge ' + badgeCls + '">' + badgeText + '</span></div>';
+      });
+      html += '</div></div>';
+
+      // ── ROTATION SECTION ──
+      html += '<div class="theory-section">';
+      html += '<div class="theory-section-header"><span class="section-title">' + t('rotation') + '</span></div>';
+
+      if (this._theoryRotations.length > 0) {
+        html += '<div class="theory-rotation-current"><strong>' + t('aktuelleRotation') + ':</strong><br>';
+        var dayLabels = [t('mo'), t('di'), t('mi'), t('do_'), t('fr')];
+        this._theoryRotations.forEach(function(rot) {
+          var dayName = dayLabels[rot.day_of_week] || ('Tag ' + rot.day_of_week);
+          var roomName = rot.theory_rooms ? rot.theory_rooms.name : '';
+          html += dayName + ' ' + rot.start_time + '-' + rot.end_time + ' (' + roomName + ', ' + t('startThema') + ' ' + rot.start_topic_number + ')<br>';
+        });
+        html += '</div>';
+      } else {
+        html += '<div class="text-sm text-muted" style="padding:var(--space-3);margin-bottom:var(--space-3);">' + t('keineRotation') + '</div>';
+      }
+
+      html += '<div class="theory-rotation-form">';
+      html += '<div class="form-group"><label class="form-label">' + t('wochentage') + '</label>';
+      html += '<div class="theory-rotation-days">';
+      var weekDays = [
+        { idx: 0, label: t('mo') },
+        { idx: 1, label: t('di') },
+        { idx: 2, label: t('mi') },
+        { idx: 3, label: t('do_') },
+        { idx: 4, label: t('fr') }
+      ];
+      weekDays.forEach(function(wd) {
+        html += '<div class="theory-day-check" data-day="' + wd.idx + '" onclick="this.classList.toggle(\'selected\')">' + wd.label + '</div>';
+      });
+      html += '</div></div>';
+
+      html += '<div class="theory-rotation-times">';
+      html += '<div class="form-group"><label class="form-label">' + t('start') + '</label><input class="form-input" type="time" id="theory-rot-start" value="18:00"></div>';
+      html += '<div class="form-group"><label class="form-label">' + t('ende') + '</label><input class="form-input" type="time" id="theory-rot-end" value="19:30"></div>';
+      html += '<div class="form-group"><label class="form-label">' + t('startThema') + '</label><input class="form-input" type="number" id="theory-rot-topic" value="1" min="1" max="14"></div>';
+      html += '</div>';
+
+      if (this._theoryRooms.length > 0) {
+        html += '<div class="form-group"><label class="form-label">' + t('raum') + '</label><select class="form-select" id="theory-rot-room">';
+        this._theoryRooms.forEach(function(r) {
+          html += '<option value="' + r.id + '">' + r.name + ' (' + r.seat_limit + ' ' + t('sitzplaetze') + ')</option>';
+        });
+        html += '</select></div>';
+      }
+
+      html += '<button class="btn btn-primary" style="margin-top:var(--space-3);width:100%;" onclick="App.saveTheoryRotation()">' + t('rotationSpeichern') + '</button>';
+      html += '</div></div>';
+
+      html += '</div>';
+      main.innerHTML = html;
+    } catch (err) {
+      main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>';
+    }
+  },
+
+  saveTheoryRoom: async function(editId) {
+    var name = document.getElementById('theory-room-name').value.trim();
+    var seats = parseInt(document.getElementById('theory-room-seats').value) || 25;
+    if (!name) return;
+    try {
+      if (editId) {
+        await ApiClient.put('/api/theory/rooms/' + editId, { name: name, seat_limit: seats });
+      } else {
+        await ApiClient.post('/api/theory/rooms', { name: name, seat_limit: seats });
+      }
+      this._theoryShowRoomForm = false;
+      this._theoryEditRoomId = null;
+      this.showToast(t('raumGespeichert'));
+      this.showTheoryView();
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+  },
+
+  deleteTheoryRoom: async function(roomId) {
+    if (!confirm(t('loeschen') + '?')) return;
+    try {
+      await ApiClient.del('/api/theory/rooms/' + roomId);
+      this.showToast(t('raumGeloescht'));
+      this.showTheoryView();
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+  },
+
+  saveTheoryRotation: async function() {
+    var selectedDays = [];
+    document.querySelectorAll('.theory-day-check.selected').forEach(function(el) {
+      selectedDays.push(parseInt(el.getAttribute('data-day')));
+    });
+    if (selectedDays.length === 0) { this.showToast(t('wochentag') + '!'); return; }
+    var startTime = document.getElementById('theory-rot-start').value;
+    var endTime = document.getElementById('theory-rot-end').value;
+    var startTopic = parseInt(document.getElementById('theory-rot-topic').value) || 1;
+    var roomSelect = document.getElementById('theory-rot-room');
+    var roomId = roomSelect ? roomSelect.value : null;
+    if (!roomId) { this.showToast(t('raum') + '!'); return; }
+    try {
+      var result = await ApiClient.post('/api/theory/rotation', {
+        room_id: roomId,
+        days: selectedDays,
+        start_time: startTime,
+        end_time: endTime,
+        start_topic_number: startTopic
+      });
+      this.showToast(t('rotationGespeichert') + ' - ' + result.generated + ' ' + t('termineGeneriert'));
+      this.showTheoryView();
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+  },
+
+  // ── Theory Detail Modal ──
+  openTheoryDetail: async function(scheduleId) {
+    var self = this;
+    try {
+      var schedule = await ApiClient.get('/api/theory/schedule');
+      var item = null;
+      for (var i = 0; i < schedule.length; i++) {
+        if (schedule[i].id === scheduleId) { item = schedule[i]; break; }
+      }
+      if (!item) { this.showToast(t('fehler')); return; }
+
+      var instructors = [];
+      try {
+        var instData = await ApiClient.get('/api/school/instructors');
+        instructors = instData.instructors || [];
+      } catch(e) {}
+
+      var topic = item.theory_topics || {};
+      var room = item.theory_rooms || {};
+
+      var html = '<div class="theory-detail-header">' +
+        '<div class="theory-detail-topic-num">' + (topic.topic_number || '?') + '</div>' +
+        '<div class="theory-detail-info"><h4>' + (topic.title || '') + '</h4>' +
+        '<p>' + (topic.is_basic ? t('grundstoff') : t('zusatzstoff')) + '</p></div></div>';
+
+      html += '<div class="theory-detail-row"><span class="theory-detail-label">' + t('datum') + '</span><span class="theory-detail-value">' + item.date + '</span></div>';
+      html += '<div class="theory-detail-row"><span class="theory-detail-label">' + t('start') + ' - ' + t('ende') + '</span><span class="theory-detail-value">' + item.start_time + ' - ' + item.end_time + '</span></div>';
+      html += '<div class="theory-detail-row"><span class="theory-detail-label">' + t('raum') + '</span><span class="theory-detail-value">' + (room.name || '-') + ' (' + (room.seat_limit || '-') + ' ' + t('sitzplaetze') + ')</span></div>';
+
+      // Instructor assignment
+      html += '<div class="theory-assign-row">';
+      html += '<label class="form-label" style="margin:0;">' + t('fahrlehrerZuweisen') + ':</label>';
+      html += '<select class="form-select" id="theory-assign-instructor">';
+      html += '<option value="">' + t('keinFahrlehrer') + '</option>';
+      instructors.forEach(function(inst) {
+        html += '<option value="' + inst.id + '"' + (item.instructor_id === inst.id ? ' selected' : '') + '>' + inst.name + '</option>';
+      });
+      html += '</select>';
+      html += '<button class="btn btn-primary btn-sm" onclick="App.assignTheoryInstructor(\'' + scheduleId + '\')">' + t('speichern') + '</button>';
+      html += '</div>';
+
+      // Attendance section
+      var isPast = new Date(item.date) < new Date();
+      html += '<div class="theory-attendance-section">';
+      html += '<div class="theory-attendance-header"><span class="section-title" style="margin:0;">' + t('anwesenheit') + '</span>';
+      html += '<span class="theory-attendance-counter" id="theory-att-counter">-</span></div>';
+
+      if (!isPast) {
+        html += '<p class="text-sm text-muted">' + t('anwesenheitNachUnterricht') + '</p>';
+      }
+
+      // Load students for attendance
+      html += '<div class="theory-attendance-list" id="theory-attendance-list"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>';
+
+      if (isPast || AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor') {
+        html += '<button class="btn btn-primary" style="margin-top:var(--space-3);width:100%;" onclick="App.saveTheoryAttendance(\'' + scheduleId + '\')">' + t('anwesenheitSpeichern') + '</button>';
+      }
+      html += '</div>';
+
+      this.openModal(t('theorieDetail'), html);
+
+      // Load attendance data
+      this._loadTheoryAttendance(scheduleId);
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+  },
+
+  _loadTheoryAttendance: async function(scheduleId) {
+    try {
+      var students = await ApiClient.get('/api/theory/students');
+      var attendance = await ApiClient.get('/api/theory/attendance/' + scheduleId);
+      var attMap = {};
+      (attendance || []).forEach(function(a) { attMap[a.student_id] = a.is_present; });
+
+      var list = document.getElementById('theory-attendance-list');
+      if (!list) return;
+      var html = '';
+      var presentCount = 0;
+      (students || []).forEach(function(st) {
+        var checked = attMap[st.id] === true;
+        if (checked) presentCount++;
+        html += '<div class="theory-attendance-item">' +
+          '<label><input type="checkbox" data-student-id="' + st.id + '"' + (checked ? ' checked' : '') +
+          ' onchange="App._updateTheoryAttCounter()"> ' + st.name + '</label>' +
+          '<span class="text-xs text-muted">' + t('klasse') + ' ' + (st.license_class || '-') + '</span></div>';
+      });
+      list.innerHTML = html;
+      var counter = document.getElementById('theory-att-counter');
+      if (counter) counter.textContent = presentCount + '/' + students.length + ' ' + t('anwesend');
+    } catch(e) {}
+  },
+
+  _updateTheoryAttCounter: function() {
+    var checks = document.querySelectorAll('#theory-attendance-list input[type="checkbox"]');
+    var total = checks.length;
+    var present = 0;
+    checks.forEach(function(cb) { if (cb.checked) present++; });
+    var counter = document.getElementById('theory-att-counter');
+    if (counter) counter.textContent = present + '/' + total + ' ' + t('anwesend');
+  },
+
+  saveTheoryAttendance: async function(scheduleId) {
+    var checks = document.querySelectorAll('#theory-attendance-list input[type="checkbox"]');
+    var attendance = [];
+    checks.forEach(function(cb) {
+      attendance.push({ student_id: cb.getAttribute('data-student-id'), is_present: cb.checked });
+    });
+    try {
+      await ApiClient.post('/api/theory/attendance/' + scheduleId, { attendance: attendance });
+      this.showToast(t('anwesenheitGespeichert'));
+      this.closeModalForce();
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+  },
+
+  assignTheoryInstructor: async function(scheduleId) {
+    var select = document.getElementById('theory-assign-instructor');
+    var instructorId = select ? select.value : null;
+    try {
+      await ApiClient.put('/api/theory/schedule/' + scheduleId, { instructor_id: instructorId || null });
+      this.showToast(t('speichern') + '!');
+      this.closeModalForce();
+      // Refresh current view
+      if (AppState.currentUser.role === 'school') {
+        var activeTab = document.querySelector('#school-nav .bottom-nav-item.active');
+        var tab = activeTab ? activeTab.getAttribute('data-tab') : 'schedule';
+        if (tab === 'schedule') this.renderSchoolScheduleTab();
+        else if (tab === 'theory') this.showTheoryView();
+      }
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+  },
+
+  // ── Theory Progress in Student Detail ──
+  renderTheoryProgress: async function(studentId) {
+    var container = document.getElementById('theory-progress-container');
+    if (!container) return;
+    try {
+      var progress = await ApiClient.get('/api/theory/progress/' + studentId);
+      var attended = progress.attended || [];
+      var html = '<div class="theory-progress-grid">';
+      for (var i = 1; i <= 14; i++) {
+        var isAttended = attended.indexOf(i) !== -1;
+        html += '<div class="theory-progress-box' + (isAttended ? ' attended' : '') + '">' +
+          '<span class="topic-num">' + i + '</span>' +
+          (isAttended ? '<span class="topic-check">\u2713</span>' : '') +
+          '</div>';
+      }
+      html += '</div>';
+      html += '<div class="theory-progress-summary">' + t('themenAbsolviert', { x: attended.length, y: 14 }) + '</div>';
+      container.innerHTML = html;
+    } catch(e) {
+      container.innerHTML = '<p class="text-sm text-muted">' + t('fehler') + '</p>';
+    }
   },
 
   renderSchoolInstructorsTab: async function() {
@@ -2226,6 +2613,29 @@ var App = {
     }
 
     var slots = AppState.scheduleData.slots || [];
+
+    // Fetch theory schedule for this week (instructor sees assigned blocks)
+    try {
+      var theoryScheduleInst = await ApiClient.get('/api/theory/schedule?week_start=' + wsStr);
+      var instId = inst.id;
+      (theoryScheduleInst || []).forEach(function(ts) {
+        if (ts.instructor_id === instId) {
+          slots.push({
+            id: ts.id,
+            date: ts.date,
+            start_time: ts.start_time,
+            end_time: ts.end_time,
+            slot_type: 'theory',
+            theory_topic_number: ts.theory_topics ? ts.theory_topics.topic_number : '?',
+            theory_topic_title: ts.theory_topics ? ts.theory_topics.title : '',
+            instructor_id: ts.instructor_id,
+            instructor_name: ts.instructor_name,
+            status: ts.status
+          });
+        }
+      });
+    } catch(e) {}
+
     var selectedDay = AppState.scheduleSelectedDay || 0;
     if (selectedDay >= w.days.length) selectedDay = 0;
     var selectedDate = w.days[selectedDay];
@@ -2292,16 +2702,24 @@ var App = {
           var isBlock = slot.slot_type === 'block';
           var isUnconfirmed = !isBlock && slot.confirmed === false;
           var isRecurring = !isBlock && slot.notes && slot.notes.indexOf('[recurring:') !== -1;
+          var isTheory = slot.slot_type === 'theory';
+          var isUnconfirmed = !isBlock && !isTheory && slot.confirmed === false;
           var statusCls = 'schedule-slot-card schedule-slot-' + slot.status;
           if (isBlock) statusCls = 'schedule-slot-card';
+          if (isTheory) statusCls = 'schedule-slot-card';
           if (isUnconfirmed) statusCls += ' slot-unconfirmed-card';
           var clickAction;
-          if (isBlock) {
+          if (isTheory) {
+            clickAction = 'App.openTheoryDetail(&quot;' + slot.id + '&quot;)';
+          } else if (isBlock) {
             clickAction = 'App.openBlockDetail(' + JSON.stringify(slot).replace(/"/g, '&quot;') + ')';
           } else {
             clickAction = 'App.openScheduleModal(null, null, ' + JSON.stringify(slot).replace(/"/g, '&quot;') + ')';
           }
-          html += '<div class="' + statusCls + '" style="' + (isBlock ? 'background:repeating-linear-gradient(-45deg,#e0e0e0,#e0e0e0 4px,#d0d0d0 4px,#d0d0d0 8px);border-left:3px solid #757575;' : '') + '" onclick="' + clickAction + '">' +
+          var cardStyle = '';
+          if (isBlock) cardStyle = 'background:repeating-linear-gradient(-45deg,#e0e0e0,#e0e0e0 4px,#d0d0d0 4px,#d0d0d0 8px);border-left:3px solid #757575;';
+          if (isTheory) cardStyle = 'border-left:3px solid var(--color-purple);background:var(--color-purple-highlight);';
+          html += '<div class="' + statusCls + '" style="' + cardStyle + '" onclick="' + clickAction + '">' +
             '<div class="schedule-slot-card-left">' +
               '<div class="schedule-slot-card-time">' + slot.start_time + '</div>' +
               '<div class="schedule-slot-card-end">' + slot.end_time + '</div>' +
@@ -2309,10 +2727,13 @@ var App = {
             '<div class="schedule-slot-card-body">' +
               '<div class="schedule-slot-card-title">' + (isBlock ? t('nichtVerfuegbar') : (slot.student_name || t('offenerBlock'))) + '</div>' +
               '<div class="schedule-slot-card-meta">' + (isBlock ? t('zeitsperre') : (tType(slot.type) + (slot.license_class ? ' \u00b7 ' + t('klasse') + ' ' + slot.license_class : '') + (isRecurring ? ' \uD83D\uDD01' : ''))) + '</div>' +
+              '<div class="schedule-slot-card-title">' + (isTheory ? t('theorieThema') + ' ' + (slot.theory_topic_number || '') : (isBlock ? t('nichtVerfuegbar') : (slot.student_name || t('offenerBlock')))) + '</div>' +
+              '<div class="schedule-slot-card-meta">' + (isTheory ? (slot.theory_topic_title || '') : (isBlock ? t('zeitsperre') : (tType(slot.type) + (slot.license_class ? ' \u00b7 ' + t('klasse') + ' ' + slot.license_class : '')))) + '</div>' +
             '</div>' +
-            (isBlock ? '<span class="badge badge-muted">' + t('zeitsperre') + '</span>' :
-              (isUnconfirmed ? '<span class="badge badge-warning">' + t('unbestaetigt') + '</span>' :
-                '<span class="badge ' + App.statusBadgeClass(slot.status) + '">' + tStatus(slot.status) + '</span>')) +
+            (isTheory ? '<span class="badge" style="background:var(--color-purple-highlight);color:var(--color-purple);">' + t('theorie') + '</span>' :
+              (isBlock ? '<span class="badge badge-muted">' + t('zeitsperre') + '</span>' :
+                (isUnconfirmed ? '<span class="badge badge-warning">' + t('unbestaetigt') + '</span>' :
+                  '<span class="badge ' + App.statusBadgeClass(slot.status) + '">' + tStatus(slot.status) + '</span>'))) +
           '</div>';
         });
         html += '</div>';
@@ -2434,6 +2855,10 @@ var App = {
           '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + pct + '%;background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></div></div></div>';
       });
       html += '</div>';
+      // ── Theory Progress Section ──
+      html += '<div class="card mb-4 theory-progress-section"><div class="section-title mb-3">' + t('theorieFortschritt') + '</div>' +
+        '<div id="theory-progress-container"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div></div>';
+
       html += '<div class="stat-grid mb-4">' +
         '<div class="stat-card"><div class="stat-card-label">' + t('fahrstunden') + '</div><div class="stat-card-value">' + lessons.length + '</div></div>' +
         '<div class="stat-card"><div class="stat-card-label">' + t('gesamtdauer') + '</div><div class="stat-card-value">' + Math.round(totalDuration / 60) + 'h</div></div></div>';
@@ -2447,6 +2872,8 @@ var App = {
           '<div class="list-item-right">' + App.skillLevelHtml(App.avgRating(l.ratings)) + '</div></div>';
       });
       html += '</div></div>'; content.innerHTML = html;
+      // Load theory progress asynchronously
+      this.renderTheoryProgress(studentId);
     } catch (err) { content.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
   },
 
