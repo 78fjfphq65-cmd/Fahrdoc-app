@@ -1054,8 +1054,8 @@ var App = {
 
     html += '<div class="form-group mb-3"><label class="form-label">' + t('typ') + '</label>' +
       '<select class="form-select" id="schedule-type" onchange="App.onScheduleTypeChange()">';
-    SCHEDULE_TYPES.forEach(function(t) {
-      html += '<option value="' + t + '"' + (t === type ? ' selected' : '') + '>' + tType(t) + '</option>';
+    SCHEDULE_TYPES.forEach(function(st) {
+      html += '<option value="' + st + '"' + (st === type ? ' selected' : '') + '>' + tType(st) + '</option>';
     });
     html += '</select></div>';
 

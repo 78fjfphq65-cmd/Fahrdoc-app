@@ -339,7 +339,7 @@ var TRANSLATIONS = {
   abbrechen: { de:'Abbrechen', en:'Cancel', tr:'İptal', ar:'إلغاء', es:'Cancelar', fr:'Annuler' },
   ok: { de:'OK', en:'OK', tr:'Tamam', ar:'موافق', es:'Aceptar', fr:'OK' },
   konfliktAm: { de:'Konflikt am', en:'Conflict on', tr:'Çakışma tarihi:', ar:'تعارض في', es:'Conflicto el', fr:'Conflit le' },
-  terminOk: { de:'OK', en:'OK', tr:'Tamam', ar:'موافق', es:'OK', fr:'OK' }
+  terminOk: { de:'OK', en:'OK', tr:'Tamam', ar:'موافق', es:'OK', fr:'OK' },
   // ── Theory Planning ──
   theorie: { de:'Theorie', en:'Theory', tr:'Teori', ar:'النظري', es:'Teoría', fr:'Théorie' },
   theorieplanung: { de:'Theorie-Planung', en:'Theory Planning', tr:'Teori Planlaması', ar:'تخطيط النظري', es:'Planificación teórica', fr:'Planification théorique' },
