@@ -1474,6 +1474,29 @@
   font-size: var(--text-xs);
   color: var(--color-text-muted);
 }
+.notif-item-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.notif-item-content {
+  flex: 1;
+  min-width: 0;
+}
+.notif-type-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.notif-icon-calendar { color: var(--color-primary); }
+.notif-icon-confirm { color: var(--color-success); }
+.notif-icon-delete { color: var(--color-error); }
+.notif-icon-edit { color: var(--color-warning); }
+.notif-icon-car { color: #e67e22; }
+.notif-icon-block { color: var(--color-text-muted); }
+.notif-icon-bell { color: var(--color-primary); }
+.notif-icon-default { color: var(--color-text-muted); }
 
 /* Notification badge on bell */
 .notif-badge {

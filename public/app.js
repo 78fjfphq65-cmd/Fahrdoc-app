@@ -775,6 +775,19 @@ var App = {
     });
   },
 
+  getNotifIcon: function(type) {
+    var icons = {
+      schedule_created: '<svg class="notif-type-icon notif-icon-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+      schedule_updated: '<svg class="notif-type-icon notif-icon-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+      schedule_deleted: '<svg class="notif-type-icon notif-icon-delete" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+      schedule_confirmed: '<svg class="notif-type-icon notif-icon-confirm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+      hu_reminder: '<svg class="notif-type-icon notif-icon-car" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 17h14v-5l-2-5H7L5 12v5z"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/></svg>',
+      timeblock_created: '<svg class="notif-type-icon notif-icon-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>',
+      lesson_reminder: '<svg class="notif-type-icon notif-icon-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>'
+    };
+    return icons[type] || '<svg class="notif-type-icon notif-icon-default" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+  },
+
   toggleNotifications: async function() {
     var existing = document.getElementById('notif-panel');
     if (existing) { existing.remove(); return; }
@@ -788,10 +801,14 @@ var App = {
       } else {
         data.notifications.forEach(function(n) {
           var cls = n.is_read ? 'notif-item' : 'notif-item notif-unread';
+          var icon = App.getNotifIcon(n.type);
           html += '<div class="' + cls + '" onclick="App.markNotifRead(\'' + n.id + '\')">' +
+            '<div class="notif-item-row">' + icon +
+            '<div class="notif-item-content">' +
             '<div class="notif-title">' + n.title + '</div>' +
             '<div class="notif-message">' + n.message + '</div>' +
-            '<div class="notif-time">' + App.timeAgo(n.created_at) + '</div></div>';
+            '<div class="notif-time">' + App.timeAgo(n.created_at) + '</div>' +
+            '</div></div></div>';
         });
       }
       html += '</div>';
@@ -2483,17 +2500,26 @@ var App = {
       if (!student) { this.showToast('Sch\u00fcler nicht gefunden'); return; }
       AppState.activeLesson = { studentId: studentId, studentName: student.name, type: type, licenseClass: licenseClass || 'B', startTime: new Date() };
       AppState.lessonStartTime = Date.now();
+      AppState.lessonPaused = false;
+      AppState.pausedDuration = 0;
+      AppState.pauseStartTime = null;
       AppState.pendingImages = [];
       this.navigate('lesson-active');
       document.getElementById('active-lesson-title').textContent = t('fahrstunden') + ' \u00b7 ' + student.name;
       document.getElementById('active-lesson-type-badge').textContent = type;
       if (AppState.lessonTimer) clearInterval(AppState.lessonTimer);
       AppState.lessonTimer = setInterval(function() {
-        var elapsed = Date.now() - AppState.lessonStartTime;
+        if (AppState.lessonPaused) return;
+        var elapsed = Date.now() - AppState.lessonStartTime - AppState.pausedDuration;
         var s = Math.floor(elapsed / 1000);
         var h = Math.floor(s / 3600); var m = Math.floor((s % 3600) / 60); var sec = s % 60;
         document.getElementById('lesson-timer').textContent = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
       }, 1000);
+      // Reset pause button
+      var pauseBtn = document.getElementById('lesson-pause-btn');
+      if (pauseBtn) pauseBtn.innerHTML = '\u23f8 ' + t('pause');
+      var overlay = document.getElementById('lesson-paused-overlay');
+      if (overlay) overlay.classList.remove('visible');
       // Initialize route tracking
       this.initRouteMap();
       this.startGPS();
@@ -2503,6 +2529,9 @@ var App = {
   stopLesson: function() {
     if (confirm(t('fahrstundeAbbrechen'))) {
       if (AppState.lessonTimer) clearInterval(AppState.lessonTimer);
+      AppState.lessonPaused = false;
+      AppState.pausedDuration = 0;
+      AppState.pauseStartTime = null;
       this.cleanupRouteTracking();
       AppState.activeLesson = null; AppState.pendingImages = [];
       this.navigate('instructor-dashboard');
@@ -2512,8 +2541,14 @@ var App = {
 
   finishLesson: function() {
     if (AppState.lessonTimer) clearInterval(AppState.lessonTimer);
+    // If currently paused, finalize the pause duration
+    if (AppState.lessonPaused && AppState.pauseStartTime) {
+      AppState.pausedDuration += Date.now() - AppState.pauseStartTime;
+      AppState.pauseStartTime = null;
+    }
+    AppState.lessonPaused = false;
     this.stopGPS();
-    var elapsed = Date.now() - AppState.lessonStartTime;
+    var elapsed = Date.now() - AppState.lessonStartTime - (AppState.pausedDuration || 0);
     var durationMin = Math.max(1, Math.round(elapsed / 60000));
     AppState.activeLesson.duration = durationMin;
     // Store route data in activeLesson

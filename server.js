@@ -1216,6 +1216,13 @@ app.post('/api/schedule/blocks', authMiddleware, async (req, res) => {
       created_by_role: req.user.role, created_by_id: req.user.id
     });
 
+    // Notify admin when instructor creates a time block
+    if (req.user.role === 'instructor' && schoolId) {
+      const dayStr = new Date(date).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+      await createNotification(schoolId, 'school', 'timeblock_created',
+        'Neue Zeitsperre', req.user.name + ' hat eine Zeitsperre am ' + dayStr + ' (' + startTime + '–' + endTime + ') erstellt', id);
+    }
+
     res.json({ id, success: true });
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
@@ -1534,6 +1541,65 @@ app.post('/api/schedule/:id/confirm', authMiddleware, async (req, res) => {
 
 app.get('/api/notifications', authMiddleware, async (req, res) => {
   try {
+    // For school admins, auto-generate HU/inspection reminders for vehicles due within 30 days
+    if (req.user.role === 'school') {
+      try {
+        const { data: vehicles } = await supabase.from('vehicles')
+          .select('id, brand, license_plate, hu_au_date')
+          .eq('school_id', req.user.id);
+        if (vehicles) {
+          const now = new Date();
+          const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+          const monthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+          for (const v of vehicles) {
+            if (!v.hu_au_date) continue;
+            const huDate = new Date(v.hu_au_date);
+            if (huDate <= in30 && huDate >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)) {
+              // Check if reminder already sent this month for this vehicle
+              const { data: existing } = await supabase.from('notifications')
+                .select('id')
+                .eq('user_id', req.user.id)
+                .eq('type', 'hu_reminder')
+                .eq('reference_id', v.id + '_' + monthKey)
+                .maybeSingle();
+              if (!existing) {
+                const huStr = new Date(v.hu_au_date).toLocaleDateString('de-DE');
+                await createNotification(req.user.id, 'school', 'hu_reminder',
+                  'HU/AU fällig: ' + (v.brand || '') + ' ' + (v.license_plate || ''),
+                  'HU/AU-Termin am ' + huStr + '. Bitte Werkstatttermin vereinbaren.',
+                  v.id + '_' + monthKey);
+              }
+            }
+          }
+        }
+      } catch (e) { /* ignore HU check errors */ }
+
+      // Auto-generate reminders for upcoming scheduled lessons (tomorrow) for instructors
+      try {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+        const { data: tomorrowLessons } = await supabase.from('scheduled_lessons')
+          .select('id, instructor_id, student_id, start_time, type, students(name)')
+          .eq('school_id', req.user.id)
+          .eq('date', tomorrowStr);
+        if (tomorrowLessons) {
+          for (const lesson of tomorrowLessons) {
+            const reminderKey = lesson.id + '_reminder_' + tomorrowStr;
+            const { data: existing } = await supabase.from('notifications')
+              .select('id').eq('reference_id', reminderKey).maybeSingle();
+            if (!existing && lesson.instructor_id) {
+              const studentName = lesson.students ? lesson.students.name : 'Fahrschüler';
+              await createNotification(lesson.instructor_id, 'instructor', 'lesson_reminder',
+                'Fahrstunde morgen',
+                lesson.type + ' mit ' + studentName + ' um ' + lesson.start_time,
+                reminderKey);
+            }
+          }
+        }
+      } catch (e) { /* ignore reminder errors */ }
+    }
+
     const { data: notifs } = await supabase.from('notifications')
       .select('*')
       .eq('user_id', req.user.id).eq('user_role', req.user.role)

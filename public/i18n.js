@@ -299,9 +299,10 @@ var TRANSLATIONS = {
   passwortGeaendert: { de:'Passwort erfolgreich geändert', en:'Password changed successfully' },
   passwortFalsch: { de:'Aktuelles Passwort ist falsch', en:'Current password is incorrect' },
   passwortZuKurz: { de:'Passwort muss mindestens 6 Zeichen haben', en:'Password must be at least 6 characters' },
-  pause: { de:'Pause', en:'Pause' },
-  fortsetzen: { de:'Fortsetzen', en:'Resume' },
-  pausiert: { de:'PAUSIERT', en:'PAUSED' },
+  pause: { de:'Pause', en:'Pause', tr:'Duraklat', ar:'إيقاف مؤقت', es:'Pausa', fr:'Pause' },
+  fortsetzen: { de:'Fortsetzen', en:'Resume', tr:'Devam et', ar:'استئناف', es:'Reanudar', fr:'Reprendre' },
+  pausiert: { de:'PAUSIERT', en:'PAUSED', tr:'DURAKLATILDI', ar:'متوقف مؤقتاً', es:'EN PAUSA', fr:'EN PAUSE' },
+  beenden: { de:'Beenden', en:'End', tr:'Bitir', ar:'إنهاء', es:'Finalizar', fr:'Terminer' },
 
   // ── Time Blocks (Zeitsperren) ──
   zeitsperre: { de:'Zeitsperre', en:'Time block', tr:'Zaman engeli', ar:'حظر الوقت', es:'Bloqueo de tiempo', fr:'Blocage horaire' },
