@@ -2177,6 +2177,232 @@ app.get('/api/school/vehicles/bookings', authMiddleware, async (req, res) => {
 });
 
 // ============================================
+// RECURRING LESSONS
+// ============================================
+
+// Check conflicts for recurring lesson dates
+app.post('/api/recurring-lessons/check-conflicts', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role === 'student') return res.status(403).json({ error: 'Kein Zugriff' });
+    const { instructorId, studentId, vehicleId, date, startTime, endTime, frequency, end_date } = req.body;
+    if (!date || !startTime || !endTime || !frequency || !end_date) {
+      return res.status(400).json({ error: 'Alle Felder erforderlich' });
+    }
+
+    // Generate all dates in the series
+    const dates = [];
+    const start = new Date(date);
+    const end = new Date(end_date);
+    const step = frequency === 'biweekly' ? 14 : 7;
+    let current = new Date(start);
+    while (current <= end) {
+      dates.push(current.toISOString().split('T')[0]);
+      current.setDate(current.getDate() + step);
+    }
+
+    const targetInstructorId = instructorId || req.user.id;
+    const results = [];
+
+    for (const d of dates) {
+      const conflicts = [];
+
+      // Check instructor overlap
+      const { data: instOverlaps } = await supabase.from('scheduled_lessons')
+        .select('id').eq('instructor_id', targetInstructorId).eq('date', d)
+        .lt('start_time', endTime).gt('end_time', startTime);
+      if (instOverlaps && instOverlaps.length > 0) {
+        conflicts.push('instructor');
+      }
+
+      // Check vehicle overlap
+      if (vehicleId) {
+        const { data: vehOverlaps } = await supabase.from('scheduled_lessons')
+          .select('id').eq('vehicle_id', vehicleId).eq('date', d)
+          .lt('start_time', endTime).gt('end_time', startTime);
+        if (vehOverlaps && vehOverlaps.length > 0) {
+          conflicts.push('vehicle');
+        }
+      }
+
+      results.push({ date: d, conflicts: conflicts, ok: conflicts.length === 0 });
+    }
+
+    res.json({ dates: results });
+  } catch (err) {
+    console.error('[Recurring] Conflict check error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Create recurring lessons
+app.post('/api/recurring-lessons', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role === 'student') return res.status(403).json({ error: 'Kein Zugriff' });
+    const { instructorId, studentId, vehicleId, date, startTime, endTime, type, licenseClass, notes, frequency, end_date, skipConflicts } = req.body;
+    if (!date || !startTime || !endTime || !frequency || !end_date) {
+      return res.status(400).json({ error: 'Alle Felder erforderlich' });
+    }
+
+    let targetInstructorId = instructorId;
+    let schoolId;
+    if (req.user.role === 'instructor') {
+      targetInstructorId = req.user.id;
+      schoolId = req.user.school_id;
+    } else if (req.user.role === 'school') {
+      if (!targetInstructorId) return res.status(400).json({ error: 'Fahrlehrer-ID erforderlich' });
+      schoolId = req.user.id;
+    }
+
+    // Generate all dates
+    const dates = [];
+    const start = new Date(date);
+    const end = new Date(end_date);
+    const step = frequency === 'biweekly' ? 14 : 7;
+    let current = new Date(start);
+    while (current <= end) {
+      dates.push(current.toISOString().split('T')[0]);
+      current.setDate(current.getDate() + step);
+    }
+
+    // Create a recurring group
+    const groupId = generateId();
+    const dayOfWeek = new Date(date).getDay();
+
+    // Try to create recurring_groups table entry (table may need to be created first)
+    try {
+      await supabase.from('recurring_groups').insert({
+        id: groupId, school_id: schoolId, instructor_id: targetInstructorId,
+        student_id: studentId || null, vehicle_id: vehicleId || null,
+        license_class: licenseClass || 'B', day_of_week: dayOfWeek,
+        time: startTime, frequency: frequency, start_date: date, end_date: end_date
+      });
+    } catch (e) {
+      // Table may not exist yet — continue without group tracking
+      console.log('[Recurring] recurring_groups insert skipped:', e.message);
+    }
+
+    // Status logic
+    let status;
+    if (req.user.role === 'instructor') {
+      status = studentId ? 'bestätigt' : 'offen';
+    } else {
+      status = 'geplant';
+    }
+
+    const created = [];
+    const skipped = [];
+
+    for (const d of dates) {
+      // Check for conflicts if skipConflicts is true
+      if (skipConflicts) {
+        const { data: overlaps } = await supabase.from('scheduled_lessons')
+          .select('id').eq('instructor_id', targetInstructorId).eq('date', d)
+          .lt('start_time', endTime).gt('end_time', startTime);
+        if (overlaps && overlaps.length > 0) {
+          skipped.push(d);
+          continue;
+        }
+        if (vehicleId) {
+          const { data: vehOverlaps } = await supabase.from('scheduled_lessons')
+            .select('id').eq('vehicle_id', vehicleId).eq('date', d)
+            .lt('start_time', endTime).gt('end_time', startTime);
+          if (vehOverlaps && vehOverlaps.length > 0) {
+            skipped.push(d);
+            continue;
+          }
+        }
+      }
+
+      const id = generateId();
+      const { error: insertErr } = await supabase.from('scheduled_lessons').insert({
+        id, instructor_id: targetInstructorId, school_id: schoolId,
+        student_id: studentId || null, date: d, start_time: startTime, end_time: endTime,
+        type: type || 'Übungsfahrt', license_class: licenseClass || 'B',
+        status, notes: (notes || '') + (notes ? ' ' : '') + '[recurring:' + groupId + ']',
+        vehicle_id: vehicleId || null,
+        created_by_role: req.user.role, created_by_id: req.user.id
+      });
+      if (!insertErr) {
+        created.push(d);
+      } else {
+        skipped.push(d);
+      }
+    }
+
+    if (req.user.role === 'school' && created.length > 0) {
+      await createNotification(targetInstructorId, 'instructor', 'schedule_created',
+        'Neue Terminserie', created.length + ' wiederkehrende Termine erstellt ab ' + date, groupId);
+    }
+
+    res.json({ success: true, groupId, created: created.length, skipped: skipped.length, createdDates: created, skippedDates: skipped });
+  } catch (err) {
+    console.error('[Recurring] Create error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Delete recurring lesson(s)
+app.delete('/api/recurring-lessons/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role === 'student') return res.status(403).json({ error: 'Kein Zugriff' });
+
+    const lessonId = req.params.id;
+    const scope = req.query.scope || 'single'; // 'single' or 'future'
+
+    // Get the lesson to find its recurring group
+    const { data: lesson } = await supabase.from('scheduled_lessons')
+      .select('*').eq('id', lessonId).single();
+    if (!lesson) return res.status(404).json({ error: 'Termin nicht gefunden' });
+
+    // Check authorization
+    let schoolId;
+    if (req.user.role === 'instructor') {
+      if (lesson.instructor_id !== req.user.id) return res.status(403).json({ error: 'Kein Zugriff' });
+      schoolId = req.user.school_id;
+    } else {
+      schoolId = req.user.id;
+      if (lesson.school_id !== schoolId) return res.status(403).json({ error: 'Kein Zugriff' });
+    }
+
+    if (scope === 'single') {
+      // Just delete this one lesson
+      await supabase.from('scheduled_lessons').delete().eq('id', lessonId);
+      res.json({ success: true, deleted: 1 });
+    } else if (scope === 'future') {
+      // Extract recurring group ID from notes
+      const notes = lesson.notes || '';
+      const match = notes.match(/\[recurring:([^\]]+)\]/);
+      if (!match) {
+        // No group — just delete this single lesson
+        await supabase.from('scheduled_lessons').delete().eq('id', lessonId);
+        return res.json({ success: true, deleted: 1 });
+      }
+      const groupId = match[1];
+      // Find all lessons in this group on or after this date
+      const { data: groupLessons } = await supabase.from('scheduled_lessons')
+        .select('id, notes')
+        .eq('school_id', schoolId)
+        .gte('date', lesson.date)
+        .like('notes', '%[recurring:' + groupId + ']%');
+
+      let deleted = 0;
+      if (groupLessons) {
+        for (const gl of groupLessons) {
+          await supabase.from('scheduled_lessons').delete().eq('id', gl.id);
+          deleted++;
+        }
+      }
+      res.json({ success: true, deleted });
+    } else {
+      res.status(400).json({ error: 'Ungültiger Scope' });
+    }
+  } catch (err) {
+    console.error('[Recurring] Delete error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// ============================================
 // FALLBACK: SPA
 // ============================================
 app.get('*', (req, res) => {

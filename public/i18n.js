@@ -316,7 +316,30 @@ var TRANSLATIONS = {
 
   // ── Confirmation ──
   unbestaetigt: { de:'Unbestätigt', en:'Unconfirmed', tr:'Onaylanmamış', ar:'غير مؤكد', es:'Sin confirmar', fr:'Non confirmé' },
-  wartaufBestaetigung: { de:'Wartet auf Bestätigung', en:'Awaiting confirmation', tr:'Onay bekleniyor', ar:'في انتظار التأكيد', es:'Pendiente de confirmación', fr:'En attente de confirmation' }
+  wartaufBestaetigung: { de:'Wartet auf Bestätigung', en:'Awaiting confirmation', tr:'Onay bekleniyor', ar:'في انتظار التأكيد', es:'Pendiente de confirmación', fr:'En attente de confirmation' },
+
+  // ── Recurring Appointments (Wiederkehrende Termine) ──
+  wiederkehrend: { de:'Wiederkehrend', en:'Recurring', tr:'Tekrarlayan', ar:'متكرر', es:'Recurrente', fr:'Récurrent' },
+  haeufigkeit: { de:'Häufigkeit', en:'Frequency', tr:'Sıklık', ar:'التكرار', es:'Frecuencia', fr:'Fréquence' },
+  woechentlich: { de:'Wöchentlich', en:'Weekly', tr:'Haftalık', ar:'أسبوعي', es:'Semanal', fr:'Hebdomadaire' },
+  alleZweiWochen: { de:'Alle 2 Wochen', en:'Every 2 weeks', tr:'2 haftada bir', ar:'كل أسبوعين', es:'Cada 2 semanas', fr:'Toutes les 2 semaines' },
+  enddatum: { de:'Enddatum', en:'End date', tr:'Bitiş tarihi', ar:'تاريخ الانتهاء', es:'Fecha de fin', fr:'Date de fin' },
+  konflikteGefunden: { de:'Konflikte gefunden', en:'Conflicts found', tr:'Çakışmalar bulundu', ar:'تم العثور على تعارضات', es:'Conflictos encontrados', fr:'Conflits trouvés' },
+  keineKonflikte: { de:'Keine Konflikte', en:'No conflicts', tr:'Çakışma yok', ar:'لا تعارضات', es:'Sin conflictos', fr:'Aucun conflit' },
+  konfliktFahrlehrer: { de:'Fahrlehrer belegt', en:'Instructor busy', tr:'Eğitmen meşgul', ar:'المدرب مشغول', es:'Instructor ocupado', fr:'Moniteur occupé' },
+  konfliktFahrzeug: { de:'Fahrzeug belegt', en:'Vehicle busy', tr:'Araç meşgul', ar:'المركبة مشغولة', es:'Vehículo ocupado', fr:'Véhicule occupé' },
+  konfliktePruefen: { de:'Konflikte prüfen...', en:'Checking conflicts...', tr:'Çakışmalar kontrol ediliyor...', ar:'جارٍ التحقق من التعارضات...', es:'Comprobando conflictos...', fr:'Vérification des conflits...' },
+  wiederkehrendeTermineErstellt: { de:'Wiederkehrende Termine erstellt', en:'Recurring appointments created', tr:'Tekrarlayan randevular oluşturuldu', ar:'تم إنشاء المواعيد المتكررة', es:'Citas recurrentes creadas', fr:'Rendez-vous récurrents créés' },
+  termineErstellt: { de:'{count} Termine erstellt', en:'{count} appointments created', tr:'{count} randevu oluşturuldu', ar:'تم إنشاء {count} مواعيد', es:'{count} citas creadas', fr:'{count} rendez-vous créés' },
+  termineUebersprungen: { de:'{count} übersprungen (Konflikte)', en:'{count} skipped (conflicts)', tr:'{count} atlandı (çakışmalar)', ar:'{count} تم تخطيه (تعارضات)', es:'{count} omitidas (conflictos)', fr:'{count} ignorés (conflits)' },
+  nurDiesenTermin: { de:'Nur diesen Termin löschen', en:'Delete only this appointment', tr:'Yalnızca bu randevuyu sil', ar:'حذف هذا الموعد فقط', es:'Eliminar solo esta cita', fr:'Supprimer uniquement ce rendez-vous' },
+  diesenUndFolgende: { de:'Diesen und alle folgenden löschen', en:'Delete this and all following', tr:'Bunu ve sonrakileri sil', ar:'حذف هذا وجميع التالية', es:'Eliminar esta y las siguientes', fr:'Supprimer celui-ci et tous les suivants' },
+  wiederkehrenderTermin: { de:'Wiederkehrender Termin', en:'Recurring appointment', tr:'Tekrarlayan randevu', ar:'موعد متكرر', es:'Cita recurrente', fr:'Rendez-vous récurrent' },
+  serieLoeschen: { de:'Serie löschen', en:'Delete series', tr:'Seriyi sil', ar:'حذف السلسلة', es:'Eliminar serie', fr:'Supprimer la série' },
+  abbrechen: { de:'Abbrechen', en:'Cancel', tr:'İptal', ar:'إلغاء', es:'Cancelar', fr:'Annuler' },
+  ok: { de:'OK', en:'OK', tr:'Tamam', ar:'موافق', es:'Aceptar', fr:'OK' },
+  konfliktAm: { de:'Konflikt am', en:'Conflict on', tr:'Çakışma tarihi:', ar:'تعارض في', es:'Conflicto el', fr:'Conflit le' },
+  terminOk: { de:'OK', en:'OK', tr:'Tamam', ar:'موافق', es:'OK', fr:'OK' }
 };
 
 // ── Day names by language ──

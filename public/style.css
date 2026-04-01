@@ -2868,3 +2868,21 @@ html[dir="rtl"] .notif-panel {
 /* ══ Change Password Section ══ */
 .change-password-card{background:var(--bg-secondary);border-radius:12px;padding:20px;margin-top:20px}
 .change-password-card h4{margin:0 0 16px 0;font-size:var(--text-base);font-weight:600}
+
+/* ══ Recurring Appointments ══ */
+.recurring-toggle{display:flex;align-items:center;gap:8px;padding:10px 0;cursor:pointer;user-select:none}
+.recurring-toggle input[type="checkbox"]{width:18px;height:18px;accent-color:var(--color-primary);cursor:pointer}
+.recurring-toggle label{font-size:var(--text-sm);font-weight:500;cursor:pointer;color:var(--color-text)}
+.recurring-options{display:none;background:var(--bg-secondary);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;border:1px solid var(--color-border)}
+.recurring-options.visible{display:block}
+.recurring-conflicts{margin-top:10px;max-height:180px;overflow-y:auto;font-size:var(--text-sm)}
+.recurring-conflict-item{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--color-border)}
+.recurring-conflict-item:last-child{border-bottom:none}
+.recurring-conflict-ok{color:#16a34a;font-weight:500}
+.recurring-conflict-bad{color:#dc2626;font-weight:500}
+.recurring-badge{display:inline-flex;align-items:center;font-size:10px;margin-left:4px;opacity:0.7}
+.recurring-delete-popup{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center}
+.recurring-delete-dialog{background:var(--bg-primary);border-radius:var(--radius-md);padding:24px;max-width:360px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2)}
+.recurring-delete-dialog h4{margin:0 0 16px 0;font-size:var(--text-base);font-weight:600}
+.recurring-delete-dialog .btn{width:100%;margin-bottom:8px;text-align:center}
+.recurring-delete-dialog .btn:last-child{margin-bottom:0}

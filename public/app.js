@@ -710,6 +710,7 @@ var App = {
         var isOffen = !slot.student_id && !isBlock;
         var pruef = !isBlock && isPruefung(slot.type);
         var isUnconfirmed = !isBlock && slot.confirmed === false;
+        var isRecurring = !isBlock && slot.notes && slot.notes.indexOf('[recurring:') !== -1;
         var isConfirmed = !isBlock && slot.confirmed !== false;
         var isAdminView = AppState.currentUser && AppState.currentUser.role === 'school';
         var clickJs;
@@ -741,7 +742,7 @@ var App = {
             html += '<div class="week-grid-slot-instructor">' + slot.instructor_name + '</div>';
           }
           html += '<div class="week-grid-slot-name">' + (slot.student_name || t('offen')) + '</div>';
-          html += '<div class="week-grid-slot-type">' + tType(slot.type) + (pruef ? ' \ud83c\udfc1' : '') + (isUnconfirmed ? ' \u231b' : '') + '</div>';
+          html += '<div class="week-grid-slot-type">' + tType(slot.type) + (pruef ? ' \ud83c\udfc1' : '') + (isUnconfirmed ? ' \u231b' : '') + (isRecurring ? ' <span class="recurring-badge">\uD83D\uDD01</span>' : '') + '</div>';
         } else {
           html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + (slot.instructor_name || slot.student_name || slot.type) + '</div>';
         }
@@ -862,6 +863,36 @@ var App = {
     // Admin creating for instructor
     var instSel = document.getElementById('schedule-instructor-select');
     if (instSel && instSel.value) slotData.instructorId = instSel.value;
+
+    // Check if recurring is enabled
+    var recurringCb = document.getElementById('schedule-recurring');
+    if (recurringCb && recurringCb.checked) {
+      var frequency = document.getElementById('recurring-frequency').value;
+      var endDate = document.getElementById('recurring-end-date').value;
+      if (!endDate) {
+        this.showToast(t('fehler') + ': ' + t('enddatum'));
+        return;
+      }
+      slotData.frequency = frequency;
+      slotData.end_date = endDate;
+      slotData.skipConflicts = true;
+      try {
+        this.showLoading(true);
+        var result = await ApiClient.post('/api/recurring-lessons', slotData);
+        this.closeModalForce();
+        var msg = t('termineErstellt', { count: result.created || 0 });
+        if (result.skipped > 0) {
+          msg += ' | ' + t('termineUebersprungen', { count: result.skipped });
+        }
+        this.showToast(msg);
+        AppState.scheduleData = null;
+        if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
+        else this.renderSchoolScheduleTab();
+      } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
+      finally { this.showLoading(false); }
+      return;
+    }
+
     try {
       this.showLoading(true);
       await ApiClient.post('/api/schedule', slotData);
@@ -1044,6 +1075,24 @@ var App = {
     html += '<div class="form-group mb-3"><label class="form-label">' + t('notizen') + '</label>' +
       '<textarea class="form-textarea" id="schedule-notes" placeholder="' + t('optional') + '">' + notes + '</textarea></div>';
 
+    // Recurring toggle (only for new appointments, not edits)
+    if (!isEdit) {
+      html += '<div class="recurring-toggle">' +
+        '<input type="checkbox" id="schedule-recurring" onchange="App.toggleRecurring()">' +
+        '<label for="schedule-recurring">\uD83D\uDD01 ' + t('wiederkehrend') + '</label>' +
+      '</div>';
+      html += '<div id="recurring-options" class="recurring-options">' +
+        '<div class="form-group mb-3"><label class="form-label">' + t('haeufigkeit') + '</label>' +
+          '<select class="form-select" id="recurring-frequency" onchange="App.checkRecurringConflicts()">' +
+            '<option value="weekly">' + t('woechentlich') + '</option>' +
+            '<option value="biweekly">' + t('alleZweiWochen') + '</option>' +
+          '</select></div>' +
+        '<div class="form-group mb-3"><label class="form-label">' + t('enddatum') + '</label>' +
+          '<input class="form-input" type="date" id="recurring-end-date" value="' + this.getDefaultRecurringEnd(date) + '" onchange="App.checkRecurringConflicts()"></div>' +
+        '<div id="recurring-conflicts" class="recurring-conflicts"></div>' +
+      '</div>';
+    }
+
     if (isEdit) {
       // Show unconfirmed banner if applicable
       if (editSlot.confirmed === false) {
@@ -1055,7 +1104,12 @@ var App = {
       if (editSlot.status === 'geplant' || editSlot.confirmed === false) {
         html += '<button type="button" class="btn btn-success flex-1" onclick="App.confirmScheduleSlot(\'' + editSlot.id + '\')">'+t('bestaetigenBtn')+'</button>';
       }
-      html += '<button type="button" class="btn btn-danger" onclick="App.deleteScheduleSlot(\'' + editSlot.id + '\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+      var isRecurringSlot = editSlot.notes && editSlot.notes.indexOf('[recurring:') !== -1;
+      if (isRecurringSlot) {
+        html += '<button type="button" class="btn btn-danger" onclick="App.showRecurringDeleteOptions(\'' + editSlot.id + '\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+      } else {
+        html += '<button type="button" class="btn btn-danger" onclick="App.deleteScheduleSlot(\'' + editSlot.id + '\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+      }
       html += '</div>';
       // "Fahrstunde starten" button for instructor when student is assigned
       if (AppState.currentUser && AppState.currentUser.role === 'instructor' && editSlot.student_id) {
@@ -2237,6 +2291,7 @@ var App = {
         daySlots.forEach(function(slot) {
           var isBlock = slot.slot_type === 'block';
           var isUnconfirmed = !isBlock && slot.confirmed === false;
+          var isRecurring = !isBlock && slot.notes && slot.notes.indexOf('[recurring:') !== -1;
           var statusCls = 'schedule-slot-card schedule-slot-' + slot.status;
           if (isBlock) statusCls = 'schedule-slot-card';
           if (isUnconfirmed) statusCls += ' slot-unconfirmed-card';
@@ -2253,7 +2308,7 @@ var App = {
             '</div>' +
             '<div class="schedule-slot-card-body">' +
               '<div class="schedule-slot-card-title">' + (isBlock ? t('nichtVerfuegbar') : (slot.student_name || t('offenerBlock'))) + '</div>' +
-              '<div class="schedule-slot-card-meta">' + (isBlock ? t('zeitsperre') : (tType(slot.type) + (slot.license_class ? ' \u00b7 ' + t('klasse') + ' ' + slot.license_class : ''))) + '</div>' +
+              '<div class="schedule-slot-card-meta">' + (isBlock ? t('zeitsperre') : (tType(slot.type) + (slot.license_class ? ' \u00b7 ' + t('klasse') + ' ' + slot.license_class : '') + (isRecurring ? ' \uD83D\uDD01' : ''))) + '</div>' +
             '</div>' +
             (isBlock ? '<span class="badge badge-muted">' + t('zeitsperre') + '</span>' :
               (isUnconfirmed ? '<span class="badge badge-warning">' + t('unbestaetigt') + '</span>' :
@@ -3507,6 +3562,131 @@ var App = {
         }
       });
     }, 100);
+  },
+
+  // ══════════════════════════════════════════
+  //  RECURRING APPOINTMENTS
+  // ══════════════════════════════════════════
+
+  getDefaultRecurringEnd: function(date) {
+    var d = new Date(date);
+    d.setDate(d.getDate() + 84); // 12 weeks
+    var yyyy = d.getFullYear();
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var dd = String(d.getDate()).padStart(2, '0');
+    return yyyy + '-' + mm + '-' + dd;
+  },
+
+  toggleRecurring: function() {
+    var cb = document.getElementById('schedule-recurring');
+    var opts = document.getElementById('recurring-options');
+    if (!cb || !opts) return;
+    if (cb.checked) {
+      opts.classList.add('visible');
+      this.checkRecurringConflicts();
+    } else {
+      opts.classList.remove('visible');
+    }
+  },
+
+  checkRecurringConflicts: async function() {
+    var conflictsDiv = document.getElementById('recurring-conflicts');
+    if (!conflictsDiv) return;
+    conflictsDiv.innerHTML = '<div style="color:var(--color-text-muted);font-size:var(--text-sm);">' + t('konfliktePruefen') + '</div>';
+
+    var date = document.getElementById('schedule-date').value;
+    var startTime = document.getElementById('schedule-start-time').value;
+    var endTime = document.getElementById('schedule-end-time').value;
+    var frequency = document.getElementById('recurring-frequency').value;
+    var endDate = document.getElementById('recurring-end-date').value;
+    if (!date || !startTime || !endTime || !endDate) return;
+
+    var data = {
+      date: date,
+      startTime: startTime,
+      endTime: endTime,
+      frequency: frequency,
+      end_date: endDate
+    };
+    var instSel = document.getElementById('schedule-instructor-select');
+    if (instSel && instSel.value) data.instructorId = instSel.value;
+    var vehicleSel = document.getElementById('schedule-vehicle');
+    if (vehicleSel && vehicleSel.value) data.vehicleId = vehicleSel.value;
+    var studentSel = document.getElementById('schedule-student');
+    if (studentSel && studentSel.value) data.studentId = studentSel.value;
+
+    try {
+      var result = await ApiClient.post('/api/recurring-lessons/check-conflicts', data);
+      var dates = result.dates || [];
+      if (dates.length === 0) {
+        conflictsDiv.innerHTML = '';
+        return;
+      }
+      var hasConflicts = false;
+      var html = '';
+      for (var i = 0; i < dates.length; i++) {
+        var item = dates[i];
+        var dateObj = new Date(item.date);
+        var dayStr = String(dateObj.getDate()).padStart(2, '0') + '.' +
+          String(dateObj.getMonth() + 1).padStart(2, '0') + '.' + dateObj.getFullYear();
+        if (item.ok) {
+          html += '<div class="recurring-conflict-item">' +
+            '<span class="recurring-conflict-ok">\u2713</span> ' + dayStr +
+          '</div>';
+        } else {
+          hasConflicts = true;
+          var reasons = [];
+          for (var j = 0; j < item.conflicts.length; j++) {
+            if (item.conflicts[j] === 'instructor') reasons.push(t('konfliktFahrlehrer'));
+            if (item.conflicts[j] === 'vehicle') reasons.push(t('konfliktFahrzeug'));
+          }
+          html += '<div class="recurring-conflict-item">' +
+            '<span class="recurring-conflict-bad">\u2717</span> ' + dayStr +
+            ' — ' + reasons.join(', ') +
+          '</div>';
+        }
+      }
+      var header = hasConflicts ?
+        '<div style="font-weight:600;margin-bottom:6px;color:#dc2626;">' + t('konflikteGefunden') + '</div>' :
+        '<div style="font-weight:600;margin-bottom:6px;color:#16a34a;">' + t('keineKonflikte') + '</div>';
+      conflictsDiv.innerHTML = header + html;
+    } catch (err) {
+      conflictsDiv.innerHTML = '<div style="color:#dc2626;">' + t('fehler') + ': ' + err.message + '</div>';
+    }
+  },
+
+  showRecurringDeleteOptions: function(id) {
+    var popup = document.createElement('div');
+    popup.className = 'recurring-delete-popup';
+    popup.id = 'recurring-delete-popup';
+    popup.innerHTML = '<div class="recurring-delete-dialog">' +
+      '<h4>' + t('wiederkehrenderTermin') + '</h4>' +
+      '<button class="btn btn-danger" onclick="App.deleteRecurringLesson(\'' + id + '\', \'single\')">' + t('nurDiesenTermin') + '</button>' +
+      '<button class="btn btn-danger" onclick="App.deleteRecurringLesson(\'' + id + '\', \'future\')">' + t('diesenUndFolgende') + '</button>' +
+      '<button class="btn btn-secondary" onclick="document.getElementById(\'recurring-delete-popup\').remove()">' + t('abbrechen') + '</button>' +
+    '</div>';
+    popup.addEventListener('click', function(e) {
+      if (e.target === popup) popup.remove();
+    });
+    document.body.appendChild(popup);
+  },
+
+  deleteRecurringLesson: async function(id, scope) {
+    var popup = document.getElementById('recurring-delete-popup');
+    if (popup) popup.remove();
+    try {
+      this.showLoading(true);
+      await ApiClient.del('/api/recurring-lessons/' + id + '?scope=' + scope);
+      this.closeModalForce();
+      this.showToast(t('terminGeloescht'));
+      AppState.scheduleData = null;
+      if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
+      else this.renderSchoolScheduleTab();
+    } catch (err) {
+      this.showToast(t('fehler') + ': ' + err.message);
+    } finally {
+      this.showLoading(false);
+    }
   }
 };
 
