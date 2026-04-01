@@ -2177,6 +2177,287 @@ app.get('/api/school/vehicles/bookings', authMiddleware, async (req, res) => {
 });
 
 // ============================================
+// THEORY PLANNING
+// ============================================
+
+// --- Theory Rooms CRUD ---
+app.get('/api/theory/rooms', authMiddleware, async (req, res) => {
+  try {
+    const schoolId = req.user.school_id || req.user.id;
+    const { data, error } = await supabase.from('theory_rooms').select('*').eq('school_id', schoolId).order('created_at');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/theory/rooms', authMiddleware, async (req, res) => {
+  try {
+    const schoolId = req.user.school_id || req.user.id;
+    const { name, seat_limit } = req.body;
+    const id = generateId();
+    const { data, error } = await supabase.from('theory_rooms').insert({ id, school_id: schoolId, name, seat_limit: seat_limit || 25 }).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/theory/rooms/:id', authMiddleware, async (req, res) => {
+  try {
+    const { name, seat_limit } = req.body;
+    const { data, error } = await supabase.from('theory_rooms').update({ name, seat_limit }).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/theory/rooms/:id', authMiddleware, async (req, res) => {
+  try {
+    const { error } = await supabase.from('theory_rooms').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Theory Topics ---
+app.get('/api/theory/topics', authMiddleware, async (req, res) => {
+  try {
+    const schoolId = req.user.school_id || req.user.id;
+    const { data, error } = await supabase.from('theory_topics').select('*').eq('school_id', schoolId).order('topic_number');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/theory/topics', authMiddleware, async (req, res) => {
+  try {
+    const schoolId = req.user.school_id || req.user.id;
+    const { data: existing } = await supabase.from('theory_topics').select('id').eq('school_id', schoolId).limit(1);
+    if (existing && existing.length > 0) return res.json({ message: 'Topics already exist' });
+    const topics = [
+      { n: 1, title: 'Persönliche Voraussetzungen / Risikofaktor Mensch', basic: true },
+      { n: 2, title: 'Rechtliche Rahmenbedingungen', basic: true },
+      { n: 3, title: 'Verkehrszeichen und Verkehrseinrichtungen', basic: true },
+      { n: 4, title: 'Straßenverkehrssystem und seine Nutzung', basic: true },
+      { n: 5, title: 'Vorfahrt', basic: true },
+      { n: 6, title: 'Verkehrsregelungen / Bahnübergänge', basic: true },
+      { n: 7, title: 'Geschwindigkeit, Abstand und umweltschonende Fahrweise', basic: true },
+      { n: 8, title: 'Andere Teilnehmer im Straßenverkehr', basic: true },
+      { n: 9, title: 'Verkehrsverhalten bei Fahrmanövern, Verkehrsbeobachtung', basic: true },
+      { n: 10, title: 'Ruhender Verkehr', basic: true },
+      { n: 11, title: 'Verhalten in besonderen Situationen', basic: true },
+      { n: 12, title: 'Lebenslanges Lernen / Folgen von Verstößen', basic: true },
+      { n: 13, title: 'Technische Bedingungen (Zusatz B)', basic: false },
+      { n: 14, title: 'Fahren mit Solokraftfahrzeugen und Zügen (Zusatz B)', basic: false }
+    ];
+    const rows = topics.map(t => ({ id: generateId(), school_id: schoolId, topic_number: t.n, title: t.title, is_basic: t.basic }));
+    const { data, error } = await supabase.from('theory_topics').insert(rows).select();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Theory Schedule ---
+app.get('/api/theory/schedule', authMiddleware, async (req, res) => {
+  try {
+    const schoolId = req.user.school_id || req.user.id;
+    const { week_start } = req.query;
+    let query = supabase.from('theory_schedule').select('*').eq('school_id', schoolId);
+    if (week_start) {
+      const ws = new Date(week_start);
+      const we = new Date(ws);
+      we.setDate(we.getDate() + 6);
+      query = query.gte('date', ws.toISOString().split('T')[0]).lte('date', we.toISOString().split('T')[0]);
+    }
+    const { data, error } = await query.order('date').order('start_time');
+    if (error) throw error;
+    // Fetch rooms and topics for enrichment
+    const { data: rooms } = await supabase.from('theory_rooms').select('id, name, seat_limit').eq('school_id', schoolId);
+    const { data: topics } = await supabase.from('theory_topics').select('id, topic_number, title, is_basic').eq('school_id', schoolId);
+    const roomMap = {};
+    (rooms || []).forEach(r => { roomMap[r.id] = r; });
+    const topicMap = {};
+    (topics || []).forEach(t => { topicMap[t.id] = t; });
+    // Enrich with instructor name, room, and topic data
+    const enriched = [];
+    for (const item of (data || [])) {
+      let instructor_name = null;
+      if (item.instructor_id) {
+        const { data: inst } = await supabase.from('instructors').select('name').eq('id', item.instructor_id).single();
+        if (inst) instructor_name = inst.name;
+      }
+      enriched.push(Object.assign({}, item, {
+        instructor_name,
+        theory_rooms: roomMap[item.room_id] || null,
+        theory_topics: topicMap[item.topic_id] || null
+      }));
+    }
+    res.json(enriched);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/theory/schedule/:id', authMiddleware, async (req, res) => {
+  try {
+    const updates = {};
+    if (req.body.instructor_id !== undefined) updates.instructor_id = req.body.instructor_id;
+    if (req.body.status !== undefined) updates.status = req.body.status;
+    if (req.body.room_id !== undefined) updates.room_id = req.body.room_id;
+    const { data, error } = await supabase.from('theory_schedule').update(updates).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Theory Rotation ---
+app.get('/api/theory/rotation', authMiddleware, async (req, res) => {
+  try {
+    const schoolId = req.user.school_id || req.user.id;
+    const { data, error } = await supabase.from('theory_rotation').select('*').eq('school_id', schoolId).order('created_at');
+    if (error) throw error;
+    // Enrich with room names
+    const { data: rooms } = await supabase.from('theory_rooms').select('id, name').eq('school_id', schoolId);
+    const roomMap = {};
+    (rooms || []).forEach(r => { roomMap[r.id] = r; });
+    const enriched = (data || []).map(rot => Object.assign({}, rot, { theory_rooms: roomMap[rot.room_id] || null }));
+    res.json(enriched);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/theory/rotation', authMiddleware, async (req, res) => {
+  try {
+    const schoolId = req.user.school_id || req.user.id;
+    const { room_id, days, start_time, end_time, start_topic_number } = req.body;
+    // days is array of day_of_week numbers (0=Mon ... 4=Fri)
+    const rotationIds = [];
+    for (const day of days) {
+      const id = generateId();
+      rotationIds.push(id);
+      const { error } = await supabase.from('theory_rotation').insert({ id, school_id: schoolId, room_id, day_of_week: day, start_time, end_time, start_topic_number: start_topic_number || 1 });
+      if (error) throw error;
+    }
+    // Get topics
+    const { data: topics } = await supabase.from('theory_topics').select('id, topic_number').eq('school_id', schoolId).order('topic_number');
+    if (!topics || topics.length === 0) return res.status(400).json({ error: 'No topics found. Initialize topics first.' });
+    // Generate 8 weeks of schedule
+    const today = new Date();
+    const mondayOfThisWeek = new Date(today);
+    const dayNum = today.getDay();
+    const diff = dayNum === 0 ? -6 : 1 - dayNum;
+    mondayOfThisWeek.setDate(today.getDate() + diff);
+    mondayOfThisWeek.setHours(0, 0, 0, 0);
+    // Collect all scheduled day slots across 8 weeks, sorted
+    const allSlots = [];
+    for (let week = 0; week < 8; week++) {
+      for (const day of days.slice().sort((a, b) => a - b)) {
+        const slotDate = new Date(mondayOfThisWeek);
+        slotDate.setDate(slotDate.getDate() + week * 7 + day);
+        allSlots.push({ date: slotDate.toISOString().split('T')[0], room_id });
+      }
+    }
+    // Assign topics cycling through 1-14
+    let topicIdx = (start_topic_number || 1) - 1;
+    const scheduleRows = [];
+    for (const slot of allSlots) {
+      const topic = topics[topicIdx % topics.length];
+      scheduleRows.push({
+        id: generateId(),
+        school_id: schoolId,
+        room_id: slot.room_id,
+        topic_id: topic.id,
+        instructor_id: null,
+        date: slot.date,
+        start_time,
+        end_time,
+        status: 'geplant'
+      });
+      topicIdx++;
+    }
+    // Delete existing future schedule for this school
+    const todayStr = today.toISOString().split('T')[0];
+    await supabase.from('theory_schedule').delete().eq('school_id', schoolId).gte('date', todayStr);
+    // Insert new schedule
+    if (scheduleRows.length > 0) {
+      const { error } = await supabase.from('theory_schedule').insert(scheduleRows);
+      if (error) throw error;
+    }
+    res.json({ generated: scheduleRows.length, rotationIds });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Theory Attendance ---
+app.get('/api/theory/attendance/:scheduleId', authMiddleware, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('theory_attendance').select('*').eq('theory_schedule_id', req.params.scheduleId);
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/theory/attendance/:scheduleId', authMiddleware, async (req, res) => {
+  try {
+    const { attendance } = req.body; // array of { student_id, is_present }
+    const scheduleId = req.params.scheduleId;
+    // Delete existing attendance for this schedule
+    await supabase.from('theory_attendance').delete().eq('theory_schedule_id', scheduleId);
+    // Insert new
+    if (attendance && attendance.length > 0) {
+      const rows = attendance.map(a => ({ id: generateId(), theory_schedule_id: scheduleId, student_id: a.student_id, is_present: a.is_present }));
+      const { error } = await supabase.from('theory_attendance').insert(rows);
+      if (error) throw error;
+    }
+    // Mark schedule as completed if in the past
+    const { data: sched } = await supabase.from('theory_schedule').select('date').eq('id', scheduleId).single();
+    if (sched && new Date(sched.date) < new Date()) {
+      await supabase.from('theory_schedule').update({ status: 'abgeschlossen' }).eq('id', scheduleId);
+    }
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Theory Progress ---
+app.get('/api/theory/progress/:studentId', authMiddleware, async (req, res) => {
+  try {
+    const schoolId = req.user.school_id || req.user.id;
+    const { data: attendance, error } = await supabase.from('theory_attendance')
+      .select('theory_schedule_id, is_present')
+      .eq('student_id', req.params.studentId)
+      .eq('is_present', true);
+    if (error) throw error;
+    // Get the topic_ids from attended schedules
+    const scheduleIds = (attendance || []).map(a => a.theory_schedule_id);
+    let attendedTopics = [];
+    if (scheduleIds.length > 0) {
+      const { data: schedules } = await supabase.from('theory_schedule')
+        .select('topic_id')
+        .in('id', scheduleIds);
+      if (schedules) {
+        const topicIds = schedules.map(s => s.topic_id).filter(Boolean);
+        if (topicIds.length > 0) {
+          const { data: topics } = await supabase.from('theory_topics')
+            .select('topic_number')
+            .in('id', topicIds);
+          if (topics) {
+            const topicNumbers = new Set();
+            topics.forEach(t => topicNumbers.add(t.topic_number));
+            attendedTopics = Array.from(topicNumbers);
+          }
+        }
+      }
+    }
+    res.json({ attended: attendedTopics, total: 14 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- School students list (for attendance) ---
+app.get('/api/theory/students', authMiddleware, async (req, res) => {
+  try {
+    const schoolId = req.user.school_id || req.user.id;
+    const { data, error } = await supabase.from('students').select('id, name, license_class').eq('school_id', schoolId).eq('status', 'active').order('name');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ============================================
 // FALLBACK: SPA
 // ============================================
 app.get('*', (req, res) => {
