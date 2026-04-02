@@ -1407,20 +1407,29 @@ var App = {
     } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
   },
 
-  onDashboardSearch: function(query) {
+  _searchData: null,
+  _loadSearchData: async function() {
+    if (this._searchData) return;
+    try {
+      var studData = await ApiClient.get('/api/school/students');
+      var instData = await ApiClient.get('/api/school/instructors');
+      this._searchData = { students: studData.students || [], instructors: instData.instructors || [] };
+    } catch(e) { this._searchData = { students: [], instructors: [] }; }
+  },
+
+  onDashboardSearch: async function(query) {
     var resultsEl = document.getElementById('dashboard-search-results');
     if (!resultsEl) return;
     if (!query || query.length < 2) { resultsEl.classList.remove('visible'); return; }
+    await this._loadSearchData();
     var q = query.toLowerCase();
-    var studData = this._dashStudData || { students: [] };
-    var instData = this._dashInstData || { instructors: [] };
     var results = [];
-    (instData.instructors || []).forEach(function(inst) {
+    (this._searchData.instructors || []).forEach(function(inst) {
       if (inst.name.toLowerCase().indexOf(q) !== -1) {
         results.push({ id: inst.id, name: inst.name, role: 'fahrlehrer', type: 'instructor' });
       }
     });
-    (studData.students || []).forEach(function(stu) {
+    (this._searchData.students || []).forEach(function(stu) {
       if (stu.name.toLowerCase().indexOf(q) !== -1) {
         results.push({ id: stu.id, name: stu.name, role: 'fahrschueler', type: 'student', licenseClass: stu.license_class });
       }
@@ -1430,13 +1439,28 @@ var App = {
     } else {
       var html = '';
       results.slice(0, 10).forEach(function(r) {
-        var onclick = r.type === 'student' ? 'App.showStudentDetail(&quot;' + r.id + '&quot;)' : 'App.showInstructorDetail(&quot;' + r.id + '&quot;)';
-        html += '<div class="dashboard-search-item" onclick="event.stopPropagation();' + onclick + '">' +
+        html += '<div class="dashboard-search-item" data-type="' + r.type + '" data-id="' + r.id + '">' +
           '<div>' + App.avatarHtml(r.name, 'sm') + '</div>' +
           '<div><div class="dashboard-search-item-name">' + r.name + '</div>' +
-          '<div class="dashboard-search-item-role">' + t(r.role) + (r.licenseClass ? ' · ' + t('klasse') + ' ' + r.licenseClass : '') + '</div></div></div>';
+          '<div class="dashboard-search-item-role">' + t(r.role) + (r.licenseClass ? ' \u00b7 ' + t('klasse') + ' ' + r.licenseClass : '') + '</div></div></div>';
       });
       resultsEl.innerHTML = html;
+      // Attach click handlers via event delegation
+      resultsEl.querySelectorAll('.dashboard-search-item').forEach(function(item) {
+        item.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var itemType = this.getAttribute('data-type');
+          var itemId = this.getAttribute('data-id');
+          resultsEl.classList.remove('visible');
+          document.getElementById('dashboard-search').value = '';
+          if (itemType === 'student') { App.viewStudentDetail(itemId); }
+          else {
+            // Navigate to Planung tab with this instructor selected
+            AppState.scheduleSelectedInstructor = itemId;
+            App.switchSchoolTab('schedule');
+          }
+        });
+      });
     }
     resultsEl.classList.add('visible');
   },

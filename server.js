@@ -2655,8 +2655,26 @@ app.post('/api/theory/rotation', authMiddleware, async (req, res) => {
 // --- Delete single rotation ---
 app.delete('/api/theory/rotation/:id', authMiddleware, async (req, res) => {
   try {
+    const schoolId = req.user.school_id || req.user.id;
+    // First get the rotation to know the day_of_week
+    const { data: rot } = await supabase.from('theory_rotation').select('day_of_week, start_time').eq('id', req.params.id).single();
     const { error } = await supabase.from('theory_rotation').delete().eq('id', req.params.id);
     if (error) throw error;
+    // Delete future unassigned theory schedule entries on that weekday
+    if (rot) {
+      const todayStr = formatDateLocal(new Date());
+      const { data: futureEntries } = await supabase.from('theory_schedule')
+        .select('id, date').eq('school_id', schoolId).is('instructor_id', null).gte('date', todayStr);
+      if (futureEntries) {
+        const toDelete = futureEntries.filter(e => {
+          const d = new Date(e.date + 'T12:00:00');
+          return d.getDay() === rot.day_of_week + 1; // rotation 0=Mon -> JS getDay() 1=Mon
+        }).map(e => e.id);
+        if (toDelete.length > 0) {
+          await supabase.from('theory_schedule').delete().in('id', toDelete);
+        }
+      }
+    }
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2667,6 +2685,10 @@ app.delete('/api/theory/rotation', authMiddleware, async (req, res) => {
     const schoolId = req.user.school_id || req.user.id;
     const { error } = await supabase.from('theory_rotation').delete().eq('school_id', schoolId);
     if (error) throw error;
+    // Delete ALL future unassigned theory schedule entries
+    const todayStr = formatDateLocal(new Date());
+    await supabase.from('theory_schedule').delete()
+      .eq('school_id', schoolId).is('instructor_id', null).gte('date', todayStr);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
