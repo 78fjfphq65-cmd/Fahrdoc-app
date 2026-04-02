@@ -2788,6 +2788,100 @@ app.get('/api/theory/students', authMiddleware, async (req, res) => {
 });
 
 // ============================================
+// AUSBILDUNGSNACHWEIS (Anlage 3) DATA
+// ============================================
+app.get('/api/ausbildungsnachweis/:studentId', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const studentId = req.params.studentId;
+    const schoolId = req.user.id;
+
+    // Get student
+    const { data: student } = await supabase.from('students')
+      .select('*').eq('id', studentId).eq('school_id', schoolId).single();
+    if (!student) return res.status(404).json({ error: 'Schüler nicht gefunden' });
+
+    // Get school
+    const { data: school } = await supabase.from('schools')
+      .select('*').eq('id', schoolId).single();
+
+    // Get all lessons for this student
+    const { data: lessons } = await supabase.from('lessons')
+      .select('*, instructors(id, name)')
+      .eq('student_id', studentId)
+      .order('date', { ascending: true });
+
+    // Get instructors
+    const instructors = await getStudentInstructors(studentId);
+
+    // Get theory attendance with topic info
+    const { data: attendance } = await supabase.from('theory_attendance')
+      .select('*, theory_schedule(id, date, start_time, end_time, topic_id, instructor_id, theory_topics(topic_number, title, is_basic))')
+      .eq('student_id', studentId)
+      .eq('is_present', true);
+
+    // Build theory data: separate Grundstoff and klassenspezifisch
+    var theoryBasic = [];
+    var theorySpecific = [];
+    (attendance || []).forEach(function(a) {
+      var ts = a.theory_schedule;
+      if (!ts || !ts.theory_topics) return;
+      var entry = {
+        date: ts.date,
+        topic_number: ts.theory_topics.topic_number,
+        title: ts.theory_topics.title,
+        start_time: ts.start_time,
+        end_time: ts.end_time,
+        duration_min: 90, // standard theory duration
+        instructor_id: ts.instructor_id
+      };
+      if (ts.theory_topics.is_basic) {
+        theoryBasic.push(entry);
+      } else {
+        theorySpecific.push(entry);
+      }
+    });
+
+    // Build practical data grouped by type
+    var practicalLessons = (lessons || []).map(function(l) {
+      return {
+        date: l.date,
+        type: l.type,
+        duration: l.duration,
+        instructor_id: l.instructor_id,
+        instructor_name: l.instructors ? l.instructors.name : '?',
+        start_time: null,
+        license_class: l.license_class
+      };
+    });
+
+    res.json({
+      student: {
+        name: student.name,
+        email: student.email,
+        license_class: student.license_class || 'B',
+        geburtsdatum: student.geburtsdatum || '',
+        anschrift: student.address || ''
+      },
+      school: {
+        name: school ? school.name : '',
+        address: school ? (school.address || '') : '',
+        admin_name: school ? (school.admin_name || '') : ''
+      },
+      instructors: (instructors || []).map(function(i, idx) {
+        return { id: i.id, name: i.name, nr: idx + 1 };
+      }),
+      theoryBasic: theoryBasic,
+      theorySpecific: theorySpecific,
+      practicalLessons: practicalLessons
+    });
+  } catch (err) {
+    console.error('[Ausbildungsnachweis] Error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// ============================================
 // FALLBACK: SPA
 // ============================================
 app.get('*', (req, res) => {

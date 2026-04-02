@@ -3083,6 +3083,14 @@ var App = {
       html += '<div class="card mb-4 theory-progress-section"><div class="section-title mb-3">' + t('theorieFortschritt') + '</div>' +
         '<div id="theory-progress-container"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div></div>';
 
+      // ── Ausbildungsnachweis Button (only for school/admin) ──
+      if (AppState.currentUser && AppState.currentUser.role === 'school') {
+        html += '<button class="btn btn-primary btn-full" style="margin-bottom:var(--space-4);gap:var(--space-2);display:flex;align-items:center;justify-content:center;" ' +
+          'onclick="App.generateAusbildungsnachweis(\'' + studentId + '\')">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/></svg> ' +
+          t('ausbildungsnachweisGenerieren') + '</button>';
+      }
+
       html += '</div>'; content.innerHTML = html;
       // Load theory progress asynchronously
       this.renderTheoryProgress(studentId);
@@ -3110,6 +3118,358 @@ var App = {
       }
       html += '</div>'; content.innerHTML = html;
     } catch (err) { content.innerHTML = '<p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p>'; }
+  },
+
+  // ══════════════════════════════════════════
+  //  AUSBILDUNGSNACHWEIS (Anlage 3) PDF GENERATION
+  // ══════════════════════════════════════════
+  generateAusbildungsnachweis: async function(studentId) {
+    this.showToast(t('ausbildungsnachweisErstellt'));
+    try {
+      var data = await ApiClient.get('/api/ausbildungsnachweis/' + studentId);
+      var jsPDF = window.jspdf.jsPDF;
+      var doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+      // ── Page dimensions ──
+      var pw = 297; // A4 landscape width
+      var ph = 210; // A4 landscape height
+      var ml = 10; // margin left
+      var mr = 10; // margin right
+      var mt = 10; // margin top
+      var cw = pw - ml - mr; // content width
+
+      // ── Helper: format date ──
+      var fmtDate = function(d) {
+        if (!d) return '';
+        var parts = d.split('-');
+        if (parts.length === 3) return parts[2] + '.' + parts[1] + '.' + parts[0];
+        return d;
+      };
+
+      // ── Helper: find instructor nr ──
+      var instNr = function(instId) {
+        for (var i = 0; i < data.instructors.length; i++) {
+          if (data.instructors[i].id === instId) return String(data.instructors[i].nr);
+        }
+        return '';
+      };
+
+      // ── Helper: type abbreviation for Anlage 3 ──
+      var typeAbbrev = function(type) {
+        var map = {
+          '\u00dcbungsfahrt': 'Uest', '\u00dcberlandfahrt': 'UL', 'Autobahnfahrt': 'AB',
+          'Nachtfahrt': 'NF', 'Pr\u00fcfungsvorbereitung': 'Uest',
+          'Praktische Pr\u00fcfung': 'Pf', 'Theoretische Pr\u00fcfung': 'ThP'
+        };
+        return map[type] || type;
+      };
+
+      // ── Helper: draw a horizontal line ──
+      var hLine = function(y) {
+        doc.setDrawColor(0); doc.setLineWidth(0.2);
+        doc.line(ml, y, pw - mr, y);
+      };
+
+      // ── Helper: draw a vertical line ──
+      var vLine = function(x, y1, y2) {
+        doc.setDrawColor(0); doc.setLineWidth(0.2);
+        doc.line(x, y1, x, y2);
+      };
+
+      // ═══════════════════════════════════════
+      //  HEADER
+      // ═══════════════════════════════════════
+      var y = mt;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('Ausbildungsnachweis', pw / 2, y + 6, { align: 'center' });
+      y += 9;
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Ausbildungsnachweis fuer Klasse ' + (data.student.license_class || 'B'), pw / 2, y + 4, { align: 'center' });
+      y += 5;
+      doc.setFontSize(7);
+      doc.text('gemaess Paragraph 31 Abs. 1 Fahrlehrergesetz und Paragraph 6 Abs. 2 Fahrschueler-Ausbildungsordnung', pw / 2, y + 3, { align: 'center' });
+      y += 7;
+
+      // ═══════════════════════════════════════
+      //  INFO SECTION (Left: School/Student, Right: Instructors)
+      // ═══════════════════════════════════════
+      var infoTop = y;
+      var leftW = cw * 0.45; // left column width
+      var rightX = ml + leftW + 5;
+
+      // Box outlines
+      doc.setDrawColor(0); doc.setLineWidth(0.3);
+      doc.rect(ml, infoTop, leftW, 38);
+      doc.rect(rightX, infoTop, cw - leftW - 5, 38);
+
+      // Left: School + Student info
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Fahrschule:', ml + 2, infoTop + 4);
+      doc.setFont('helvetica', 'normal');
+      doc.text(data.school.name || '', ml + 25, infoTop + 4);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Anschrift:', ml + 2, infoTop + 8);
+      doc.setFont('helvetica', 'normal');
+      doc.text(data.school.address || '', ml + 25, infoTop + 8);
+
+      doc.setDrawColor(0); doc.setLineWidth(0.2);
+      doc.line(ml, infoTop + 11, ml + leftW, infoTop + 11);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Familienname:', ml + 2, infoTop + 15);
+      doc.setFont('helvetica', 'normal');
+      var nameParts = (data.student.name || '').split(' ');
+      var lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : nameParts[0];
+      var firstName = nameParts.length > 1 ? nameParts[0] : '';
+      doc.text(lastName, ml + 30, infoTop + 15);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Vorname:', ml + 2, infoTop + 19);
+      doc.setFont('helvetica', 'normal');
+      doc.text(firstName, ml + 30, infoTop + 19);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Anschrift:', ml + 2, infoTop + 23);
+      doc.setFont('helvetica', 'normal');
+      doc.text(data.student.anschrift || '________________', ml + 30, infoTop + 23);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Geburtsdatum:', ml + 2, infoTop + 27);
+      doc.setFont('helvetica', 'normal');
+      doc.text(data.student.geburtsdatum ? fmtDate(data.student.geburtsdatum) : '________________', ml + 30, infoTop + 27);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Beantragte Klasse(n):', ml + 2, infoTop + 31);
+      doc.setFont('helvetica', 'normal');
+      doc.text(data.student.license_class || 'B', ml + 38, infoTop + 31);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Vorbesitz der Klasse(n):', ml + 2, infoTop + 35);
+      doc.setFont('helvetica', 'normal');
+      doc.text('________________', ml + 40, infoTop + 35);
+
+      // Right: Instructors
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.text('Fahrlehrer', rightX + 2, infoTop + 4);
+      doc.text('Nr.', rightX + cw - leftW - 15, infoTop + 4);
+      doc.setDrawColor(0); doc.setLineWidth(0.2);
+      doc.line(rightX, infoTop + 6, rightX + cw - leftW - 5, infoTop + 6);
+      doc.setFont('helvetica', 'normal');
+      data.instructors.forEach(function(inst, idx) {
+        doc.text(inst.name, rightX + 2, infoTop + 10 + (idx * 4));
+        doc.text(String(inst.nr), rightX + cw - leftW - 15, infoTop + 10 + (idx * 4));
+      });
+
+      y = infoTop + 42;
+
+      // ═══════════════════════════════════════
+      //  MAIN CONTENT AREA: Theory (Left) + Practice (Right)
+      // ═══════════════════════════════════════
+      var theoryW = cw * 0.50;
+      var practiceX = ml + theoryW + 3;
+      var practiceW = cw - theoryW - 3;
+      var tableTop = y;
+      var rowH = 4.2;
+
+      // ── Theory table header ──
+      doc.setFillColor(240, 240, 240);
+      doc.rect(ml, tableTop, theoryW, 8, 'F');
+      doc.setDrawColor(0); doc.setLineWidth(0.3);
+      doc.rect(ml, tableTop, theoryW, 8);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      var thHalfW = theoryW / 2;
+      doc.text('Theoretischer Grundunterricht', ml + thHalfW / 2, tableTop + 3.5, { align: 'center' });
+      doc.text('Klassenspezifischer Unterricht', ml + thHalfW + thHalfW / 2, tableTop + 3.5, { align: 'center' });
+      vLine(ml + thHalfW, tableTop, tableTop + 8);
+
+      // Sub-headers
+      var subTop = tableTop + 8;
+      doc.setFillColor(248, 248, 248);
+      doc.rect(ml, subTop, theoryW, 5, 'F');
+      doc.rect(ml, subTop, theoryW, 5);
+      vLine(ml + thHalfW, subTop, subTop + 5);
+
+      doc.setFontSize(5.5);
+      doc.setFont('helvetica', 'bold');
+      // Grundunterricht columns: Datum | Thema | Min | FL Nr.
+      var gCols = [ml + 2, ml + 16, ml + thHalfW - 18, ml + thHalfW - 8];
+      doc.text('Datum', gCols[0], subTop + 3.5);
+      doc.text('Thema', gCols[1], subTop + 3.5);
+      doc.text('Min.', gCols[2], subTop + 3.5);
+      doc.text('FL Nr.', gCols[3], subTop + 3.5);
+
+      // Klassenspezifisch columns
+      var kCols = [ml + thHalfW + 2, ml + thHalfW + 16, ml + theoryW - 18, ml + theoryW - 8];
+      doc.text('Datum', kCols[0], subTop + 3.5);
+      doc.text('Thema', kCols[1], subTop + 3.5);
+      doc.text('Min.', kCols[2], subTop + 3.5);
+      doc.text('FL Nr.', kCols[3], subTop + 3.5);
+
+      // Theory rows
+      var rowStart = subTop + 5;
+      var maxTheoryRows = 16;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5.5);
+
+      for (var ri = 0; ri < maxTheoryRows; ri++) {
+        var ry = rowStart + ri * rowH;
+        // Row lines (within theory table only)
+        doc.setDrawColor(0); doc.setLineWidth(0.2);
+        doc.line(ml, ry + rowH, ml + theoryW, ry + rowH);
+        vLine(ml + thHalfW, ry, ry + rowH);
+
+        // Grundunterricht data
+        if (ri < data.theoryBasic.length) {
+          var tb = data.theoryBasic[ri];
+          doc.text(fmtDate(tb.date), gCols[0], ry + 3);
+          doc.text(String(tb.topic_number) + '. ' + (tb.title || '').substring(0, 25), gCols[1], ry + 3);
+          doc.text(String(tb.duration_min), gCols[2], ry + 3);
+          doc.text(instNr(tb.instructor_id), gCols[3], ry + 3);
+        }
+
+        // Klassenspezifisch data
+        if (ri < data.theorySpecific.length) {
+          var ts = data.theorySpecific[ri];
+          doc.text(fmtDate(ts.date), kCols[0], ry + 3);
+          doc.text(String(ts.topic_number) + '. ' + (ts.title || '').substring(0, 25), kCols[1], ry + 3);
+          doc.text(String(ts.duration_min), kCols[2], ry + 3);
+          doc.text(instNr(ts.instructor_id), kCols[3], ry + 3);
+        }
+      }
+
+      // Outer border for theory table
+      var theoryBottom = rowStart + maxTheoryRows * rowH;
+      doc.setLineWidth(0.3);
+      doc.rect(ml, tableTop, theoryW, theoryBottom - tableTop);
+      vLine(ml + thHalfW, tableTop, theoryBottom);
+
+      // ── Practice table header ──
+      doc.setFillColor(240, 240, 240);
+      doc.rect(practiceX, tableTop, practiceW, 8, 'F');
+      doc.setDrawColor(0); doc.setLineWidth(0.3);
+      doc.rect(practiceX, tableTop, practiceW, 8);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.text('Praktische Ausbildung', practiceX + practiceW / 2, tableTop + 3.5, { align: 'center' });
+
+      // Practice sub-headers
+      doc.setFillColor(248, 248, 248);
+      doc.rect(practiceX, subTop, practiceW, 5, 'F');
+      doc.rect(practiceX, subTop, practiceW, 5);
+
+      doc.setFontSize(5.5);
+      doc.setFont('helvetica', 'bold');
+      var pCols = [practiceX + 2, practiceX + 16, practiceX + practiceW - 28, practiceX + practiceW - 18, practiceX + practiceW - 8];
+      doc.text('Datum', pCols[0], subTop + 3.5);
+      doc.text('Art/Inhalt', pCols[1], subTop + 3.5);
+      doc.text('Beginn', pCols[2], subTop + 3.5);
+      doc.text('Min.', pCols[3], subTop + 3.5);
+      doc.text('FL Nr.', pCols[4], subTop + 3.5);
+
+      // Practice rows
+      doc.setFont('helvetica', 'normal');
+      var maxPractRows = Math.max(maxTheoryRows, data.practicalLessons.length);
+      if (maxPractRows > maxTheoryRows) maxPractRows = maxTheoryRows; // cap to match theory
+
+      for (var pi = 0; pi < maxPractRows; pi++) {
+        var py = rowStart + pi * rowH;
+        doc.setDrawColor(0); doc.setLineWidth(0.2);
+        doc.line(practiceX, py + rowH, practiceX + practiceW, py + rowH);
+
+        if (pi < data.practicalLessons.length) {
+          var pl = data.practicalLessons[pi];
+          doc.text(fmtDate(pl.date), pCols[0], py + 3);
+          doc.text(typeAbbrev(pl.type), pCols[1], py + 3);
+          doc.text(pl.start_time || '', pCols[2], py + 3);
+          doc.text(String(pl.duration || ''), pCols[3], py + 3);
+          doc.text(instNr(pl.instructor_id), pCols[4], py + 3);
+        }
+      }
+
+      // Outer border for practice table
+      doc.setLineWidth(0.3);
+      doc.rect(practiceX, tableTop, practiceW, theoryBottom - tableTop);
+
+      y = theoryBottom + 3;
+
+      // ═══════════════════════════════════════
+      //  LEGEND
+      // ═══════════════════════════════════════
+      doc.setFontSize(5.5);
+      doc.setFont('helvetica', 'normal');
+      doc.text('*) FL = Fahrlehrer', ml, y + 3);
+      doc.text('**) Mindestangaben: Uest = Uebungsstunden i.g.O./a.g.O. | Gf = Grundfahraufgaben | Uw = Unterweisung am Fahrzeug', ml, y + 6.5);
+      doc.text('UL = Ueberlandfahrt | AB = Autobahnfahrt | NF = Nachtfahrt | SN = Schaltnachweis', ml + 35, y + 10);
+      y += 13;
+
+      // ═══════════════════════════════════════
+      //  SUMMARY
+      // ═══════════════════════════════════════
+      // Count by type
+      var typeCounts = {};
+      data.practicalLessons.forEach(function(l) {
+        if (!typeCounts[l.type]) typeCounts[l.type] = { count: 0, duration: 0 };
+        typeCounts[l.type].count++;
+        typeCounts[l.type].duration += (l.duration || 0);
+      });
+
+      doc.setFontSize(6);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Zusammenfassung:', ml, y + 3);
+      doc.setFont('helvetica', 'normal');
+      var sx = ml;
+      var summaryTypes = ['\u00dcbungsfahrt', '\u00dcberlandfahrt', 'Autobahnfahrt', 'Nachtfahrt', 'Pr\u00fcfungsvorbereitung'];
+      var summaryLabels = ['Uebungsfahrten (Uest)', 'Ueberlandfahrten (UL)', 'Autobahnfahrten (AB)', 'Nachtfahrten (NF)', 'Pruefungsvorbereitung'];
+      summaryTypes.forEach(function(st, idx) {
+        var tc = typeCounts[st] || { count: 0, duration: 0 };
+        doc.text(summaryLabels[idx] + ': ' + tc.count + ' (' + tc.duration + ' Min.)', sx, y + 7 + idx * 3.5);
+      });
+
+      doc.text('Theorie Grundunterricht: ' + data.theoryBasic.length + ' Themen', sx + 100, y + 7);
+      doc.text('Theorie klassenspezifisch: ' + data.theorySpecific.length + ' Themen', sx + 100, y + 10.5);
+      doc.text('Gesamt Theoriestunden: ' + (data.theoryBasic.length + data.theorySpecific.length), sx + 100, y + 14);
+
+      y += 28;
+
+      // ═══════════════════════════════════════
+      //  SIGNATURE SECTION
+      // ═══════════════════════════════════════
+      if (y > ph - 25) y = ph - 25;
+      hLine(y);
+      y += 2;
+
+      doc.setFontSize(6);
+      doc.setFont('helvetica', 'normal');
+      var sigW = cw / 3;
+      doc.text('Ort, Datum', ml + 2, y + 3);
+      doc.text('________________________________', ml + 2, y + 8);
+
+      doc.text('Unterschrift Fahrschulinhaber/in', ml + sigW + 5, y + 3);
+      doc.text('________________________________', ml + sigW + 5, y + 8);
+
+      doc.text('Unterschrift Fahrschueler/in', ml + sigW * 2 + 10, y + 3);
+      doc.text('________________________________', ml + sigW * 2 + 10, y + 8);
+
+      y += 12;
+      doc.setFontSize(5);
+      doc.text('Abweichungen vom vorstehenden Muster sind zulaessig, soweit Besonderheiten des Verfahrens, insbesondere der Einsatz maschineller Datenverarbeitung, dies erfordern.', ml, y + 2);
+
+      // ── Save PDF ──
+      var fileName = 'Ausbildungsnachweis_' + (data.student.name || 'Schueler').replace(/\s+/g, '_') + '_' + (data.student.license_class || 'B') + '.pdf';
+      doc.save(fileName);
+      this.showToast(t('ausbildungsnachweis') + ' PDF erstellt');
+
+    } catch (err) {
+      this.showToast(t('fehler') + ': ' + err.message);
+    }
   },
 
   // ══════════════════════════════════════════
