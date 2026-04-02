@@ -658,6 +658,13 @@ app.get('/api/school/students', authMiddleware, async (req, res) => {
           st.avgSkill = ratings && ratings.length > 0 ? sum / ratings.length : 0;
         } else { st.avgSkill = 0; }
       } else { st.avgSkill = 0; }
+
+      // Count attended theory lessons
+      const { count: theoryCount } = await supabase.from('theory_attendance')
+        .select('id', { count: 'exact', head: true })
+        .eq('student_id', st.id)
+        .eq('is_present', true);
+      st.theoryCount = theoryCount || 0;
     }
 
     const { data: codes } = await supabase.from('invite_codes')

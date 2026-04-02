@@ -1491,7 +1491,7 @@ var App = {
         html += '<div class="card card-interactive mb-3" onclick="App.viewStudentDetail(\'' + st.id + '\')"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
           App.avatarHtml(st.name, '') +
           '<div class="flex-1"><div style="font-weight:600;font-size:var(--text-sm);">' + st.name + '</div>' +
-          '<div class="text-xs text-muted">' + t('klasse') + ' ' + st.license_class + ' \u00b7 ' + (st.instructor_name || '\u2014') + ' \u00b7 ' + st.lessonCount + ' ' + t('fahrstunden') + '</div></div>' +
+          '<div class="text-xs text-muted">' + t('klasse') + ' ' + st.license_class + ' \u00b7 ' + st.lessonCount + ' ' + t('fahrstunden') + ' \u00b7 ' + (st.theoryCount || 0) + ' ' + t('theoriestunden') + '</div></div>' +
           '<div>' + App.skillLevelHtml(st.avgSkill || 0) + '</div></div></div>';
       });
     } else {
@@ -1921,19 +1921,21 @@ var App = {
       html += '<div class="theory-detail-row"><span class="theory-detail-label">' + t('start') + ' - ' + t('ende') + '</span><span class="theory-detail-value">' + item.start_time + ' - ' + item.end_time + '</span></div>';
       html += '<div class="theory-detail-row"><span class="theory-detail-label">' + t('raum') + '</span><span class="theory-detail-value">' + (room.name || '-') + ' (' + (room.seat_limit || '-') + ' ' + t('sitzplaetze') + ')</span></div>';
 
-      // Instructor assignment
-      html += '<div class="theory-assign-row">';
-      html += '<label class="form-label" style="margin:0;">' + t('fahrlehrerZuweisen') + ':</label>';
-      html += '<select class="form-select" id="theory-assign-instructor">';
-      html += '<option value="">' + t('keinFahrlehrer') + '</option>';
-      instructors.forEach(function(inst) {
-        html += '<option value="' + inst.id + '"' + (item.instructor_id === inst.id ? ' selected' : '') + '>' + inst.name + '</option>';
-      });
-      html += '</select>';
-      html += '<label class="form-check" style="margin-top:var(--space-2);display:flex;align-items:center;gap:var(--space-2);cursor:pointer;">' +
-        '<input type="checkbox" id="theory-recurring-assign" style="width:16px;height:16px;">' +
-        '<span class="text-sm">' + t('wiederkehrendZuweisen') + '</span></label>';
-      html += '</div>';
+      // Instructor assignment — only visible for school/admin role
+      if (AppState.currentUser && AppState.currentUser.role === 'school') {
+        html += '<div class="theory-assign-row">';
+        html += '<label class="form-label" style="margin:0;">' + t('fahrlehrerZuweisen') + ':</label>';
+        html += '<select class="form-select" id="theory-assign-instructor">';
+        html += '<option value="">' + t('keinFahrlehrer') + '</option>';
+        instructors.forEach(function(inst) {
+          html += '<option value="' + inst.id + '"' + (item.instructor_id === inst.id ? ' selected' : '') + '>' + inst.name + '</option>';
+        });
+        html += '</select>';
+        html += '<label class="form-check" style="margin-top:var(--space-2);display:flex;align-items:center;gap:var(--space-2);cursor:pointer;">' +
+          '<input type="checkbox" id="theory-recurring-assign" style="width:16px;height:16px;">' +
+          '<span class="text-sm">' + t('wiederkehrendZuweisen') + '</span></label>';
+        html += '</div>';
+      }
 
       // Attendance section
       var isPast = new Date(item.date) < new Date();
@@ -3081,19 +3083,7 @@ var App = {
       html += '<div class="card mb-4 theory-progress-section"><div class="section-title mb-3">' + t('theorieFortschritt') + '</div>' +
         '<div id="theory-progress-container"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div></div>';
 
-      html += '<div class="stat-grid mb-4">' +
-        '<div class="stat-card"><div class="stat-card-label">' + t('fahrstunden') + '</div><div class="stat-card-value">' + lessons.length + '</div></div>' +
-        '<div class="stat-card"><div class="stat-card-label">' + t('gesamtdauer') + '</div><div class="stat-card-value">' + Math.round(totalDuration / 60) + 'h</div></div></div>';
-      html += '<div class="section-header"><span class="section-title">' + t('fahrstunden') + ' (' + lessons.length + ')</span></div><div class="activity-list">';
-      var fromRole = AppState.currentUser.role;
-      lessons.forEach(function(l) {
-        var instructorInfo = l.instructor_name ? ' · ' + l.instructor_name : '';
-        html += '<div class="list-item" onclick="App.showLessonReview(\'' + l.id + '\', \'' + studentId + '\', \'' + fromRole + '\')"><div class="list-item-content">' +
-          '<div class="list-item-title">' + tType(l.type) + '</div>' +
-          '<div class="list-item-subtitle">' + App.formatDate(l.date) + ' · ' + App.formatDuration(l.duration) + instructorInfo + '</div></div>' +
-          '<div class="list-item-right">' + App.skillLevelHtml(App.avgRating(l.ratings)) + '</div></div>';
-      });
-      html += '</div></div>'; content.innerHTML = html;
+      html += '</div>'; content.innerHTML = html;
       // Load theory progress asynchronously
       this.renderTheoryProgress(studentId);
     } catch (err) { content.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
@@ -3699,7 +3689,6 @@ var App = {
     lessons.forEach(function(l) { totalDuration += l.duration; });
     html += '<div class="stat-grid mb-4">' +
       '<div class="stat-card"><div class="stat-card-label">' + t('fahrstunden') + '</div><div class="stat-card-value">' + lessons.length + '</div></div>' +
-      '<div class="stat-card"><div class="stat-card-label">' + t('gesamtdauer') + '</div><div class="stat-card-value">' + Math.round(totalDuration / 60) + 'h</div></div>' +
       '<div class="stat-card"><div class="stat-card-label">' + t('fahrlehrer') + '</div><div class="stat-card-value">' + (data.instructorName ? data.instructorName.split(',')[0].trim().split(' ')[0] : '—') + '</div></div>' +
     '</div>';
     // Theory progress section
