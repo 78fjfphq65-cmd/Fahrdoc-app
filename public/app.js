@@ -3132,345 +3132,279 @@ var App = {
         return;
       }
       var jsPDF = window.jspdf.jsPDF;
-      var doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      // A4 Portrait
+      var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      var pw = 210;
+      var ph = 297;
+      var ml = 12;
+      var mr = 12;
+      var mt = 10;
+      var cw = pw - ml - mr;
+      var lw = 0.25; // default line width
 
-      // ── Page dimensions ──
-      var pw = 297; // A4 landscape width
-      var ph = 210; // A4 landscape height
-      var ml = 10; // margin left
-      var mr = 10; // margin right
-      var mt = 10; // margin top
-      var cw = pw - ml - mr; // content width
-
-      // ── Helper: format date ──
+      // Helpers
       var fmtDate = function(d) {
         if (!d) return '';
-        var parts = d.split('-');
-        if (parts.length === 3) return parts[2] + '.' + parts[1] + '.' + parts[0];
-        return d;
+        var p = d.split('-');
+        return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : d;
       };
-
-      // ── Helper: find instructor nr ──
-      var instNr = function(instId) {
+      var instNr = function(id) {
         for (var i = 0; i < data.instructors.length; i++) {
-          if (data.instructors[i].id === instId) return String(data.instructors[i].nr);
+          if (data.instructors[i].id === id) return String(data.instructors[i].nr);
         }
         return '';
       };
-
-      // ── Helper: type abbreviation for Anlage 3 ──
-      var typeAbbrev = function(type) {
-        var map = {
-          '\u00dcbungsfahrt': 'Uest', '\u00dcberlandfahrt': 'UL', 'Autobahnfahrt': 'AB',
-          'Nachtfahrt': 'NF', 'Pr\u00fcfungsvorbereitung': 'Uest',
-          'Praktische Pr\u00fcfung': 'Pf', 'Theoretische Pr\u00fcfung': 'ThP'
-        };
-        return map[type] || type;
+      var typeAbbr = function(t) {
+        var m = { '\u00dcbungsfahrt':'Uest', '\u00dcberlandfahrt':'UL', 'Autobahnfahrt':'AB', 'Nachtfahrt':'NF', 'Pr\u00fcfungsvorbereitung':'Uest', 'Praktische Pr\u00fcfung':'Pf', 'Theoretische Pr\u00fcfung':'ThP' };
+        return m[t] || t;
       };
+      var drawRect = function(x, y, w, h) { doc.setDrawColor(0); doc.setLineWidth(lw); doc.rect(x, y, w, h); };
+      var drawLine = function(x1, y1, x2, y2) { doc.setDrawColor(0); doc.setLineWidth(lw); doc.line(x1, y1, x2, y2); };
 
-      // ── Helper: draw a horizontal line ──
-      var hLine = function(y) {
-        doc.setDrawColor(0); doc.setLineWidth(0.2);
-        doc.line(ml, y, pw - mr, y);
-      };
-
-      // ── Helper: draw a vertical line ──
-      var vLine = function(x, y1, y2) {
-        doc.setDrawColor(0); doc.setLineWidth(0.2);
-        doc.line(x, y1, x, y2);
-      };
-
-      // ═══════════════════════════════════════
-      //  HEADER
-      // ═══════════════════════════════════════
+      // ======= TITLE =======
       var y = mt;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(14);
-      doc.text('Ausbildungsnachweis', pw / 2, y + 6, { align: 'center' });
-      y += 9;
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+      doc.text('Ausbildungsnachweis', pw / 2, y + 5, { align: 'center' });
+      y += 8;
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
       doc.text('Ausbildungsnachweis fuer Klasse ' + (data.student.license_class || 'B'), pw / 2, y + 4, { align: 'center' });
-      y += 5;
-      doc.setFontSize(7);
-      doc.text('gemaess Paragraph 31 Abs. 1 Fahrlehrergesetz und Paragraph 6 Abs. 2 Fahrschueler-Ausbildungsordnung', pw / 2, y + 3, { align: 'center' });
+      y += 6;
+      doc.setFontSize(6.5);
+      doc.text('gemaess ' + String.fromCharCode(167) + ' 31 Absatz 1 Fahrlehrergesetz und ' + String.fromCharCode(167) + ' 6 Absatz 2 Fahrschueler-Ausbildungsordnung', pw / 2, y + 3, { align: 'center' });
       y += 7;
 
-      // ═══════════════════════════════════════
-      //  INFO SECTION (Left: School/Student, Right: Instructors)
-      // ═══════════════════════════════════════
-      var infoTop = y;
-      var leftW = cw * 0.45; // left column width
-      var rightX = ml + leftW + 5;
+      // ======= TOP SECTION: School/Student (left) + Fahrlehrer (right) =======
+      var topY = y;
+      var leftW = cw * 0.52;
+      var rightW = cw - leftW;
+      var rightX = ml + leftW;
+      var topH = 42;
 
-      // Box outlines
-      doc.setDrawColor(0); doc.setLineWidth(0.3);
-      doc.rect(ml, infoTop, leftW, 38);
-      doc.rect(rightX, infoTop, cw - leftW - 5, 38);
+      drawRect(ml, topY, leftW, topH);
+      drawRect(rightX, topY, rightW, topH);
 
-      // Left: School + Student info
-      doc.setFontSize(7);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Fahrschule:', ml + 2, infoTop + 4);
+      // School info
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
+      doc.text('Fahrschule', ml + 2, topY + 4);
       doc.setFont('helvetica', 'normal');
-      doc.text(data.school.name || '', ml + 25, infoTop + 4);
+      doc.text(data.school.name || '', ml + 2, topY + 8);
+      doc.text(data.school.address || '', ml + 2, topY + 12);
 
-      doc.setFont('helvetica', 'bold');
-      doc.text('Anschrift:', ml + 2, infoTop + 8);
-      doc.setFont('helvetica', 'normal');
-      doc.text(data.school.address || '', ml + 25, infoTop + 8);
+      // Separator
+      drawLine(ml, topY + 15, ml + leftW, topY + 15);
 
-      doc.setDrawColor(0); doc.setLineWidth(0.2);
-      doc.line(ml, infoTop + 11, ml + leftW, infoTop + 11);
-
-      doc.setFont('helvetica', 'bold');
-      doc.text('Familienname:', ml + 2, infoTop + 15);
+      // Student info
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
+      doc.text('Familienname:', ml + 2, topY + 19);
       doc.setFont('helvetica', 'normal');
       var nameParts = (data.student.name || '').split(' ');
       var lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : nameParts[0];
       var firstName = nameParts.length > 1 ? nameParts[0] : '';
-      doc.text(lastName, ml + 30, infoTop + 15);
+      doc.text(lastName, ml + 30, topY + 19);
 
       doc.setFont('helvetica', 'bold');
-      doc.text('Vorname:', ml + 2, infoTop + 19);
+      doc.text('Vorname:', ml + 2, topY + 23);
       doc.setFont('helvetica', 'normal');
-      doc.text(firstName, ml + 30, infoTop + 19);
+      doc.text(firstName, ml + 30, topY + 23);
 
       doc.setFont('helvetica', 'bold');
-      doc.text('Anschrift:', ml + 2, infoTop + 23);
+      doc.text('Anschrift:', ml + 2, topY + 27);
       doc.setFont('helvetica', 'normal');
-      doc.text(data.student.anschrift || '________________', ml + 30, infoTop + 23);
+      doc.text(data.student.anschrift || '', ml + 30, topY + 27);
+
+      drawLine(ml, topY + 29, ml + leftW, topY + 29);
+
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(6);
+      doc.text('Geburtsdatum:', ml + 2, topY + 33);
+      doc.setFont('helvetica', 'normal');
+      doc.text(data.student.geburtsdatum ? fmtDate(data.student.geburtsdatum) : '', ml + 28, topY + 33);
 
       doc.setFont('helvetica', 'bold');
-      doc.text('Geburtsdatum:', ml + 2, infoTop + 27);
+      doc.text('Beantragte Klasse(n):', ml + leftW * 0.38, topY + 33);
       doc.setFont('helvetica', 'normal');
-      doc.text(data.student.geburtsdatum ? fmtDate(data.student.geburtsdatum) : '________________', ml + 30, infoTop + 27);
+      doc.text(data.student.license_class || 'B', ml + leftW * 0.65, topY + 33);
 
       doc.setFont('helvetica', 'bold');
-      doc.text('Beantragte Klasse(n):', ml + 2, infoTop + 31);
+      doc.text('Vorbesitz der Klasse(n):', ml + 2, topY + 38);
       doc.setFont('helvetica', 'normal');
-      doc.text(data.student.license_class || 'B', ml + 38, infoTop + 31);
+      doc.text('', ml + 38, topY + 38);
 
-      doc.setFont('helvetica', 'bold');
-      doc.text('Vorbesitz der Klasse(n):', ml + 2, infoTop + 35);
-      doc.setFont('helvetica', 'normal');
-      doc.text('________________', ml + 40, infoTop + 35);
+      // Right: Fahrlehrer + Praxis-Tabelle headers
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
+      doc.text('Fahrlehrer', rightX + 2, topY + 4);
+      doc.text('Nr.', rightX + rightW - 10, topY + 4);
+      drawLine(rightX, topY + 6, rightX + rightW, topY + 6);
 
-      // Right: Instructors
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      doc.text('Fahrlehrer', rightX + 2, infoTop + 4);
-      doc.text('Nr.', rightX + cw - leftW - 15, infoTop + 4);
-      doc.setDrawColor(0); doc.setLineWidth(0.2);
-      doc.line(rightX, infoTop + 6, rightX + cw - leftW - 5, infoTop + 6);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
       data.instructors.forEach(function(inst, idx) {
-        doc.text(inst.name, rightX + 2, infoTop + 10 + (idx * 4));
-        doc.text(String(inst.nr), rightX + cw - leftW - 15, infoTop + 10 + (idx * 4));
+        doc.text(inst.name, rightX + 2, topY + 10 + idx * 4);
+        doc.text(String(inst.nr), rightX + rightW - 10, topY + 10 + idx * 4);
       });
 
-      y = infoTop + 42;
+      y = topY + topH + 1;
 
-      // ═══════════════════════════════════════
-      //  MAIN CONTENT AREA: Theory (Left) + Practice (Right)
-      // ═══════════════════════════════════════
-      var theoryW = cw * 0.50;
-      var practiceX = ml + theoryW + 3;
-      var practiceW = cw - theoryW - 3;
-      var tableTop = y;
-      var rowH = 4.2;
+      // ======= MIDDLE: Praxis rechts (oben rechts erweitert) + Theorie (links) =======
+      // According to Anlage 3: Student info left, Praxis table right, then Theorie below left
+      // We use the same side-by-side as the template image
 
-      // ── Theory table header ──
-      doc.setFillColor(240, 240, 240);
-      doc.rect(ml, tableTop, theoryW, 8, 'F');
-      doc.setDrawColor(0); doc.setLineWidth(0.3);
-      doc.rect(ml, tableTop, theoryW, 8);
+      // Praxis table on right side (extends from info section down)
+      var praxTopY = topY;
+      var praxHeaderH = topH; // aligned with info section
+      // The practice table starts at topY + topH and extends down
+      var praxColX = rightX;
+      var praxW = rightW;
 
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      var thHalfW = theoryW / 2;
-      doc.text('Theoretischer Grundunterricht', ml + thHalfW / 2, tableTop + 3.5, { align: 'center' });
-      doc.text('Klassenspezifischer Unterricht', ml + thHalfW + thHalfW / 2, tableTop + 3.5, { align: 'center' });
-      vLine(ml + thHalfW, tableTop, tableTop + 8);
+      // Practice table header row
+      var ptY = y;
+      drawRect(praxColX, ptY, praxW, 6);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(5.5);
+      var pc = { d: praxColX + 1, art: praxColX + 14, beg: praxColX + praxW - 27, min: praxColX + praxW - 17, fl: praxColX + praxW - 8 };
+      doc.text('Datum', pc.d, ptY + 4);
+      doc.text('Prakt. Ausbild.', pc.art, ptY + 2.5);
+      doc.text('Art u. Inhalt**)', pc.art, ptY + 5);
+      doc.text('Beginn', pc.beg, ptY + 2.5);
+      doc.text('Uhrzeit', pc.beg, ptY + 5);
+      doc.text('Minuten', pc.min, ptY + 4);
+      doc.text('FL*) Nr.', pc.fl, ptY + 4);
 
-      // Sub-headers
-      var subTop = tableTop + 8;
-      doc.setFillColor(248, 248, 248);
-      doc.rect(ml, subTop, theoryW, 5, 'F');
-      doc.rect(ml, subTop, theoryW, 5);
-      vLine(ml + thHalfW, subTop, subTop + 5);
-
-      doc.setFontSize(5.5);
-      doc.setFont('helvetica', 'bold');
-      // Grundunterricht columns: Datum | Thema | Min | FL Nr.
-      var gCols = [ml + 2, ml + 16, ml + thHalfW - 18, ml + thHalfW - 8];
-      doc.text('Datum', gCols[0], subTop + 3.5);
-      doc.text('Thema', gCols[1], subTop + 3.5);
-      doc.text('Min.', gCols[2], subTop + 3.5);
-      doc.text('FL Nr.', gCols[3], subTop + 3.5);
-
-      // Klassenspezifisch columns
-      var kCols = [ml + thHalfW + 2, ml + thHalfW + 16, ml + theoryW - 18, ml + theoryW - 8];
-      doc.text('Datum', kCols[0], subTop + 3.5);
-      doc.text('Thema', kCols[1], subTop + 3.5);
-      doc.text('Min.', kCols[2], subTop + 3.5);
-      doc.text('FL Nr.', kCols[3], subTop + 3.5);
-
-      // Theory rows
-      var rowStart = subTop + 5;
-      var maxTheoryRows = 16;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(5.5);
-
-      for (var ri = 0; ri < maxTheoryRows; ri++) {
-        var ry = rowStart + ri * rowH;
-        // Row lines (within theory table only)
-        doc.setDrawColor(0); doc.setLineWidth(0.2);
-        doc.line(ml, ry + rowH, ml + theoryW, ry + rowH);
-        vLine(ml + thHalfW, ry, ry + rowH);
-
-        // Grundunterricht data
-        if (ri < data.theoryBasic.length) {
-          var tb = data.theoryBasic[ri];
-          doc.text(fmtDate(tb.date), gCols[0], ry + 3);
-          doc.text(String(tb.topic_number) + '. ' + (tb.title || '').substring(0, 25), gCols[1], ry + 3);
-          doc.text(String(tb.duration_min), gCols[2], ry + 3);
-          doc.text(instNr(tb.instructor_id), gCols[3], ry + 3);
-        }
-
-        // Klassenspezifisch data
-        if (ri < data.theorySpecific.length) {
-          var ts = data.theorySpecific[ri];
-          doc.text(fmtDate(ts.date), kCols[0], ry + 3);
-          doc.text(String(ts.topic_number) + '. ' + (ts.title || '').substring(0, 25), kCols[1], ry + 3);
-          doc.text(String(ts.duration_min), kCols[2], ry + 3);
-          doc.text(instNr(ts.instructor_id), kCols[3], ry + 3);
-        }
-      }
-
-      // Outer border for theory table
-      var theoryBottom = rowStart + maxTheoryRows * rowH;
-      doc.setLineWidth(0.3);
-      doc.rect(ml, tableTop, theoryW, theoryBottom - tableTop);
-      vLine(ml + thHalfW, tableTop, theoryBottom);
-
-      // ── Practice table header ──
-      doc.setFillColor(240, 240, 240);
-      doc.rect(practiceX, tableTop, practiceW, 8, 'F');
-      doc.setDrawColor(0); doc.setLineWidth(0.3);
-      doc.rect(practiceX, tableTop, practiceW, 8);
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      doc.text('Praktische Ausbildung', practiceX + practiceW / 2, tableTop + 3.5, { align: 'center' });
-
-      // Practice sub-headers
-      doc.setFillColor(248, 248, 248);
-      doc.rect(practiceX, subTop, practiceW, 5, 'F');
-      doc.rect(practiceX, subTop, practiceW, 5);
-
-      doc.setFontSize(5.5);
-      doc.setFont('helvetica', 'bold');
-      var pCols = [practiceX + 2, practiceX + 16, practiceX + practiceW - 28, practiceX + practiceW - 18, practiceX + practiceW - 8];
-      doc.text('Datum', pCols[0], subTop + 3.5);
-      doc.text('Art/Inhalt', pCols[1], subTop + 3.5);
-      doc.text('Beginn', pCols[2], subTop + 3.5);
-      doc.text('Min.', pCols[3], subTop + 3.5);
-      doc.text('FL Nr.', pCols[4], subTop + 3.5);
-
-      // Practice rows
-      doc.setFont('helvetica', 'normal');
-      var maxPractRows = Math.max(maxTheoryRows, data.practicalLessons.length);
-      if (maxPractRows > maxTheoryRows) maxPractRows = maxTheoryRows; // cap to match theory
-
-      for (var pi = 0; pi < maxPractRows; pi++) {
-        var py = rowStart + pi * rowH;
-        doc.setDrawColor(0); doc.setLineWidth(0.2);
-        doc.line(practiceX, py + rowH, practiceX + practiceW, py + rowH);
-
+      // Practice data rows
+      var prRowH = 4;
+      var prRowStart = ptY + 6;
+      var maxPrRows = 28;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5);
+      for (var pi = 0; pi < maxPrRows; pi++) {
+        var pry = prRowStart + pi * prRowH;
+        drawLine(praxColX, pry + prRowH, praxColX + praxW, pry + prRowH);
         if (pi < data.practicalLessons.length) {
           var pl = data.practicalLessons[pi];
-          doc.text(fmtDate(pl.date), pCols[0], py + 3);
-          doc.text(typeAbbrev(pl.type), pCols[1], py + 3);
-          doc.text(pl.start_time || '', pCols[2], py + 3);
-          doc.text(String(pl.duration || ''), pCols[3], py + 3);
-          doc.text(instNr(pl.instructor_id), pCols[4], py + 3);
+          doc.text(fmtDate(pl.date), pc.d, pry + 3);
+          doc.text(typeAbbr(pl.type), pc.art, pry + 3);
+          doc.text(pl.start_time || '', pc.beg, pry + 3);
+          doc.text(String(pl.duration || ''), pc.min, pry + 3);
+          doc.text(instNr(pl.instructor_id), pc.fl, pry + 3);
         }
       }
+      var praxBottom = prRowStart + maxPrRows * prRowH;
+      drawRect(praxColX, ptY, praxW, praxBottom - ptY);
 
-      // Outer border for practice table
-      doc.setLineWidth(0.3);
-      doc.rect(practiceX, tableTop, practiceW, theoryBottom - tableTop);
+      // ======= THEORY TABLE (left side, below student info) =======
+      var thY = y;
+      var thW = leftW;
+      var thHalfW = thW / 2;
 
-      y = theoryBottom + 3;
+      // Main header
+      drawRect(ml, thY, thW, 6);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(6);
+      doc.text('Theoretischer Grundunterricht', ml + thHalfW / 2, thY + 4, { align: 'center' });
+      doc.text('Klassenspezifischer Unterricht', ml + thHalfW + thHalfW / 2, thY + 4, { align: 'center' });
+      drawLine(ml + thHalfW, thY, ml + thHalfW, thY + 6);
 
-      // ═══════════════════════════════════════
-      //  LEGEND
-      // ═══════════════════════════════════════
-      doc.setFontSize(5.5);
-      doc.setFont('helvetica', 'normal');
+      // Sub headers
+      var thSubY = thY + 6;
+      drawRect(ml, thSubY, thW, 5);
+      drawLine(ml + thHalfW, thSubY, ml + thHalfW, thSubY + 5);
+
+      doc.setFontSize(5); doc.setFont('helvetica', 'bold');
+      var gc = { d: ml + 1, th: ml + 13, min: ml + thHalfW - 16, fl: ml + thHalfW - 7 };
+      var kc = { d: ml + thHalfW + 1, th: ml + thHalfW + 13, min: ml + thW - 16, fl: ml + thW - 7 };
+      doc.text('Datum', gc.d, thSubY + 3.5);
+      doc.text('Thema', gc.th, thSubY + 3.5);
+      doc.text('Minuten', gc.min, thSubY + 3.5);
+      doc.text('FL*) Nr.', gc.fl, thSubY + 3.5);
+      doc.text('Datum', kc.d, thSubY + 3.5);
+      doc.text('Thema', kc.th, thSubY + 3.5);
+      doc.text('Minuten', kc.min, thSubY + 3.5);
+      doc.text('FL*) Nr.', kc.fl, thSubY + 3.5);
+
+      // Theory data rows
+      var thRowStart = thSubY + 5;
+      var thRowH = 4;
+      var maxThRows = 14;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(5);
+      for (var ti = 0; ti < maxThRows; ti++) {
+        var try_ = thRowStart + ti * thRowH;
+        drawLine(ml, try_ + thRowH, ml + thW, try_ + thRowH);
+        drawLine(ml + thHalfW, try_, ml + thHalfW, try_ + thRowH);
+        if (ti < data.theoryBasic.length) {
+          var tb = data.theoryBasic[ti];
+          doc.text(fmtDate(tb.date), gc.d, try_ + 3);
+          doc.text(String(tb.topic_number) + '. ' + (tb.title || '').substring(0, 20), gc.th, try_ + 3);
+          doc.text(String(tb.duration_min), gc.min, try_ + 3);
+          doc.text(instNr(tb.instructor_id), gc.fl, try_ + 3);
+        }
+        if (ti < data.theorySpecific.length) {
+          var tsp = data.theorySpecific[ti];
+          doc.text(fmtDate(tsp.date), kc.d, try_ + 3);
+          doc.text(String(tsp.topic_number) + '. ' + (tsp.title || '').substring(0, 20), kc.th, try_ + 3);
+          doc.text(String(tsp.duration_min), kc.min, try_ + 3);
+          doc.text(instNr(tsp.instructor_id), kc.fl, try_ + 3);
+        }
+      }
+      var thBottom = thRowStart + maxThRows * thRowH;
+      drawRect(ml, thY, thW, thBottom - thY);
+      drawLine(ml + thHalfW, thY, ml + thHalfW, thBottom);
+
+      y = Math.max(thBottom, praxBottom) + 3;
+
+      // ======= LEGEND =======
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(6);
       doc.text('*) FL = Fahrlehrer', ml, y + 3);
-      doc.text('**) Mindestangaben: Uest = Uebungsstunden i.g.O./a.g.O. | Gf = Grundfahraufgaben | Uw = Unterweisung am Fahrzeug', ml, y + 6.5);
-      doc.text('UL = Ueberlandfahrt | AB = Autobahnfahrt | NF = Nachtfahrt | SN = Schaltnachweis', ml + 35, y + 10);
-      y += 13;
+      doc.text('**) Hier sind mindestens anzugeben:', ml + cw * 0.4, y + 3);
+      y += 5;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5);
+      doc.text('Grundausbildung', ml, y + 3);
+      doc.text('besondere Ausbildungsfahrten', ml + cw * 0.4, y + 3);
+      y += 3.5;
+      doc.text('- Uebungsstunden i.g.O./a.g.O.  = Uest', ml, y + 3);
+      doc.text('- Fahrstunden Ueberlandfahrt  = UL', ml + cw * 0.4, y + 3);
+      y += 3;
+      doc.text('- Grundfahraufgaben  = Gf', ml, y + 3);
+      doc.text('- Fahrstunden auf Autobahn  = AB', ml + cw * 0.4, y + 3);
+      y += 3;
+      doc.text('- Unterweisung am Ausbildungsfahrzeug  = Uw', ml, y + 3);
+      doc.text('- Fahrstunden bei Dunkelheit  = NF', ml + cw * 0.4, y + 3);
+      y += 4;
+      doc.text('Schaltnachweis inkl. Ausbildung nach ' + String.fromCharCode(167) + ' 5a FahrschAusbO  = SN', ml + cw * 0.4, y + 3);
+      y += 6;
 
-      // ═══════════════════════════════════════
-      //  SUMMARY
-      // ═══════════════════════════════════════
-      // Count by type
-      var typeCounts = {};
-      data.practicalLessons.forEach(function(l) {
-        if (!typeCounts[l.type]) typeCounts[l.type] = { count: 0, duration: 0 };
-        typeCounts[l.type].count++;
-        typeCounts[l.type].duration += (l.duration || 0);
-      });
+      // ======= KOOPERATION =======
+      drawRect(ml, y, cw, 18);
+      doc.setFontSize(5.5);
+      doc.text('Die Ausbildung erfolgte in Kooperation als', ml + 6, y + 4);
+      doc.rect(ml + 2, y + 1.5, 3, 3); // checkbox
+      doc.rect(ml + 8, y + 6, 3, 3); // checkbox
+      doc.text('Auftrag gebende', ml + 13, y + 8.5);
+      doc.rect(ml + 8, y + 10.5, 3, 3); // checkbox
+      doc.text('Auftrag nehmende', ml + 13, y + 13);
+      doc.text('Fahrschule mit folgender Fahrschule***)', ml + 6, y + 17);
+      y += 20;
 
-      doc.setFontSize(6);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Zusammenfassung:', ml, y + 3);
-      doc.setFont('helvetica', 'normal');
-      var sx = ml;
-      var summaryTypes = ['\u00dcbungsfahrt', '\u00dcberlandfahrt', 'Autobahnfahrt', 'Nachtfahrt', 'Pr\u00fcfungsvorbereitung'];
-      var summaryLabels = ['Uebungsfahrten (Uest)', 'Ueberlandfahrten (UL)', 'Autobahnfahrten (AB)', 'Nachtfahrten (NF)', 'Pruefungsvorbereitung'];
-      summaryTypes.forEach(function(st, idx) {
-        var tc = typeCounts[st] || { count: 0, duration: 0 };
-        doc.text(summaryLabels[idx] + ': ' + tc.count + ' (' + tc.duration + ' Min.)', sx, y + 7 + idx * 3.5);
-      });
-
-      doc.text('Theorie Grundunterricht: ' + data.theoryBasic.length + ' Themen', sx + 100, y + 7);
-      doc.text('Theorie klassenspezifisch: ' + data.theorySpecific.length + ' Themen', sx + 100, y + 10.5);
-      doc.text('Gesamt Theoriestunden: ' + (data.theoryBasic.length + data.theorySpecific.length), sx + 100, y + 14);
-
-      y += 28;
-
-      // ═══════════════════════════════════════
-      //  SIGNATURE SECTION
-      // ═══════════════════════════════════════
-      if (y > ph - 25) y = ph - 25;
-      hLine(y);
-      y += 2;
-
-      doc.setFontSize(6);
-      doc.setFont('helvetica', 'normal');
-      var sigW = cw / 3;
-      doc.text('Ort, Datum', ml + 2, y + 3);
-      doc.text('________________________________', ml + 2, y + 8);
-
-      doc.text('Unterschrift Fahrschulinhaber/in', ml + sigW + 5, y + 3);
-      doc.text('________________________________', ml + sigW + 5, y + 8);
-
-      doc.text('Unterschrift Fahrschueler/in', ml + sigW * 2 + 10, y + 3);
-      doc.text('________________________________', ml + sigW * 2 + 10, y + 8);
-
-      y += 12;
       doc.setFontSize(5);
+      doc.text('***) falls zutreffend bitte ausfuellen', ml, y + 3);
+      y += 8;
+
+      // ======= SIGNATURES =======
+      if (y > ph - 22) y = ph - 22;
+      doc.setFontSize(6);
+      var sigW = cw / 3;
+      doc.text('Ort, Datum', ml, y + 3);
+      drawLine(ml, y + 6, ml + sigW - 5, y + 6);
+
+      doc.text('Unterschrift', ml + sigW, y + 3);
+      doc.text('der/des Fahrschulinhaber/-inhabers/', ml + sigW, y + 6);
+      doc.text('der verantwortlichen Leitung', ml + sigW, y + 9);
+
+      doc.text('Unterschrift', ml + sigW * 2 + 5, y + 3);
+      doc.text('der/des Fahrschuelerin/Fahrschuelers', ml + sigW * 2 + 5, y + 6);
+
+      y += 13;
+      doc.setFontSize(4.5);
       doc.text('Abweichungen vom vorstehenden Muster sind zulaessig, soweit Besonderheiten des Verfahrens, insbesondere der Einsatz maschineller Datenverarbeitung, dies erfordern.', ml, y + 2);
 
-      // ── Save PDF ──
+      // Save
       var fileName = 'Ausbildungsnachweis_' + (data.student.name || 'Schueler').replace(/\s+/g, '_') + '_' + (data.student.license_class || 'B') + '.pdf';
       doc.save(fileName);
       this.showToast(t('ausbildungsnachweis') + ' PDF erstellt');
-
     } catch (err) {
       this.showToast(t('fehler') + ': ' + err.message);
     }

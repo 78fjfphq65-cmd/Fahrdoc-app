@@ -2814,33 +2814,37 @@ app.get('/api/ausbildungsnachweis/:studentId', authMiddleware, async (req, res) 
     // Get instructors
     const instructors = await getStudentInstructors(studentId);
 
-    // Get theory attendance with topic info
+    // Get theory attendance
     const { data: attendance } = await supabase.from('theory_attendance')
-      .select('*, theory_schedule(id, date, start_time, end_time, topic_id, instructor_id, theory_topics(topic_number, title, is_basic))')
+      .select('*')
       .eq('student_id', studentId)
       .eq('is_present', true);
 
-    // Build theory data: separate Grundstoff and klassenspezifisch
+    // Build theory data by fetching schedule + topic for each attendance
     var theoryBasic = [];
     var theorySpecific = [];
-    (attendance || []).forEach(function(a) {
-      var ts = a.theory_schedule;
-      if (!ts || !ts.theory_topics) return;
+    for (const att of (attendance || [])) {
+      const { data: sched } = await supabase.from('theory_schedule')
+        .select('*').eq('id', att.theory_schedule_id).single();
+      if (!sched || !sched.topic_id) continue;
+      const { data: topic } = await supabase.from('theory_topics')
+        .select('*').eq('id', sched.topic_id).single();
+      if (!topic) continue;
       var entry = {
-        date: ts.date,
-        topic_number: ts.theory_topics.topic_number,
-        title: ts.theory_topics.title,
-        start_time: ts.start_time,
-        end_time: ts.end_time,
-        duration_min: 90, // standard theory duration
-        instructor_id: ts.instructor_id
+        date: sched.date,
+        topic_number: topic.topic_number,
+        title: topic.title,
+        start_time: sched.start_time,
+        end_time: sched.end_time,
+        duration_min: 90,
+        instructor_id: sched.instructor_id
       };
-      if (ts.theory_topics.is_basic) {
+      if (topic.is_basic) {
         theoryBasic.push(entry);
       } else {
         theorySpecific.push(entry);
       }
-    });
+    }
 
     // Build practical data grouped by type
     var practicalLessons = (lessons || []).map(function(l) {
