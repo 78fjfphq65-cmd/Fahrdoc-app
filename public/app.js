@@ -163,6 +163,13 @@ function getSkillLevel(val) {
 }
 
 // ============================================
+// HELPER: Format date as YYYY-MM-DD without timezone shift
+// ============================================
+function formatDateLocal(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// ============================================
 // APP STATE
 // ============================================
 var AppState = {
@@ -173,6 +180,7 @@ var AppState = {
   // Schedule
   scheduleWeekStart: null, scheduleData: null, scheduleSelectedDay: 0,
   scheduleSelectedInstructor: null, scheduleManualEndTime: false,
+  dualView: false, dualViewInstructor2: null,
   // Instructor view mode
   instructorViewMode: 'day', // 'day' or 'week'
   // Notifications
@@ -234,6 +242,10 @@ var App = {
     document.addEventListener('click', function(e) {
       if (!e.target.closest('.lang-selector-wrapper')) {
         document.querySelectorAll('.lang-dropdown').forEach(function(d) { d.classList.add('hidden'); });
+      }
+      if (!e.target.closest('.dashboard-search-wrapper')) {
+        var sr = document.getElementById('dashboard-search-results');
+        if (sr) sr.classList.remove('visible');
       }
     });
     // Apply initial language
@@ -686,7 +698,7 @@ var App = {
     html += '</div>';
     // Day columns
     days.forEach(function(day, dayIdx) {
-      var dayStr = day.toISOString().split('T')[0];
+      var dayStr = day.getFullYear() + '-' + String(day.getMonth() + 1).padStart(2, '0') + '-' + String(day.getDate()).padStart(2, '0');
       var isToday = day.toDateString() === new Date().toDateString();
       var daySlots = slots.filter(function(s) { return s.date === dayStr; });
       html += '<div class="week-grid-day-col' + (isToday ? ' today' : '') + '" onclick="App.onWeekGridCellClick(event, \'' + dayStr + '\', ' + JSON.stringify(onCellClick).replace(/"/g, '&quot;') + ')">';
@@ -1023,7 +1035,7 @@ var App = {
     var isEdit = !!editSlot;
     var title = isEdit ? t('terminBearbeiten') : t('neuerTermin');
 
-    var date = isEdit ? editSlot.date : (prefillDate || new Date().toISOString().split('T')[0]);
+    var date = isEdit ? editSlot.date : (prefillDate || formatDateLocal(new Date()));
     var startTime = isEdit ? editSlot.start_time : (prefillTime || '09:00');
     var endTime = isEdit ? editSlot.end_time : '';
     var type = isEdit ? editSlot.type : 'Übungsfahrt';
@@ -1195,7 +1207,7 @@ var App = {
   // ──── TIME BLOCK (Zeitsperre) MODAL ────
   openBlockModal: function(prefillDate, prefillTime, instructorIdOverride) {
     var title = t('zeitsperreErstellen');
-    var date = prefillDate || new Date().toISOString().split('T')[0];
+    var date = prefillDate || formatDateLocal(new Date());
     var startTime = prefillTime || '09:00';
     // Default 2 hour block
     var sp = startTime.split(':');
@@ -1346,6 +1358,12 @@ var App = {
       var html = '<div class="page-padding">' +
         '<div class="welcome-msg"><h2>' + t('hallo') + ', ' + (school.admin_name || school.name) + '</h2><p>' + t('uebersichtSchule') + '</p></div>';
 
+      // ──── SEARCH BAR ────
+      html += '<div class="dashboard-search-wrapper">' +
+        '<svg class="dashboard-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' +
+        '<input class="dashboard-search-input" type="text" id="dashboard-search" placeholder="' + t('sucheSchuelerFahrlehrer') + '" oninput="App.onDashboardSearch(this.value)" autocomplete="off">' +
+        '<div class="dashboard-search-results" id="dashboard-search-results"></div></div>';
+
       // ──── NEW STUDENTS THIS WEEK WIDGET ────
       var newStudents = data.newStudentsThisWeek || [];
       html += '<div class="new-students-widget mb-4">' +
@@ -1387,6 +1405,40 @@ var App = {
       this._dashInstData = instData;
       this.renderDashboardContent();
     } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
+  },
+
+  onDashboardSearch: function(query) {
+    var resultsEl = document.getElementById('dashboard-search-results');
+    if (!resultsEl) return;
+    if (!query || query.length < 2) { resultsEl.classList.remove('visible'); return; }
+    var q = query.toLowerCase();
+    var studData = this._dashStudData || { students: [] };
+    var instData = this._dashInstData || { instructors: [] };
+    var results = [];
+    (instData.instructors || []).forEach(function(inst) {
+      if (inst.name.toLowerCase().indexOf(q) !== -1) {
+        results.push({ id: inst.id, name: inst.name, role: 'fahrlehrer', type: 'instructor' });
+      }
+    });
+    (studData.students || []).forEach(function(stu) {
+      if (stu.name.toLowerCase().indexOf(q) !== -1) {
+        results.push({ id: stu.id, name: stu.name, role: 'fahrschueler', type: 'student', licenseClass: stu.license_class });
+      }
+    });
+    if (results.length === 0) {
+      resultsEl.innerHTML = '<div class="dashboard-search-no-results">' + t('keineErgebnisse') + '</div>';
+    } else {
+      var html = '';
+      results.slice(0, 10).forEach(function(r) {
+        var onclick = r.type === 'student' ? 'App.showStudentDetail(\'' + r.id + '\')' : 'App.showInstructorDetail(\'' + r.id + '\')';
+        html += '<div class="dashboard-search-item" onclick="' + onclick + '">' +
+          '<div>' + App.avatarHtml(r.name, 'sm') + '</div>' +
+          '<div><div class="dashboard-search-item-name">' + r.name + '</div>' +
+          '<div class="dashboard-search-item-role">' + t(r.role) + (r.licenseClass ? ' · ' + t('klasse') + ' ' + r.licenseClass : '') + '</div></div></div>';
+      });
+      resultsEl.innerHTML = html;
+    }
+    resultsEl.classList.add('visible');
   },
 
   renderDashboardContent: function() {
@@ -1445,8 +1497,8 @@ var App = {
     main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
     this.initWeek();
     var w = this.getWeekDates(AppState.scheduleWeekStart);
-    var wsStr = w.monday.toISOString().split('T')[0];
-    var weStr = w.saturday.toISOString().split('T')[0];
+    var wsStr = formatDateLocal(w.monday);
+    var weStr = formatDateLocal(w.saturday);
     var instFilter = AppState.scheduleSelectedInstructor || '';
     var url = '/api/schedule?weekStart=' + wsStr + '&weekEnd=' + weStr;
     if (instFilter) url += '&instructorId=' + instFilter;
@@ -1471,7 +1523,8 @@ var App = {
       });
       html += '</select>' +
         '<button class="btn btn-primary btn-sm" onclick="App.openScheduleModal(null, null, null, AppState.scheduleSelectedInstructor)">' + t('plusTermin') + '</button>' +
-        '<button class="btn btn-ghost btn-sm" style="border:1px solid var(--color-border);" onclick="App.openBlockModal(null, null, AppState.scheduleSelectedInstructor)">' + t('plusZeitsperre') + '</button></div>';
+        '<button class="btn btn-ghost btn-sm" style="border:1px solid var(--color-border);" onclick="App.openBlockModal(null, null, AppState.scheduleSelectedInstructor)">' + t('plusZeitsperre') + '</button>' +
+        '<button class="btn btn-ghost btn-sm" style="border:1px solid var(--color-border);margin-left:auto;" onclick="App.toggleDualView()">' + (AppState.dualView ? t('einzelansicht') : t('zweierAnsicht')) + '</button></div>';
 
       // Week nav
       html += '<div class="schedule-week-nav">' +
@@ -1507,14 +1560,98 @@ var App = {
         });
       } catch(e) {}
 
-      html += this.renderWeekGridHtml(
-        w.days, slots,
-        "App.openScheduleModal('{DAY}', '09:00', null, AppState.scheduleSelectedInstructor)",
-        "App.openScheduleModal(null, null, {SLOT})"
-      );
+      if (AppState.dualView) {
+        // Dual view: two grids side by side
+        html += '<div class="dual-view-container">';
+        // Left grid (instructor 1)
+        html += '<div class="dual-view-panel">';
+        html += '<div class="dual-view-label">' + (instructors.filter(function(i){return i.id===AppState.scheduleSelectedInstructor;})[0] || {}).name + '</div>';
+        html += this.renderWeekGridHtml(
+          w.days, slots,
+          "App.openScheduleModal('{DAY}', '09:00', null, AppState.scheduleSelectedInstructor)",
+          "App.openScheduleModal(null, null, {SLOT})"
+        );
+        html += '</div>';
+        // Right grid (instructor 2)
+        html += '<div class="dual-view-panel">';
+        html += '<select class="form-select mb-2" onchange="AppState.dualViewInstructor2=this.value;App.renderSchoolScheduleTab()">';
+        instructors.forEach(function(inst) {
+          html += '<option value="' + inst.id + '"' + (inst.id === AppState.dualViewInstructor2 ? ' selected' : '') + '>' + inst.name + '</option>';
+        });
+        html += '</select>';
+        html += '<div id="dual-view-grid2"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>';
+        html += '</div></div>';
+      } else {
+        html += this.renderWeekGridHtml(
+          w.days, slots,
+          "App.openScheduleModal('{DAY}', '09:00', null, AppState.scheduleSelectedInstructor)",
+          "App.openScheduleModal(null, null, {SLOT})"
+        );
+      }
       html += '</div>';
       main.innerHTML = html;
+
+      // Load dual view second grid async
+      if (AppState.dualView) {
+        this._loadDualViewGrid2(w, wsStr, instructors);
+      }
     } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
+  },
+
+  // ══════════════════════════════════════════
+  //  DUAL VIEW (Two instructors side by side)
+  // ══════════════════════════════════════════
+  toggleDualView: function() {
+    AppState.dualView = !AppState.dualView;
+    if (AppState.dualView && !AppState.dualViewInstructor2) {
+      var instructors = (AppState.scheduleData || {}).instructors || [];
+      for (var i = 0; i < instructors.length; i++) {
+        if (instructors[i].id !== AppState.scheduleSelectedInstructor) {
+          AppState.dualViewInstructor2 = instructors[i].id;
+          break;
+        }
+      }
+      if (!AppState.dualViewInstructor2 && instructors.length > 0) {
+        AppState.dualViewInstructor2 = instructors[0].id;
+      }
+    }
+    this.renderSchoolScheduleTab();
+  },
+
+  _loadDualViewGrid2: async function(w, wsStr, instructors) {
+    var container = document.getElementById('dual-view-grid2');
+    if (!container) return;
+    var inst2 = AppState.dualViewInstructor2;
+    if (!inst2 && instructors.length > 0) {
+      inst2 = instructors[0].id;
+      AppState.dualViewInstructor2 = inst2;
+    }
+    if (!inst2) { container.innerHTML = '<p class="text-sm text-muted">' + t('keinFahrlehrer') + '</p>'; return; }
+    try {
+      var weStr = formatDateLocal(w.saturday);
+      var data2 = await ApiClient.get('/api/schedule?weekStart=' + wsStr + '&weekEnd=' + weStr + '&instructorId=' + inst2);
+      var slots2 = data2.slots || [];
+      try {
+        var theorySchedule2 = await ApiClient.get('/api/theory/schedule?week_start=' + wsStr);
+        (theorySchedule2 || []).forEach(function(ts) {
+          var isAssigned = ts.instructor_id && ts.instructor_id === inst2;
+          var isUnassigned = !ts.instructor_id;
+          if (isUnassigned || isAssigned) {
+            slots2.push({
+              id: ts.id, date: ts.date, start_time: ts.start_time, end_time: ts.end_time,
+              slot_type: 'theory', theory_topic_number: ts.theory_topics ? ts.theory_topics.topic_number : '?',
+              theory_topic_title: ts.theory_topics ? ts.theory_topics.title : '',
+              instructor_id: ts.instructor_id, instructor_name: ts.instructor_name, status: ts.status
+            });
+          }
+        });
+      } catch(e) {}
+      container.innerHTML = this.renderWeekGridHtml(
+        w.days, slots2,
+        "App.openScheduleModal('{DAY}', '09:00', null, AppState.dualViewInstructor2)",
+        "App.openScheduleModal(null, null, {SLOT})"
+      );
+    } catch (err) { container.innerHTML = '<p class="text-sm text-muted">' + t('fehler') + '</p>'; }
   },
 
   // ══════════════════════════════════════════
@@ -1603,13 +1740,17 @@ var App = {
       html += '<div class="theory-section-header"><span class="section-title">' + t('rotation') + '</span></div>';
 
       if (this._theoryRotations.length > 0) {
-        html += '<div class="theory-rotation-current"><strong>' + t('aktuelleRotation') + ':</strong><br>';
-        var dayLabels = [t('mo'), t('di'), t('mi'), t('do_'), t('fr')];
+        html += '<div class="theory-rotation-current"><strong>' + t('aktuelleRotation') + ':</strong>';
+        var dayLabels = [t('mo'), t('di'), t('mi'), t('do_'), t('fr'), t('sa')];
         this._theoryRotations.forEach(function(rot) {
           var dayName = dayLabels[rot.day_of_week] || ('Tag ' + rot.day_of_week);
           var roomName = rot.theory_rooms ? rot.theory_rooms.name : '';
-          html += dayName + ' ' + rot.start_time + '-' + rot.end_time + ' (' + roomName + ', ' + t('startThema') + ' ' + rot.start_topic_number + ')<br>';
+          html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-1) 0;">';
+          html += '<span>' + dayName + ' ' + rot.start_time + '-' + rot.end_time + ' (' + roomName + ')</span>';
+          html += '<button class="btn btn-ghost btn-sm" style="color:var(--color-error);padding:2px 8px;" onclick="App.deleteTheoryRotation(\'' + rot.id + '\')">&times;</button>';
+          html += '</div>';
         });
+        html += '<button class="btn btn-ghost btn-sm" style="color:var(--color-error);margin-top:var(--space-2);" onclick="App.deleteAllTheoryRotations()">' + t('alleRotationenLoeschen') + '</button>';
         html += '</div>';
       } else {
         html += '<div class="text-sm text-muted" style="padding:var(--space-3);margin-bottom:var(--space-3);">' + t('keineRotation') + '</div>';
@@ -1623,7 +1764,8 @@ var App = {
         { idx: 1, label: t('di') },
         { idx: 2, label: t('mi') },
         { idx: 3, label: t('do_') },
-        { idx: 4, label: t('fr') }
+        { idx: 4, label: t('fr') },
+        { idx: 5, label: t('sa') }
       ];
       weekDays.forEach(function(wd) {
         html += '<div class="theory-day-check" data-day="' + wd.idx + '" onclick="this.classList.toggle(\'selected\')">' + wd.label + '</div>';
@@ -1705,8 +1847,29 @@ var App = {
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
   },
 
+  deleteTheoryRotation: async function(rotId) {
+    if (!confirm(t('rotationLoeschenBestaetigen'))) return;
+    try {
+      await ApiClient.del('/api/theory/rotation/' + rotId);
+      this.showToast(t('geloescht'));
+      this.showTheoryView();
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+  },
+
+  deleteAllTheoryRotations: async function() {
+    if (!confirm(t('alleRotationenLoeschenBestaetigen'))) return;
+    try {
+      await ApiClient.del('/api/theory/rotation');
+      this.showToast(t('geloescht'));
+      this.showTheoryView();
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+  },
+
   // ── Theory Detail Modal ──
+  _loadingTheoryDetail: false,
   openTheoryDetail: async function(scheduleId) {
+    if (this._loadingTheoryDetail) return;
+    this._loadingTheoryDetail = true;
     var self = this;
     try {
       var schedule = await ApiClient.get('/api/theory/schedule');
@@ -1743,7 +1906,6 @@ var App = {
         html += '<option value="' + inst.id + '"' + (item.instructor_id === inst.id ? ' selected' : '') + '>' + inst.name + '</option>';
       });
       html += '</select>';
-      html += '<button class="btn btn-primary btn-sm" onclick="App.assignTheoryInstructor(\'' + scheduleId + '\')">' + t('speichern') + '</button>';
       html += '</div>';
 
       // Attendance section
@@ -1759,16 +1921,17 @@ var App = {
       // Load students for attendance
       html += '<div class="theory-attendance-list" id="theory-attendance-list"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>';
 
-      if (isPast || AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor') {
-        html += '<button class="btn btn-primary" style="margin-top:var(--space-3);width:100%;" onclick="App.saveTheoryAttendance(\'' + scheduleId + '\')">' + t('anwesenheitSpeichern') + '</button>';
-      }
       html += '</div>';
+
+      if (isPast || AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor') {
+        html += '<button class="btn btn-primary" style="margin-top:var(--space-3);width:100%;" onclick="App.saveTheoryAll(\'' + scheduleId + '\')">' + t('speichern') + '</button>';
+      }
 
       this.openModal(t('theorieDetail'), html);
 
       // Load attendance data
       this._loadTheoryAttendance(scheduleId);
-    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); } finally { this._loadingTheoryDetail = false; }
   },
 
   _loadTheoryAttendance: async function(scheduleId) {
@@ -1835,23 +1998,50 @@ var App = {
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
   },
 
+  saveTheoryAll: async function(scheduleId) {
+    try {
+      // Save instructor assignment
+      var select = document.getElementById('theory-assign-instructor');
+      var instructorId = select ? select.value : null;
+      await ApiClient.put('/api/theory/schedule/' + scheduleId, { instructor_id: instructorId || null });
+      // Save attendance
+      var checks = document.querySelectorAll('#theory-attendance-list input[type="checkbox"]');
+      if (checks.length > 0) {
+        var attendance = [];
+        checks.forEach(function(cb) {
+          attendance.push({ student_id: cb.getAttribute('data-student-id'), is_present: cb.checked });
+        });
+        await ApiClient.post('/api/theory/attendance/' + scheduleId, { attendance: attendance });
+      }
+      this.showToast(t('gespeichert'));
+      this.closeModalForce();
+      // Refresh current view
+      if (AppState.currentUser.role === 'school') {
+        var activeTab = document.querySelector('#school-nav .bottom-nav-item.active');
+        var tab = activeTab ? activeTab.getAttribute('data-tab') : 'schedule';
+        if (tab === 'schedule') this.renderSchoolScheduleTab();
+        else if (tab === 'theory') this.showTheoryView();
+      }
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+  },
+
   // ── Theory Progress in Student Detail ──
   renderTheoryProgress: async function(studentId) {
     var container = document.getElementById('theory-progress-container');
     if (!container) return;
     try {
       var progress = await ApiClient.get('/api/theory/progress/' + studentId);
-      var attended = progress.attended || [];
+      if (!progress || !Array.isArray(progress)) { container.innerHTML = '<p class="text-sm text-muted">' + t('keineTheorieDaten') + '</p>'; return; }
+      var attendedCount = progress.filter(function(p) { return p.attended; }).length;
       var html = '<div class="theory-progress-grid">';
-      for (var i = 1; i <= 14; i++) {
-        var isAttended = attended.indexOf(i) !== -1;
-        html += '<div class="theory-progress-box' + (isAttended ? ' attended' : '') + '">' +
-          '<span class="topic-num">' + i + '</span>' +
-          (isAttended ? '<span class="topic-check">\u2713</span>' : '') +
+      progress.forEach(function(p) {
+        html += '<div class="theory-progress-box' + (p.attended ? ' attended' : '') + '" title="' + (p.title || '') + '">' +
+          '<span class="topic-num">' + p.topic_number + '</span>' +
+          (p.attended ? '<span class="topic-check">\u2713</span>' : '') +
           '</div>';
-      }
+      });
       html += '</div>';
-      html += '<div class="theory-progress-summary">' + t('themenAbsolviert', { x: attended.length, y: 14 }) + '</div>';
+      html += '<div class="theory-progress-summary">' + attendedCount + ' ' + t('von') + ' 14 ' + t('themenAbsolviert') + '</div>';
       container.innerHTML = html;
     } catch(e) {
       container.innerHTML = '<p class="text-sm text-muted">' + t('fehler') + '</p>';
@@ -2196,7 +2386,7 @@ var App = {
 
       // Fetch bookings for selected vehicle
       var bookings = [];
-      var wsStr = w.monday.toISOString().split('T')[0];
+      var wsStr = formatDateLocal(w.monday);
       if (this.vehiclesWeekVehicleId) {
         var bData = await ApiClient.get('/api/school/vehicles/' + this.vehiclesWeekVehicleId + '/week?weekStart=' + wsStr);
         bookings = bData.bookings || [];
@@ -2290,7 +2480,7 @@ var App = {
   shiftGanttDate: function(offset) {
     var d = new Date(this.vehiclesGanttDate + 'T00:00:00');
     d.setDate(d.getDate() + offset);
-    this.vehiclesGanttDate = d.toISOString().split('T')[0];
+    this.vehiclesGanttDate = formatDateLocal(d);
     this.renderSchoolVehiclesTab();
   },
 
@@ -2601,8 +2791,8 @@ var App = {
 
     this.initWeek();
     var w = this.getWeekDates(AppState.scheduleWeekStart);
-    var wsStr = w.monday.toISOString().split('T')[0];
-    var weStr = w.saturday.toISOString().split('T')[0];
+    var wsStr = formatDateLocal(w.monday);
+    var weStr = formatDateLocal(w.saturday);
 
     try {
       var data = await ApiClient.get('/api/schedule?weekStart=' + wsStr + '&weekEnd=' + weStr);
@@ -2639,7 +2829,7 @@ var App = {
     var selectedDay = AppState.scheduleSelectedDay || 0;
     if (selectedDay >= w.days.length) selectedDay = 0;
     var selectedDate = w.days[selectedDay];
-    var selectedDateStr = selectedDate.toISOString().split('T')[0];
+    var selectedDateStr = formatDateLocal(selectedDate);
     var daySlots = slots.filter(function(s) { return s.date === selectedDateStr; });
     daySlots.sort(function(a, b) { return a.start_time.localeCompare(b.start_time); });
 
@@ -2677,7 +2867,7 @@ var App = {
         var isToday = day.toDateString() === new Date().toDateString();
         var isActive = idx === selectedDay;
         var cls = 'schedule-day-tab' + (isActive ? ' active' : '') + (isToday ? ' today' : '');
-        var dStr = day.toISOString().split('T')[0];
+        var dStr = formatDateLocal(day);
         var cnt = slots.filter(function(s) { return s.date === dStr; }).length;
         html += '<button class="' + cls + '" onclick="App.selectDay(' + idx + ')">' +
           '<div class="schedule-day-tab-name">' + getDayNames()[idx] + '</div>' +
@@ -3479,8 +3669,33 @@ var App = {
       '<div class="stat-card"><div class="stat-card-label">' + t('fahrstunden') + '</div><div class="stat-card-value">' + lessons.length + '</div></div>' +
       '<div class="stat-card"><div class="stat-card-label">' + t('gesamtdauer') + '</div><div class="stat-card-value">' + Math.round(totalDuration / 60) + 'h</div></div>' +
       '<div class="stat-card"><div class="stat-card-label">' + t('fahrlehrer') + '</div><div class="stat-card-value">' + (data.instructorName ? data.instructorName.split(',')[0].trim().split(' ')[0] : '—') + '</div></div>' +
-    '</div></div>';
+    '</div>';
+    // Theory progress section
+    html += '<div class="card mb-4"><div class="section-title mb-3">' + t('theorieFortschritt') + '</div>' +
+      '<div id="student-theory-progress"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div></div>';
+    html += '</div>';
     main.innerHTML = html;
+    // Load theory progress async
+    this.renderStudentTheoryProgress(stu.id);
+  },
+
+  renderStudentTheoryProgress: async function(studentId) {
+    var container = document.getElementById('student-theory-progress');
+    if (!container) return;
+    try {
+      var progress = await ApiClient.get('/api/theory/progress/' + studentId);
+      if (!progress || !Array.isArray(progress)) { container.innerHTML = '<p class="text-sm text-muted">' + t('keineTheorieDaten') + '</p>'; return; }
+      var attended = progress.filter(function(p) { return p.attended; });
+      var html = '<div class="theory-progress-grid">';
+      progress.forEach(function(p) {
+        var cls = p.attended ? ' attended' : '';
+        html += '<div class="theory-progress-box' + cls + '" title="' + (p.title || '') + '">' +
+          '<div class="theory-progress-num">' + p.topic_number + '</div></div>';
+      });
+      html += '</div>';
+      html += '<div class="theory-progress-summary">' + attended.length + ' ' + t('von') + ' 14 ' + t('themenAbsolviert') + '</div>';
+      container.innerHTML = html;
+    } catch (err) { container.innerHTML = '<p class="text-sm text-muted">' + t('fehler') + '</p>'; }
   },
 
   buildExamChecklist: function() {

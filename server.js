@@ -170,6 +170,13 @@ async function authMiddleware(req, res, next) {
 }
 
 // ============================================
+// HELPER: Format date as YYYY-MM-DD without timezone shift
+// ============================================
+function formatDateLocal(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// ============================================
 // HELPER: Create notification
 // ============================================
 async function createNotification(userId, userRole, type, title, message, referenceId) {
@@ -2450,7 +2457,14 @@ app.get('/api/theory/topics', authMiddleware, async (req, res) => {
     const schoolId = req.user.school_id || req.user.id;
     const { data, error } = await supabase.from('theory_topics').select('*').eq('school_id', schoolId).order('topic_number');
     if (error) throw error;
-    res.json(data || []);
+    // Deduplicate by topic_number (in case topics were inserted twice)
+    const seen = {};
+    const unique = (data || []).filter(t => {
+      if (seen[t.topic_number]) return false;
+      seen[t.topic_number] = true;
+      return true;
+    });
+    res.json(unique);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2492,7 +2506,7 @@ app.get('/api/theory/schedule', authMiddleware, async (req, res) => {
       const ws = new Date(week_start);
       const we = new Date(ws);
       we.setDate(we.getDate() + 6);
-      query = query.gte('date', ws.toISOString().split('T')[0]).lte('date', we.toISOString().split('T')[0]);
+      query = query.gte('date', formatDateLocal(ws)).lte('date', formatDateLocal(we));
     }
     const { data, error } = await query.order('date').order('start_time');
     if (error) throw error;
@@ -2552,7 +2566,7 @@ app.post('/api/theory/rotation', authMiddleware, async (req, res) => {
   try {
     const schoolId = req.user.school_id || req.user.id;
     const { room_id, days, start_time, end_time, start_topic_number } = req.body;
-    // days is array of day_of_week numbers (0=Mon ... 4=Fri)
+    // days is array of day_of_week numbers (0=Mon ... 5=Sat)
     const rotationIds = [];
     for (const day of days) {
       const id = generateId();
@@ -2576,7 +2590,7 @@ app.post('/api/theory/rotation', authMiddleware, async (req, res) => {
       for (const day of days.slice().sort((a, b) => a - b)) {
         const slotDate = new Date(mondayOfThisWeek);
         slotDate.setDate(slotDate.getDate() + week * 7 + day);
-        allSlots.push({ date: slotDate.toISOString().split('T')[0], room_id });
+        allSlots.push({ date: formatDateLocal(slotDate), room_id });
       }
     }
     // Assign topics cycling through 1-14
@@ -2598,7 +2612,7 @@ app.post('/api/theory/rotation', authMiddleware, async (req, res) => {
       topicIdx++;
     }
     // Delete existing future schedule for this school
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = formatDateLocal(today);
     await supabase.from('theory_schedule').delete().eq('school_id', schoolId).gte('date', todayStr);
     // Insert new schedule
     if (scheduleRows.length > 0) {
@@ -2606,6 +2620,25 @@ app.post('/api/theory/rotation', authMiddleware, async (req, res) => {
       if (error) throw error;
     }
     res.json({ generated: scheduleRows.length, rotationIds });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Delete single rotation ---
+app.delete('/api/theory/rotation/:id', authMiddleware, async (req, res) => {
+  try {
+    const { error } = await supabase.from('theory_rotation').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Delete all rotations for school ---
+app.delete('/api/theory/rotation', authMiddleware, async (req, res) => {
+  try {
+    const schoolId = req.user.school_id || req.user.id;
+    const { error } = await supabase.from('theory_rotation').delete().eq('school_id', schoolId);
+    if (error) throw error;
+    res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2669,7 +2702,20 @@ app.get('/api/theory/progress/:studentId', authMiddleware, async (req, res) => {
         }
       }
     }
-    res.json({ attended: attendedTopics, total: 14 });
+    // Return full topic list with attended status
+    const { data: allTopics } = await supabase.from('theory_topics').select('topic_number, title, is_basic').eq('school_id', schoolId).order('topic_number');
+    const seen = {};
+    const result = (allTopics || []).filter(tp => {
+      if (seen[tp.topic_number]) return false;
+      seen[tp.topic_number] = true;
+      return true;
+    }).map(tp => ({
+      topic_number: tp.topic_number,
+      title: tp.title,
+      is_basic: tp.is_basic,
+      attended: attendedTopics.indexOf(tp.topic_number) !== -1
+    }));
+    res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

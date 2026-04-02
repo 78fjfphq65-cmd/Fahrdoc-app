@@ -385,7 +385,18 @@ var TRANSLATIONS = {
   di: { de:'Di', en:'Tue', tr:'Sal', ar:'ثلا', es:'Ma', fr:'Ma' },
   mi: { de:'Mi', en:'Wed', tr:'Çar', ar:'أرب', es:'Mi', fr:'Me' },
   do_: { de:'Do', en:'Thu', tr:'Per', ar:'خمي', es:'Ju', fr:'Je' },
-  fr: { de:'Fr', en:'Fri', tr:'Cum', ar:'جمع', es:'Vi', fr:'Ve' }
+  fr: { de:'Fr', en:'Fri', tr:'Cum', ar:'جمع', es:'Vi', fr:'Ve' },
+  sa: { de:'Sa', en:'Sat', tr:'Cmt', ar:'سبت', es:'Sá', fr:'Sa' },
+  zweierAnsicht: { de:'Zweier-Ansicht', en:'Dual View', tr:'İkili Görünüm', ar:'عرض مزدوج', es:'Vista doble', fr:'Vue double' },
+  einzelansicht: { de:'Einzelansicht', en:'Single View', tr:'Tekli Görünüm', ar:'عرض فردي', es:'Vista simple', fr:'Vue simple' },
+  sucheSchuelerFahrlehrer: { de:'Fahrschüler oder Fahrlehrer suchen...', en:'Search students or instructors...', tr:'Öğrenci veya eğitmen ara...', ar:'بحث عن طالب أو مدرب...', es:'Buscar alumnos o instructores...', fr:'Rechercher élèves ou moniteurs...' },
+  alleRotationenLoeschen: { de:'Alle Rotationen löschen', en:'Delete all rotations', tr:'Tüm rotasyonları sil', ar:'حذف جميع الدورات', es:'Eliminar todas las rotaciones', fr:'Supprimer toutes les rotations' },
+  rotationLoeschenBestaetigen: { de:'Diese Rotation wirklich löschen?', en:'Delete this rotation?', tr:'Bu rotasyonu silmek istediğinizden emin misiniz?', ar:'هل تريد حذف هذه الدورة؟', es:'¿Eliminar esta rotación?', fr:'Supprimer cette rotation ?' },
+  alleRotationenLoeschenBestaetigen: { de:'Alle Rotationen löschen? (Bereits geplante Termine bleiben bestehen)', en:'Delete all rotations? (Already scheduled sessions remain)', tr:'Tüm rotasyonları sil?', ar:'حذف جميع الدورات؟', es:'¿Eliminar todas las rotaciones?', fr:'Supprimer toutes les rotations ?' },
+  geloescht: { de:'Gelöscht', en:'Deleted', tr:'Silindi', ar:'تم الحذف', es:'Eliminado', fr:'Supprimé' },
+  keineErgebnisse: { de:'Keine Ergebnisse', en:'No results', tr:'Sonuç yok', ar:'لا نتائج', es:'Sin resultados', fr:'Aucun résultat' },
+  keineTheorieDaten: { de:'Keine Theoriedaten verfügbar', en:'No theory data available', tr:'Teori verisi yok', ar:'لا توجد بيانات نظرية', es:'Sin datos de teoría', fr:'Aucune donnée théorique' },
+  von: { de:'von', en:'of', tr:'/', ar:'من', es:'de', fr:'de' }
 };
 
 // ── Day names by language ──
