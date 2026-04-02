@@ -1430,8 +1430,8 @@ var App = {
     } else {
       var html = '';
       results.slice(0, 10).forEach(function(r) {
-        var onclick = r.type === 'student' ? 'App.showStudentDetail(\'' + r.id + '\')' : 'App.showInstructorDetail(\'' + r.id + '\')';
-        html += '<div class="dashboard-search-item" onclick="' + onclick + '">' +
+        var onclick = r.type === 'student' ? 'App.showStudentDetail(&quot;' + r.id + '&quot;)' : 'App.showInstructorDetail(&quot;' + r.id + '&quot;)';
+        html += '<div class="dashboard-search-item" onclick="event.stopPropagation();' + onclick + '">' +
           '<div>' + App.avatarHtml(r.name, 'sm') + '</div>' +
           '<div><div class="dashboard-search-item-name">' + r.name + '</div>' +
           '<div class="dashboard-search-item-role">' + t(r.role) + (r.licenseClass ? ' · ' + t('klasse') + ' ' + r.licenseClass : '') + '</div></div></div>';
@@ -1906,6 +1906,9 @@ var App = {
         html += '<option value="' + inst.id + '"' + (item.instructor_id === inst.id ? ' selected' : '') + '>' + inst.name + '</option>';
       });
       html += '</select>';
+      html += '<label class="form-check" style="margin-top:var(--space-2);display:flex;align-items:center;gap:var(--space-2);cursor:pointer;">' +
+        '<input type="checkbox" id="theory-recurring-assign" style="width:16px;height:16px;">' +
+        '<span class="text-sm">' + t('wiederkehrendZuweisen') + '</span></label>';
       html += '</div>';
 
       // Attendance section
@@ -2003,7 +2006,12 @@ var App = {
       // Save instructor assignment
       var select = document.getElementById('theory-assign-instructor');
       var instructorId = select ? select.value : null;
-      await ApiClient.put('/api/theory/schedule/' + scheduleId, { instructor_id: instructorId || null });
+      var recurringCheck = document.getElementById('theory-recurring-assign');
+      var recurring = recurringCheck ? recurringCheck.checked : false;
+      var updateData = { instructor_id: instructorId || null };
+      if (recurring && instructorId) updateData.recurring = true;
+      var result = await ApiClient.put('/api/theory/schedule/' + scheduleId, updateData);
+      var recurringMsg = (result && result._recurringUpdated) ? ' (+' + result._recurringUpdated + ' ' + t('weitereTermine') + ')' : '';
       // Save attendance
       var checks = document.querySelectorAll('#theory-attendance-list input[type="checkbox"]');
       if (checks.length > 0) {
@@ -2013,7 +2021,7 @@ var App = {
         });
         await ApiClient.post('/api/theory/attendance/' + scheduleId, { attendance: attendance });
       }
-      this.showToast(t('gespeichert'));
+      this.showToast(t('gespeichert') + recurringMsg);
       this.closeModalForce();
       // Refresh current view
       if (AppState.currentUser.role === 'school') {

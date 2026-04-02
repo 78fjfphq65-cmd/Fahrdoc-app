@@ -396,7 +396,10 @@ var TRANSLATIONS = {
   geloescht: { de:'Gelöscht', en:'Deleted', tr:'Silindi', ar:'تم الحذف', es:'Eliminado', fr:'Supprimé' },
   keineErgebnisse: { de:'Keine Ergebnisse', en:'No results', tr:'Sonuç yok', ar:'لا نتائج', es:'Sin resultados', fr:'Aucun résultat' },
   keineTheorieDaten: { de:'Keine Theoriedaten verfügbar', en:'No theory data available', tr:'Teori verisi yok', ar:'لا توجد بيانات نظرية', es:'Sin datos de teoría', fr:'Aucune donnée théorique' },
-  von: { de:'von', en:'of', tr:'/', ar:'من', es:'de', fr:'de' }
+  von: { de:'von', en:'of', tr:'/', ar:'من', es:'de', fr:'de' },
+  wiederkehrendZuweisen: { de:'Wiederkehrend zuweisen (jeden gleichen Wochentag)', en:'Assign recurring (every same weekday)', tr:'Tekrarlamalı ata (her aynı hafta günü)', ar:'تعيين متكرر', es:'Asignar recurrente', fr:'Assigner récurrent' },
+  weitereTermine: { de:'weitere Termine aktualisiert', en:'more sessions updated', tr:'daha fazla oturum güncellendi', ar:'تم تحديث المزيد', es:'más sesiones actualizadas', fr:'sessions supplémentaires mises à jour' },
+  gespeichert: { de:'Gespeichert', en:'Saved', tr:'Kaydedildi', ar:'تم الحفظ', es:'Guardado', fr:'Enregistré' }
 };
 
 // ── Day names by language ──

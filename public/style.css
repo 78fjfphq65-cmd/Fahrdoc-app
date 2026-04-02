@@ -2930,12 +2930,15 @@ html[dir="rtl"] .notif-panel {
 .theory-rotation-current{padding:var(--space-3);background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:var(--text-sm);margin-bottom:var(--space-3)}
 
 /* Theory Week Grid Blocks */
-.week-grid-slot.theory-slot{background:rgba(124,58,237,0.12);border:2px dashed var(--color-purple);color:var(--color-purple);cursor:pointer}
-.week-grid-slot.theory-slot:hover{background:rgba(124,58,237,0.2)}
-.week-grid-slot.theory-slot-assigned{background:var(--color-purple);border:2px solid var(--color-purple);color:#fff;cursor:pointer}
-.week-grid-slot.theory-slot-assigned:hover{opacity:0.9}
+.week-grid-slot.theory-slot{background:#f0e6ff;border:2px dashed #8b5cf6;color:#5b21b6;cursor:pointer}
+.week-grid-slot.theory-slot:hover{background:#e4d4fb}
+.week-grid-slot.theory-slot .theory-slot-label{color:#5b21b6;font-weight:700}
+.week-grid-slot.theory-slot .theory-slot-time{color:#6d28d9}
+.week-grid-slot.theory-slot-assigned{background:#6d28d9;border:2px solid #5b21b6;color:#fff;cursor:pointer}
+.week-grid-slot.theory-slot-assigned:hover{background:#7c3aed}
 .week-grid-slot.theory-slot-assigned .theory-slot-label,
-.week-grid-slot.theory-slot-assigned .theory-slot-time{color:#fff;opacity:1}
+.week-grid-slot.theory-slot-assigned .theory-slot-time{color:#fff;opacity:1;font-weight:600}
+.week-grid-slot.theory-slot-assigned .week-grid-slot-student{color:rgba(255,255,255,0.9)}
 .theory-slot-label{font-size:10px;font-weight:600;line-height:1.2}
 .theory-slot-time{font-size:9px;opacity:0.8}
 

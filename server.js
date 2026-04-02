@@ -2543,6 +2543,30 @@ app.put('/api/theory/schedule/:id', authMiddleware, async (req, res) => {
     if (req.body.room_id !== undefined) updates.room_id = req.body.room_id;
     const { data, error } = await supabase.from('theory_schedule').update(updates).eq('id', req.params.id).select().single();
     if (error) throw error;
+
+    // If recurring assignment requested, update all future sessions on same weekday
+    if (req.body.recurring && req.body.instructor_id) {
+      const schoolId = req.user.school_id || req.user.id;
+      const entryDate = new Date(data.date + 'T12:00:00');
+      const dayOfWeek = entryDate.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+      const todayStr = formatDateLocal(new Date());
+      // Get all future schedule entries for this school on same weekday and same time
+      const { data: allSchedule } = await supabase.from('theory_schedule')
+        .select('id, date, start_time')
+        .eq('school_id', schoolId)
+        .eq('start_time', data.start_time)
+        .gte('date', todayStr);
+      if (allSchedule) {
+        const matchingIds = allSchedule.filter(s => {
+          const sDate = new Date(s.date + 'T12:00:00');
+          return sDate.getDay() === dayOfWeek && s.id !== req.params.id;
+        }).map(s => s.id);
+        if (matchingIds.length > 0) {
+          await supabase.from('theory_schedule').update({ instructor_id: req.body.instructor_id }).in('id', matchingIds);
+        }
+        data._recurringUpdated = matchingIds.length;
+      }
+    }
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2574,23 +2598,28 @@ app.post('/api/theory/rotation', authMiddleware, async (req, res) => {
       const { error } = await supabase.from('theory_rotation').insert({ id, school_id: schoolId, room_id, day_of_week: day, start_time, end_time, start_topic_number: start_topic_number || 1 });
       if (error) throw error;
     }
-    // Get topics
-    const { data: topics } = await supabase.from('theory_topics').select('id, topic_number').eq('school_id', schoolId).order('topic_number');
-    if (!topics || topics.length === 0) return res.status(400).json({ error: 'No topics found. Initialize topics first.' });
-    // Generate 8 weeks of schedule
+    // Get topics (deduplicated)
+    const { data: rawTopics } = await supabase.from('theory_topics').select('id, topic_number').eq('school_id', schoolId).order('topic_number');
+    const seenTopic = {};
+    const topics = (rawTopics || []).filter(tp => { if (seenTopic[tp.topic_number]) return false; seenTopic[tp.topic_number] = true; return true; });
+    if (topics.length === 0) return res.status(400).json({ error: 'No topics found. Initialize topics first.' });
+    // Generate 52 weeks (full year) of schedule
     const today = new Date();
     const mondayOfThisWeek = new Date(today);
     const dayNum = today.getDay();
     const diff = dayNum === 0 ? -6 : 1 - dayNum;
     mondayOfThisWeek.setDate(today.getDate() + diff);
     mondayOfThisWeek.setHours(0, 0, 0, 0);
-    // Collect all scheduled day slots across 8 weeks, sorted
+    // Collect all scheduled day slots across 52 weeks, sorted chronologically
     const allSlots = [];
-    for (let week = 0; week < 8; week++) {
+    for (let week = 0; week < 52; week++) {
       for (const day of days.slice().sort((a, b) => a - b)) {
         const slotDate = new Date(mondayOfThisWeek);
         slotDate.setDate(slotDate.getDate() + week * 7 + day);
-        allSlots.push({ date: formatDateLocal(slotDate), room_id });
+        // Only future dates
+        if (slotDate >= today) {
+          allSlots.push({ date: formatDateLocal(slotDate), room_id });
+        }
       }
     }
     // Assign topics cycling through 1-14
