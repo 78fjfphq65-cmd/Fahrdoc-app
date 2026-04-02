@@ -3127,6 +3127,10 @@ var App = {
     this.showToast(t('ausbildungsnachweisErstellt'));
     try {
       var data = await ApiClient.get('/api/ausbildungsnachweis/' + studentId);
+      if (!window.jspdf || !window.jspdf.jsPDF) {
+        this.showToast('PDF-Bibliothek wird geladen, bitte nochmal versuchen...');
+        return;
+      }
       var jsPDF = window.jspdf.jsPDF;
       var doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
