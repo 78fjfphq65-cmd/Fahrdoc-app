@@ -1570,9 +1570,9 @@ var App = {
       html += '<button class="btn btn-primary btn-sm" onclick="App.openScheduleModal(null, null, null, AppState.scheduleSelectedInstructor)">' + t('plusTermin') + '</button>' +
         '<button class="btn btn-ghost btn-sm" style="border:1px solid var(--color-border);" onclick="App.openBlockModal(null, null, AppState.scheduleSelectedInstructor)">' + t('plusZeitsperre') + '</button>' +
         '<div class="multi-view-toggle" style="margin-left:auto;display:flex;gap:2px;">' +
-          '<button class="btn btn-ghost btn-sm' + (AppState.multiViewCount === 1 ? ' btn-active-view' : '') + '" style="border:1px solid var(--color-border);min-width:32px;padding:0 8px;" onclick="App.setMultiView(1)">1</button>' +
-          '<button class="btn btn-ghost btn-sm' + (AppState.multiViewCount === 2 ? ' btn-active-view' : '') + '" style="border:1px solid var(--color-border);min-width:32px;padding:0 8px;" onclick="App.setMultiView(2)">2</button>' +
-          '<button class="btn btn-ghost btn-sm' + (AppState.multiViewCount === 3 ? ' btn-active-view' : '') + '" style="border:1px solid var(--color-border);min-width:32px;padding:0 8px;" onclick="App.setMultiView(3)">3</button>' +
+          '<button class="btn btn-ghost btn-sm' + (AppState.multiViewCount === 1 ? ' btn-active-view' : '') + '" style="border:1px solid var(--color-border);min-width:34px;padding:4px 6px;" onclick="App.setMultiView(1)" title="Einzelansicht"><svg viewBox="0 0 20 16" fill="currentColor" style="width:18px;height:14px;"><rect x="2" y="1" width="16" height="14" rx="2"/></svg></button>' +
+          '<button class="btn btn-ghost btn-sm' + (AppState.multiViewCount === 2 ? ' btn-active-view' : '') + '" style="border:1px solid var(--color-border);min-width:34px;padding:4px 6px;" onclick="App.setMultiView(2)" title="Zweier-Ansicht"><svg viewBox="0 0 20 16" fill="currentColor" style="width:18px;height:14px;"><rect x="1" y="1" width="8" height="14" rx="1.5"/><rect x="11" y="1" width="8" height="14" rx="1.5"/></svg></button>' +
+          '<button class="btn btn-ghost btn-sm' + (AppState.multiViewCount === 3 ? ' btn-active-view' : '') + '" style="border:1px solid var(--color-border);min-width:34px;padding:4px 6px;" onclick="App.setMultiView(3)" title="Dreier-Ansicht"><svg viewBox="0 0 22 16" fill="currentColor" style="width:20px;height:14px;"><rect x="1" y="1" width="5.5" height="14" rx="1.2"/><rect x="8.25" y="1" width="5.5" height="14" rx="1.2"/><rect x="15.5" y="1" width="5.5" height="14" rx="1.2"/></svg></button>' +
         '</div></div>';
 
       // Week nav
@@ -1733,34 +1733,42 @@ var App = {
         "App.openScheduleModal('{DAY}', '09:00', null, AppState.multiViewInstructors[" + panelIdx + "])",
         "App.openScheduleModal(null, null, {SLOT})"
       );
+      // Init drag-scroll on this panel after content loads
+      this._initDragScrollOnPanel(container.closest('.multi-view-panel'));
     } catch (err) { container.innerHTML = '<p class="text-sm text-muted">' + t('fehler') + '</p>'; }
   },
 
-  _initHeaderDragScroll: function() {
-    var wrappers = document.querySelectorAll('.multi-view-panel .week-grid-scroll-wrapper');
-    wrappers.forEach(function(wrapper) {
-      var isDragging = false;
-      var startX = 0;
-      var scrollLeft = 0;
-      var header = wrapper.querySelector('.week-grid-header');
-      if (!header) return;
-      header.style.cursor = 'grab';
-      header.addEventListener('mousedown', function(e) {
-        isDragging = true;
-        header.style.cursor = 'grabbing';
-        startX = e.pageX - wrapper.offsetLeft;
-        scrollLeft = wrapper.scrollLeft;
-        e.preventDefault();
-      });
-      document.addEventListener('mouseup', function() {
-        if (isDragging) { isDragging = false; header.style.cursor = 'grab'; }
-      });
-      document.addEventListener('mousemove', function(e) {
-        if (!isDragging) return;
-        var x = e.pageX - wrapper.offsetLeft;
-        wrapper.scrollLeft = scrollLeft - (x - startX);
-      });
+  _initDragScrollOnPanel: function(panel) {
+    if (!panel) return;
+    var wrapper = panel.querySelector('.week-grid-scroll-wrapper');
+    if (!wrapper || wrapper._dragScrollInit) return;
+    wrapper._dragScrollInit = true;
+    var isDragging = false;
+    var startX = 0;
+    var scrollLeft = 0;
+    wrapper.style.cursor = 'grab';
+    wrapper.addEventListener('mousedown', function(e) {
+      // Only on header or empty area, not on slots
+      if (e.target.closest('.week-grid-slot')) return;
+      isDragging = true;
+      wrapper.style.cursor = 'grabbing';
+      startX = e.pageX;
+      scrollLeft = wrapper.scrollLeft;
+      e.preventDefault();
     });
+    document.addEventListener('mouseup', function() {
+      if (isDragging) { isDragging = false; wrapper.style.cursor = 'grab'; }
+    });
+    document.addEventListener('mousemove', function(e) {
+      if (!isDragging) return;
+      wrapper.scrollLeft = scrollLeft - (e.pageX - startX);
+    });
+  },
+
+  _initHeaderDragScroll: function() {
+    var panels = document.querySelectorAll('.multi-view-panel');
+    var self = this;
+    panels.forEach(function(panel) { self._initDragScrollOnPanel(panel); });
   },
 
   // ══════════════════════════════════════════
