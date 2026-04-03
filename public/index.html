@@ -89,6 +89,10 @@
         <label class="form-label" for="login-password">Passwort</label>
         <div class="password-input-wrapper"><input class="form-input" type="password" id="login-password" placeholder="Passwort eingeben" required autocomplete="current-password"><button type="button" class="password-toggle-btn" onclick="App.togglePw('login-password',this)" aria-label="Passwort anzeigen"><svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button></div>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+        <input type="checkbox" id="login-remember" checked style="width:18px;height:18px;accent-color:var(--color-primary);">
+        <label for="login-remember" style="font-size:14px;color:var(--color-text-muted);cursor:pointer;" data-i18n="angemeldetBleiben">Angemeldet bleiben</label>
+      </div>
       <div id="login-error" class="form-error hidden"></div>
       <button type="submit" class="btn btn-primary btn-full btn-lg">Anmelden</button>
       <div class="auth-footer">
@@ -246,10 +250,6 @@
       <button class="bottom-nav-item" data-tab="vehicles" onclick="App.switchSchoolTab('vehicles', this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 17h14M5 17a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1l2-3h8l2 3h1a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2M5 17a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2"/><circle cx="7.5" cy="17" r="1.5"/><circle cx="16.5" cy="17" r="1.5"/></svg>
         <span>Fahrzeuge</span>
-      </button>
-      <button class="bottom-nav-item" data-tab="abo" onclick="App.switchSchoolTab('abo', this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-        <span data-i18n="abo">Abo</span>
       </button>
       <button class="bottom-nav-item" data-tab="profile" onclick="App.switchSchoolTab('profile', this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>

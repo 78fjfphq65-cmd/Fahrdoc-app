@@ -204,6 +204,7 @@ var TRANSLATIONS = {
   sprache:         { de:'Sprache', en:'Language', tr:'Dil', ar:'اللغة', es:'Idioma', fr:'Langue' },
   designWechseln:  { de:'Design wechseln', en:'Toggle theme', tr:'Tema değiştir', ar:'تغيير المظهر', es:'Cambiar tema', fr:'Changer de thème' },
   willkommen:      { de:'Willkommen', en:'Welcome', tr:'Hoş geldiniz', ar:'مرحباً', es:'Bienvenido', fr:'Bienvenue' },
+  angemeldetBleiben:{ de:'Angemeldet bleiben', en:'Stay logged in', tr:'Oturumu açık tut', ar:'البقاء مسجل الدخول', es:'Mantener sesión', fr:'Rester connecté' },
   transparenz:     { de:'Transparenz für deine Fahrstunden', en:'Transparency for your driving lessons', tr:'Sürüş dersleriniz için şeffaflık', ar:'الشفافية في دروس القيادة', es:'Transparencia para tus clases de conducción', fr:'Transparence pour vos leçons de conduite' },
   kw:              { de:'KW', en:'CW', tr:'HF', ar:'أسبوع', es:'SC', fr:'Sem.' },
   abgemeldet:      { de:'Abgemeldet', en:'Signed out', tr:'Çıkış yapıldı', ar:'تم تسجيل الخروج', es:'Sesión cerrada', fr:'Déconnecté' },

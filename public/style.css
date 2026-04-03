@@ -74,7 +74,7 @@
 }
 .top-bar-user {
   font-size: var(--text-xs);
-  color: var(--color-text-muted);
+  color: var(--color-text);
   display: none;
 }
 @media (min-width: 480px) {
@@ -131,7 +131,7 @@
   border-radius: var(--radius-md);
   font-size: 10px;
   font-weight: 500;
-  color: var(--color-text-faint);
+  color: var(--color-text-muted);
   transition: color var(--transition-interactive);
   min-width: 56px;
   min-height: 44px;
@@ -2973,17 +2973,30 @@ html[dir="rtl"] .notif-panel {
 .theory-progress-box .topic-check{font-size:10px;margin-top:2px}
 .theory-progress-summary{font-size:var(--text-sm);color:var(--color-text-muted);text-align:center;font-weight:500}
 
-/* Dual View */
-.dual-view-container{display:flex;gap:var(--space-3);width:100%}
-.dual-view-panel{flex:1;min-width:0;overflow:hidden}
-.dual-view-label{font-weight:600;font-size:var(--text-sm);padding:var(--space-2) 0;color:var(--color-text);text-align:center;background:var(--color-surface-alt);border-radius:var(--radius-md);margin-bottom:var(--space-2)}
-.dual-view-panel .week-grid{font-size:11px}
-.dual-view-panel .week-grid-day-name{font-size:10px}
-.dual-view-panel .week-grid-day-date{font-size:10px}
-.dual-view-panel .week-grid-time-label{font-size:9px}
-.dual-view-panel .theory-slot-label{font-size:8px}
-.dual-view-panel .theory-slot-time{font-size:7px}
-@media(max-width:900px){.dual-view-container{flex-direction:column}}
+/* Multi View */
+/* Multi-view: 2 or 3 instructor panels side by side */
+.multi-view-container{display:flex;gap:var(--space-3);width:100%}
+.multi-view-panel{flex:1;min-width:0;overflow:hidden}
+.multi-view-select{font-size:var(--text-sm);padding:var(--space-1) var(--space-2)}
+.multi-view-panel .week-grid{font-size:11px}
+.multi-view-panel .week-grid-day-name{font-size:10px}
+.multi-view-panel .week-grid-day-date{font-size:10px}
+.multi-view-panel .week-grid-time-label{font-size:9px}
+.multi-view-panel .theory-slot-label{font-size:8px}
+.multi-view-panel .theory-slot-time{font-size:7px}
+.multi-view-panel .week-grid-scroll-wrapper{overflow-x:auto}
+.multi-view-panel .week-grid-header{user-select:none}
+/* 3-panel: even smaller text */
+.multi-view-3 .multi-view-panel .week-grid{font-size:10px}
+.multi-view-3 .multi-view-panel .week-grid-day-name{font-size:9px}
+.multi-view-3 .multi-view-panel .week-grid-day-date{font-size:9px}
+.multi-view-3 .multi-view-panel .week-grid-time-label{font-size:8px}
+.multi-view-3 .multi-view-panel .week-grid-slot{font-size:9px}
+/* Full width in multi-view */
+.multi-view-active{max-width:100%!important;padding-left:var(--space-2)!important;padding-right:var(--space-2)!important}
+/* Active view toggle button */
+.btn-active-view{background:var(--color-primary)!important;color:#fff!important;border-color:var(--color-primary)!important}
+@media(max-width:900px){.multi-view-container{flex-direction:column}}
 
 /* Dashboard Search */
 .dashboard-search-wrapper{position:relative;margin-bottom:var(--space-4)}

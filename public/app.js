@@ -9,14 +9,31 @@ var API_BASE = '.';
 
 var ApiClient = {
   token: null,
+  _ls: (function() { try { return window['local' + 'Storage']; } catch(e) { return null; } })(),
+  _ss: (function() { try { return window['session' + 'Storage']; } catch(e) { return null; } })(),
   init: function() {
-    var _ls = (function() { try { return window['local' + 'Storage']; } catch(e) { return null; } })();
-    this.token = _ls ? _ls.getItem('fahrdoc_token') : null;
+    // Try localStorage first (remember me), then sessionStorage
+    this.token = (this._ls ? this._ls.getItem('fahrdoc_token') : null) || (this._ss ? this._ss.getItem('fahrdoc_token') : null);
   },
-  setToken: function(t) {
+  setToken: function(t, remember) {
     this.token = t;
-    var _ls = (function() { try { return window['local' + 'Storage']; } catch(e) { return null; } })();
-    if (_ls) { if (t) _ls.setItem('fahrdoc_token', t); else _ls.removeItem('fahrdoc_token'); }
+    // If remember param not given, check if token was in localStorage
+    if (typeof remember === 'undefined') {
+      remember = this._ls && this._ls.getItem('fahrdoc_token') ? true : false;
+    }
+    if (t) {
+      if (remember && this._ls) {
+        this._ls.setItem('fahrdoc_token', t);
+        if (this._ss) this._ss.removeItem('fahrdoc_token');
+      } else if (this._ss) {
+        this._ss.setItem('fahrdoc_token', t);
+        if (this._ls) this._ls.removeItem('fahrdoc_token');
+      }
+    } else {
+      // Clear from both
+      if (this._ls) this._ls.removeItem('fahrdoc_token');
+      if (this._ss) this._ss.removeItem('fahrdoc_token');
+    }
   },
   request: async function(method, path, body) {
     var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
@@ -180,7 +197,7 @@ var AppState = {
   // Schedule
   scheduleWeekStart: null, scheduleData: null, scheduleSelectedDay: 0,
   scheduleSelectedInstructor: null, scheduleManualEndTime: false,
-  dualView: false, dualViewInstructor2: null,
+  multiViewCount: 1, multiViewInstructors: [],
   // Instructor view mode
   instructorViewMode: 'day', // 'day' or 'week'
   // Notifications
@@ -283,7 +300,7 @@ var App = {
       // Handle Stripe redirect
       var params = new URLSearchParams(window.location.search);
       if (params.get('stripe') === 'success') {
-        setTimeout(function() { App.showToast('Abo erfolgreich gestartet!'); if (user.role === 'school') App.switchSchoolTab('abo'); }, 500);
+        setTimeout(function() { App.showToast('Abo erfolgreich gestartet!'); if (user.role === 'school') App.switchSchoolTab('profile'); }, 500);
         window.history.replaceState({}, '', window.location.pathname);
       } else if (params.get('stripe') === 'cancel') {
         setTimeout(function() { App.showToast('Checkout abgebrochen'); }, 500);
@@ -444,12 +461,14 @@ var App = {
     e.preventDefault();
     var email = document.getElementById('login-email').value.trim();
     var pw = document.getElementById('login-password').value;
+    var rememberEl = document.getElementById('login-remember');
+    var remember = rememberEl ? rememberEl.checked : true;
     var errorEl = document.getElementById('login-error');
     errorEl.classList.add('hidden');
     try {
       this.showLoading(true);
       var result = await ApiClient.post('/api/auth/login', { email: email, password: pw });
-      ApiClient.setToken(result.token);
+      ApiClient.setToken(result.token, remember);
       AppState.currentUser = result.user;
       var dash = { school: 'school-dashboard', instructor: 'instructor-dashboard', student: 'student-dashboard' };
       this.navigate(dash[result.user.role]);
@@ -1340,7 +1359,7 @@ var App = {
     else if (tab === 'instructors') { this.dashboardViewMode = 'instructors'; this.renderSchoolDashboardTab(); }
     else if (tab === 'theory') this.showTheoryView();
     else if (tab === 'vehicles') this.renderSchoolVehiclesTab();
-    else if (tab === 'abo') this.renderSchoolAboTab();
+    else if (tab === 'abo') { this.switchSchoolTab('profile'); return; }
     else if (tab === 'profile') this.renderSchoolProfileTab();
   },
 
@@ -1538,17 +1557,23 @@ var App = {
         AppState.scheduleData.instructors = instructors;
       }
 
-      var html = '<div class="page-padding">';
-      // Instructor filter
-      html += '<div class="schedule-toolbar">' +
-        '<select class="form-select" id="school-instructor-filter" onchange="AppState.scheduleSelectedInstructor=this.value;AppState.scheduleData=null;App.renderSchoolScheduleTab()">';
-      instructors.forEach(function(inst) {
-        html += '<option value="' + inst.id + '"' + (inst.id === AppState.scheduleSelectedInstructor ? ' selected' : '') + '>' + inst.name + '</option>';
-      });
-      html += '</select>' +
-        '<button class="btn btn-primary btn-sm" onclick="App.openScheduleModal(null, null, null, AppState.scheduleSelectedInstructor)">' + t('plusTermin') + '</button>' +
+      var html = '<div class="page-padding' + (AppState.multiViewCount > 1 ? ' multi-view-active' : '') + '">';
+      // Instructor filter (hidden in multi-view, each panel has its own)
+      html += '<div class="schedule-toolbar">';
+      if (AppState.multiViewCount === 1) {
+        html += '<select class="form-select" id="school-instructor-filter" onchange="AppState.scheduleSelectedInstructor=this.value;AppState.scheduleData=null;App.renderSchoolScheduleTab()">';
+        instructors.forEach(function(inst) {
+          html += '<option value="' + inst.id + '"' + (inst.id === AppState.scheduleSelectedInstructor ? ' selected' : '') + '>' + inst.name + '</option>';
+        });
+        html += '</select>';
+      }
+      html += '<button class="btn btn-primary btn-sm" onclick="App.openScheduleModal(null, null, null, AppState.scheduleSelectedInstructor)">' + t('plusTermin') + '</button>' +
         '<button class="btn btn-ghost btn-sm" style="border:1px solid var(--color-border);" onclick="App.openBlockModal(null, null, AppState.scheduleSelectedInstructor)">' + t('plusZeitsperre') + '</button>' +
-        '<button class="btn btn-ghost btn-sm" style="border:1px solid var(--color-border);margin-left:auto;" onclick="App.toggleDualView()">' + (AppState.dualView ? t('einzelansicht') : t('zweierAnsicht')) + '</button></div>';
+        '<div class="multi-view-toggle" style="margin-left:auto;display:flex;gap:2px;">' +
+          '<button class="btn btn-ghost btn-sm' + (AppState.multiViewCount === 1 ? ' btn-active-view' : '') + '" style="border:1px solid var(--color-border);min-width:32px;padding:0 8px;" onclick="App.setMultiView(1)">1</button>' +
+          '<button class="btn btn-ghost btn-sm' + (AppState.multiViewCount === 2 ? ' btn-active-view' : '') + '" style="border:1px solid var(--color-border);min-width:32px;padding:0 8px;" onclick="App.setMultiView(2)">2</button>' +
+          '<button class="btn btn-ghost btn-sm' + (AppState.multiViewCount === 3 ? ' btn-active-view' : '') + '" style="border:1px solid var(--color-border);min-width:32px;padding:0 8px;" onclick="App.setMultiView(3)">3</button>' +
+        '</div></div>';
 
       // Week nav
       html += '<div class="schedule-week-nav">' +
@@ -1584,27 +1609,33 @@ var App = {
         });
       } catch(e) {}
 
-      if (AppState.dualView) {
-        // Dual view: two grids side by side
-        html += '<div class="dual-view-container">';
-        // Left grid (instructor 1)
-        html += '<div class="dual-view-panel">';
-        html += '<div class="dual-view-label">' + (instructors.filter(function(i){return i.id===AppState.scheduleSelectedInstructor;})[0] || {}).name + '</div>';
-        html += this.renderWeekGridHtml(
-          w.days, slots,
-          "App.openScheduleModal('{DAY}', '09:00', null, AppState.scheduleSelectedInstructor)",
-          "App.openScheduleModal(null, null, {SLOT})"
-        );
+      if (AppState.multiViewCount > 1) {
+        // Multi view: 2 or 3 grids side by side, full width
+        // Ensure multiViewInstructors array is populated
+        this._ensureMultiViewInstructors(instructors);
+        html += '<div class="multi-view-container multi-view-' + AppState.multiViewCount + '">';
+        for (var mv = 0; mv < AppState.multiViewCount; mv++) {
+          var mvInstId = AppState.multiViewInstructors[mv] || '';
+          html += '<div class="multi-view-panel" data-panel="' + mv + '">';
+          // Each panel gets its own instructor dropdown
+          html += '<select class="form-select mb-2 multi-view-select" onchange="App.setMultiViewInstructor(' + mv + ', this.value)">';
+          instructors.forEach(function(inst) {
+            html += '<option value="' + inst.id + '"' + (inst.id === mvInstId ? ' selected' : '') + '>' + inst.name + '</option>';
+          });
+          html += '</select>';
+          if (mv === 0) {
+            // First panel uses already-loaded slots
+            html += this.renderWeekGridHtml(
+              w.days, slots,
+              "App.openScheduleModal('{DAY}', '09:00', null, AppState.multiViewInstructors[0])",
+              "App.openScheduleModal(null, null, {SLOT})"
+            );
+          } else {
+            html += '<div id="multi-view-grid' + mv + '"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>';
+          }
+          html += '</div>';
+        }
         html += '</div>';
-        // Right grid (instructor 2)
-        html += '<div class="dual-view-panel">';
-        html += '<select class="form-select mb-2" onchange="AppState.dualViewInstructor2=this.value;App.renderSchoolScheduleTab()">';
-        instructors.forEach(function(inst) {
-          html += '<option value="' + inst.id + '"' + (inst.id === AppState.dualViewInstructor2 ? ' selected' : '') + '>' + inst.name + '</option>';
-        });
-        html += '</select>';
-        html += '<div id="dual-view-grid2"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>';
-        html += '</div></div>';
       } else {
         html += this.renderWeekGridHtml(
           w.days, slots,
@@ -1615,50 +1646,77 @@ var App = {
       html += '</div>';
       main.innerHTML = html;
 
-      // Load dual view second grid async
-      if (AppState.dualView) {
-        this._loadDualViewGrid2(w, wsStr, instructors);
+      // Load multi-view extra grids async
+      if (AppState.multiViewCount > 1) {
+        for (var g = 1; g < AppState.multiViewCount; g++) {
+          this._loadMultiViewGrid(g, w, wsStr, instructors);
+        }
+        // Init drag-scroll on header row
+        setTimeout(function() { App._initHeaderDragScroll(); }, 100);
       }
     } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
   },
 
   // ══════════════════════════════════════════
-  //  DUAL VIEW (Two instructors side by side)
+  //  MULTI VIEW (1/2/3 instructors side by side)
   // ══════════════════════════════════════════
-  toggleDualView: function() {
-    AppState.dualView = !AppState.dualView;
-    if (AppState.dualView && !AppState.dualViewInstructor2) {
-      var instructors = (AppState.scheduleData || {}).instructors || [];
-      for (var i = 0; i < instructors.length; i++) {
-        if (instructors[i].id !== AppState.scheduleSelectedInstructor) {
-          AppState.dualViewInstructor2 = instructors[i].id;
-          break;
+  setMultiView: function(count) {
+    AppState.multiViewCount = count;
+    var instructors = (AppState.scheduleData || {}).instructors || [];
+    this._ensureMultiViewInstructors(instructors);
+    // Sync first panel's instructor back to the main filter
+    if (AppState.multiViewInstructors[0]) {
+      AppState.scheduleSelectedInstructor = AppState.multiViewInstructors[0];
+    }
+    AppState.scheduleData = null;
+    this.renderSchoolScheduleTab();
+  },
+
+  _ensureMultiViewInstructors: function(instructors) {
+    if (!instructors || instructors.length === 0) return;
+    // Make sure array has enough entries
+    if (!AppState.multiViewInstructors[0]) {
+      AppState.multiViewInstructors[0] = AppState.scheduleSelectedInstructor || instructors[0].id;
+    }
+    for (var idx = 1; idx < AppState.multiViewCount; idx++) {
+      if (!AppState.multiViewInstructors[idx]) {
+        // Pick a different instructor if possible
+        var used = AppState.multiViewInstructors.slice(0, idx);
+        var pick = null;
+        for (var j = 0; j < instructors.length; j++) {
+          if (used.indexOf(instructors[j].id) === -1) { pick = instructors[j].id; break; }
         }
+        AppState.multiViewInstructors[idx] = pick || instructors[idx % instructors.length].id;
       }
-      if (!AppState.dualViewInstructor2 && instructors.length > 0) {
-        AppState.dualViewInstructor2 = instructors[0].id;
-      }
+    }
+  },
+
+  setMultiViewInstructor: function(panelIdx, instId) {
+    AppState.multiViewInstructors[panelIdx] = instId;
+    if (panelIdx === 0) {
+      AppState.scheduleSelectedInstructor = instId;
+      AppState.scheduleData = null;
     }
     this.renderSchoolScheduleTab();
   },
 
-  _loadDualViewGrid2: async function(w, wsStr, instructors) {
-    var container = document.getElementById('dual-view-grid2');
+  _loadMultiViewGrid: async function(panelIdx, w, wsStr, instructors) {
+    var container = document.getElementById('multi-view-grid' + panelIdx);
     if (!container) return;
-    var inst2 = AppState.dualViewInstructor2;
-    if (!inst2 && instructors.length > 0) {
-      inst2 = instructors[0].id;
-      AppState.dualViewInstructor2 = inst2;
+    var instId = AppState.multiViewInstructors[panelIdx];
+    if (!instId && instructors.length > 0) {
+      instId = instructors[panelIdx % instructors.length].id;
+      AppState.multiViewInstructors[panelIdx] = instId;
     }
-    if (!inst2) { container.innerHTML = '<p class="text-sm text-muted">' + t('keinFahrlehrer') + '</p>'; return; }
+    if (!instId) { container.innerHTML = '<p class="text-sm text-muted">' + t('keinFahrlehrer') + '</p>'; return; }
     try {
       var weStr = formatDateLocal(w.saturday);
-      var data2 = await ApiClient.get('/api/schedule?weekStart=' + wsStr + '&weekEnd=' + weStr + '&instructorId=' + inst2);
+      var data2 = await ApiClient.get('/api/schedule?weekStart=' + wsStr + '&weekEnd=' + weStr + '&instructorId=' + instId);
       var slots2 = data2.slots || [];
       try {
         var theorySchedule2 = await ApiClient.get('/api/theory/schedule?week_start=' + wsStr);
         (theorySchedule2 || []).forEach(function(ts) {
-          var isAssigned = ts.instructor_id && ts.instructor_id === inst2;
+          var isAssigned = ts.instructor_id && ts.instructor_id === instId;
           var isUnassigned = !ts.instructor_id;
           if (isUnassigned || isAssigned) {
             slots2.push({
@@ -1672,10 +1730,37 @@ var App = {
       } catch(e) {}
       container.innerHTML = this.renderWeekGridHtml(
         w.days, slots2,
-        "App.openScheduleModal('{DAY}', '09:00', null, AppState.dualViewInstructor2)",
+        "App.openScheduleModal('{DAY}', '09:00', null, AppState.multiViewInstructors[" + panelIdx + "])",
         "App.openScheduleModal(null, null, {SLOT})"
       );
     } catch (err) { container.innerHTML = '<p class="text-sm text-muted">' + t('fehler') + '</p>'; }
+  },
+
+  _initHeaderDragScroll: function() {
+    var wrappers = document.querySelectorAll('.multi-view-panel .week-grid-scroll-wrapper');
+    wrappers.forEach(function(wrapper) {
+      var isDragging = false;
+      var startX = 0;
+      var scrollLeft = 0;
+      var header = wrapper.querySelector('.week-grid-header');
+      if (!header) return;
+      header.style.cursor = 'grab';
+      header.addEventListener('mousedown', function(e) {
+        isDragging = true;
+        header.style.cursor = 'grabbing';
+        startX = e.pageX - wrapper.offsetLeft;
+        scrollLeft = wrapper.scrollLeft;
+        e.preventDefault();
+      });
+      document.addEventListener('mouseup', function() {
+        if (isDragging) { isDragging = false; header.style.cursor = 'grab'; }
+      });
+      document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        var x = e.pageX - wrapper.offsetLeft;
+        wrapper.scrollLeft = scrollLeft - (x - startX);
+      });
+    });
   },
 
   // ══════════════════════════════════════════
@@ -2703,8 +2788,9 @@ var App = {
     }
   },
 
-  renderSchoolProfileTab: function() {
+  renderSchoolProfileTab: async function() {
     var u = AppState.currentUser;
+    var main = document.getElementById('school-main');
     var html = '<div class="page-padding"><div class="profile-header">' + this.avatarHtml(u.admin_name || u.name, 'lg') +
       '<h3>' + (u.admin_name || u.name) + '</h3><p class="text-xs text-muted">' + u.name + '</p></div>' +
       '<div class="profile-section">' +
@@ -2712,7 +2798,7 @@ var App = {
         '<div class="profile-row"><span class="profile-row-label">' + t('telefon') + '</span><span class="profile-row-value">' + (u.phone || '—') + '</span></div>' +
         '<div class="profile-row"><span class="profile-row-label">' + t('adresse') + '</span><span class="profile-row-value">' + (u.address || '—') + '</span></div>' +
       '</div>' +
-      // Support & Feedback card
+      '<div id="profile-abo-section"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>' +
       '<div class="card mb-4"><div class="section-title mb-3">' + t('supportFeedback') + '</div>' +
         '<div class="form-group mb-3"><label class="form-label">' + t('feedbackKategorie') + '</label>' +
           '<select class="form-select" id="feedback-category">' +
@@ -2726,7 +2812,58 @@ var App = {
         '<button class="btn btn-primary btn-full" onclick="App.sendFeedback()">' + t('feedbackSenden') + '</button></div>' +
       this.changePasswordHtml() +
       '<button class="btn btn-secondary btn-full" style="margin-top:20px" onclick="App.logout()">' + t('abmelden') + '</button></div>';
-    document.getElementById('school-main').innerHTML = html;
+    main.innerHTML = html;
+    // Load abo data async
+    this._loadProfileAbo();
+  },
+
+  _loadProfileAbo: async function() {
+    var container = document.getElementById('profile-abo-section');
+    if (!container) return;
+    try {
+      var sub = await ApiClient.get('/api/stripe/subscription');
+      var statusLabels = { trial: 'Testphase', trialing: 'Testphase', active: 'Aktiv', past_due: 'Zahlung ausstehend', canceled: 'Gek\u00fcndigt', expired: 'Abgelaufen', incomplete: 'Unvollst\u00e4ndig' };
+      var statusColors = { trial: 'warning', trialing: 'warning', active: 'success', past_due: 'error', canceled: 'error', expired: 'error', incomplete: 'warning' };
+      var statusLabel = statusLabels[sub.status] || sub.status;
+      var statusColor = statusColors[sub.status] || 'muted';
+      var hasActiveSub = sub.status === 'active' || sub.status === 'trialing';
+      var isExpired = sub.status === 'expired' || sub.status === 'canceled';
+      var instructors = [];
+      try { instructors = await ApiClient.get('/api/school/instructors'); } catch(e) {}
+      var instructorCount = Array.isArray(instructors) ? instructors.length : 0;
+      var h = '<div class="card mb-4"><div class="abo-plan-header"><span class="abo-plan-name">FahrDoc Pro</span><span class="badge badge-' + statusColor + '">' + statusLabel + '</span></div>';
+      if ((sub.status === 'trial' || sub.status === 'trialing') && sub.days_remaining !== null) {
+        h += '<div class="abo-trial-info" style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-3);background:var(--warning-bg,#fff8e1);border-radius:var(--radius-md);margin:var(--space-3) 0;font-size:var(--text-sm);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>Testphase: noch <strong style="margin:0 4px;">' + sub.days_remaining + '</strong> Tage</div>';
+      }
+      h += '<div style="text-align:center;padding:var(--space-4) 0;"><span style="font-size:var(--text-2xl);font-weight:700;">29,90 \u20ac</span><span style="font-size:var(--text-sm);color:var(--text-muted);display:block;">pro Fahrlehrer / Monat</span></div>';
+      if (hasActiveSub && sub.instructor_quantity) {
+        h += '<div style="display:flex;justify-content:space-between;font-size:var(--text-sm);padding:var(--space-2) 0;border-top:1px solid var(--border-color);margin-top:var(--space-3);"><span>Gebuchte Lizenzen</span><span class="font-semibold">' + sub.instructor_quantity + '</span></div>';
+        h += '<div style="display:flex;justify-content:space-between;font-size:var(--text-sm);padding:var(--space-2) 0;"><span>Aktive Fahrlehrer</span><span class="font-semibold">' + instructorCount + '</span></div>';
+      }
+      if (sub.cancel_at_period_end) {
+        var endDate = sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString('de-DE') : '';
+        h += '<div style="padding:var(--space-3);background:var(--error-bg,#ffeaea);border-radius:var(--radius-md);margin-top:var(--space-3);font-size:var(--text-sm);color:var(--error-color,#c62828);">Abo wird zum ' + endDate + ' beendet.</div>';
+      }
+      h += '</div>';
+      if (!hasActiveSub || isExpired || sub.status === 'trial') {
+        var dq = Math.max(1, instructorCount);
+        h += '<div class="card mb-4"><div class="section-title mb-3">Abo starten</div>' +
+          '<p style="font-size:var(--text-sm);color:var(--text-muted);margin-bottom:var(--space-3);">W\u00e4hle die Anzahl der Fahrlehrer-Lizenzen.</p>' +
+          '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);"><label style="font-size:var(--text-sm);font-weight:600;">Fahrlehrer:</label><div style="display:flex;align-items:center;gap:var(--space-2);">' +
+            '<button class="btn btn-sm" onclick="var i=document.getElementById(\x27abo-qty\x27);i.value=Math.max(1,parseInt(i.value)-1);document.getElementById(\x27abo-total\x27).textContent=((parseInt(i.value)*29.90).toFixed(2).replace(\x27.\x27,\x27,\x27))+\x27 \u20ac/Monat\x27">\u2212</button>' +
+            '<input type="number" id="abo-qty" value="' + dq + '" min="1" max="99" style="width:60px;text-align:center;" class="form-input" onchange="document.getElementById(\x27abo-total\x27).textContent=((parseInt(this.value)*29.90).toFixed(2).replace(\x27.\x27,\x27,\x27))+\x27 \u20ac/Monat\x27">' +
+            '<button class="btn btn-sm" onclick="var i=document.getElementById(\x27abo-qty\x27);i.value=Math.min(99,parseInt(i.value)+1);document.getElementById(\x27abo-total\x27).textContent=((parseInt(i.value)*29.90).toFixed(2).replace(\x27.\x27,\x27,\x27))+\x27 \u20ac/Monat\x27">+</button></div></div>' +
+          '<div style="text-align:center;font-size:var(--text-lg);font-weight:700;margin-bottom:var(--space-4);" id="abo-total">' + (dq * 29.90).toFixed(2).replace('.', ',') + ' \u20ac/Monat</div>' +
+          '<button class="btn btn-primary btn-full btn-lg" onclick="App.stripeCheckout()">Jetzt starten \u2014 14 Tage kostenlos</button>' +
+          '<p style="font-size:var(--text-xs);color:var(--text-muted);text-align:center;margin-top:var(--space-2);">Erste Zahlung erst nach der Testphase.</p></div>';
+      } else {
+        h += '<button class="btn btn-primary btn-full btn-lg mb-3" onclick="App.stripePortal()">Abo verwalten</button>';
+        h += '<p style="font-size:var(--text-xs);color:var(--text-muted);text-align:center;">Rechnung, Zahlungsmethode \u00e4ndern oder k\u00fcndigen</p>';
+      }
+      container.innerHTML = h;
+    } catch (err) {
+      container.innerHTML = '<div class="card mb-4"><p class="text-sm text-muted">' + t('fehler') + ': ' + (err.message || err) + '</p></div>';
+    }
   },
 
   generateNewCode: async function(type) {
