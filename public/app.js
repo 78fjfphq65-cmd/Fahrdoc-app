@@ -1584,9 +1584,9 @@ var App = {
       }
       html += '<button class="btn btn-primary btn-sm" onclick="App.openScheduleModal(null, null, null, AppState.scheduleSelectedInstructor)">' + t('plusTermin') + '</button>' +
         '<button class="btn btn-ghost btn-sm" style="border:1px solid var(--color-border);" onclick="App.openBlockModal(null, null, AppState.scheduleSelectedInstructor)">' + t('plusZeitsperre') + '</button>' +
-        '<button class="btn btn-sm' + (AppState.slotOfferMode ? ' btn-active-offer' : ' btn-ghost') + '" style="border:1px solid ' + (AppState.slotOfferMode ? 'var(--color-info)' : 'var(--color-border)') + ';" onclick="App.toggleSlotOfferMode()">' + t('termineAnbieten') + '</button>' +
-        (AppState.slotOfferMode && AppState.slotOfferSelected.length > 0 ? '<button class="btn btn-sm" style="background:var(--color-info);color:#fff;border:none;" onclick="App.openSlotOfferDialog()">' + t('anbieten') + ' (' + AppState.slotOfferSelected.length + ')</button>' : '') +
-        '<button class="btn btn-sm btn-ghost" style="border:1px solid var(--color-border);" onclick="App.showSlotOfferManagement()">' + t('meineAngebote') + '</button>' +
+        '<button class="btn btn-sm" style="background:' + (AppState.slotOfferMode ? '#2563eb' : '#334155') + ';color:#fff;border:none;font-weight:600;" onclick="App.toggleSlotOfferMode()">' + t('termineAnbieten') + '</button>' +
+        (AppState.slotOfferMode && AppState.slotOfferSelected.length > 0 ? '<button class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;font-weight:600;" onclick="App.openSlotOfferDialog()">' + t('anbieten') + ' (' + AppState.slotOfferSelected.length + ')</button>' : '') +
+        '<button class="btn btn-sm" style="background:#475569;color:#fff;border:none;" onclick="App.showSlotOfferManagement()">' + t('meineAngebote') + '</button>' +
         '<div class="multi-view-toggle" style="margin-left:auto;display:flex;gap:2px;">' +
           '<button class="btn btn-ghost btn-sm' + (AppState.multiViewCount === 1 ? ' btn-active-view' : '') + '" style="border:1px solid var(--color-border);min-width:34px;padding:4px 6px;" onclick="App.setMultiView(1)" title="Einzelansicht"><svg viewBox="0 0 20 16" fill="currentColor" style="width:18px;height:14px;"><rect x="2" y="1" width="16" height="14" rx="2"/></svg></button>' +
           '<button class="btn btn-ghost btn-sm' + (AppState.multiViewCount === 2 ? ' btn-active-view' : '') + '" style="border:1px solid var(--color-border);min-width:34px;padding:4px 6px;" onclick="App.setMultiView(2)" title="Zweier-Ansicht"><svg viewBox="0 0 20 16" fill="currentColor" style="width:18px;height:14px;"><rect x="1" y="1" width="8" height="14" rx="1.5"/><rect x="11" y="1" width="8" height="14" rx="1.5"/></svg></button>' +
@@ -1846,10 +1846,11 @@ var App = {
         stuHtml += '<label class="slot-offer-student-row"><input type="checkbox" value="' + st.id + '" class="slot-offer-stu-cb"> ' + st.name + ' <span class="text-xs text-muted">' + (st.license_class || '') + '</span></label>';
       });
       // Fetch vehicles
-      ApiClient.get('/api/vehicles').then(function(vehicles) {
+      ApiClient.get('/api/school/vehicles').then(function(resp) {
+        var vList = (resp && resp.vehicles) ? resp.vehicles : (Array.isArray(resp) ? resp : []);
         var vehOptions = '<option value="">' + t('keinFahrzeug') + '</option>';
-        (vehicles || []).forEach(function(v) {
-          vehOptions += '<option value="' + v.id + '">' + v.make + ' ' + v.model + ' (' + v.plate + ')</option>';
+        vList.forEach(function(v) {
+          vehOptions += '<option value="' + v.id + '">' + (v.brand || v.make || '') + ' (' + (v.license_plate || v.plate || '') + ')</option>';
         });
         self.showModal(
           '<div class="slot-offer-dialog">' +
@@ -1893,9 +1894,13 @@ var App = {
             document.querySelectorAll('.slot-offer-stu-cb').forEach(function(cb) { cb.checked = selAll.checked; });
           };
         }
-      }).catch(function() {
+      }).catch(function(err) {
+        console.error('[SlotOffer] vehicles fetch error:', err);
         self.showModal('<div class="slot-offer-dialog"><h3>' + t('termineAnbieten') + '</h3><div class="slot-offer-slots-list mb-3">' + slotsHtml + '</div><div class="slot-offer-student-list">' + stuHtml + '</div><button class="btn btn-primary btn-full btn-lg" onclick="App.submitSlotOffer()">' + t('abschicken') + '</button></div>');
       });
+    }).catch(function(err) {
+      console.error('[SlotOffer] dashboard fetch error:', err);
+      self.showToast(t('fehler') + ': ' + (err.message || err));
     });
   },
 
