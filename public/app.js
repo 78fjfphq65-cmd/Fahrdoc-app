@@ -198,6 +198,8 @@ var AppState = {
   scheduleWeekStart: null, scheduleData: null, scheduleSelectedDay: 0,
   scheduleSelectedInstructor: null, scheduleManualEndTime: false,
   multiViewCount: 1, multiViewInstructors: [],
+  // Slot offer mode
+  slotOfferMode: false, slotOfferSelected: [], slotOfferDuration: 90,
   // Instructor view mode
   instructorViewMode: 'day', // 'day' or 'week'
   // Notifications
@@ -697,7 +699,7 @@ var App = {
   renderWeekGridHtml: function(days, slots, onCellClick, onSlotClick) {
     var totalMinutes = (GRID_END_HOUR - GRID_START_HOUR) * 60;
     var totalHeight = totalMinutes * PX_PER_MIN;
-    var html = '<div class="week-grid-scroll-wrapper"><div class="week-grid">';
+    var html = '<div class="week-grid-scroll-wrapper"><div class="week-grid' + (AppState.slotOfferMode ? ' week-grid-offer-mode' : '') + '">';
     // Header
     html += '<div class="week-grid-header"><div class="week-grid-time-gutter"></div>';
     days.forEach(function(day, idx) {
@@ -798,6 +800,17 @@ var App = {
         }
         html += '</div>';
       });
+      // Render selected offer slots as blue overlays
+      if (AppState.slotOfferMode && AppState.slotOfferSelected.length > 0) {
+        AppState.slotOfferSelected.forEach(function(sel) {
+          if (sel.date === dayStr) {
+            var selTop = slotTopPx(sel.start_time);
+            var selH = sel.duration_min * PX_PER_MIN;
+            html += '<div class="week-grid-slot-offer-selected" style="top:' + selTop + 'px;height:' + selH + 'px;" onclick="event.stopPropagation();App.toggleSlotSelection(\'' + sel.date + '\', \'' + sel.start_time + '\')">' +
+              sel.start_time + '\u2013' + sel.end_time + '</div>';
+          }
+        });
+      }
       html += '</div>';
     });
     html += '</div></div></div>';
@@ -1031,9 +1044,7 @@ var App = {
   onWeekGridCellClick: function(event, dayStr, onCellClickTemplate) {
     var col = event.currentTarget;
     var rect = col.getBoundingClientRect();
-    // getBoundingClientRect is viewport-relative, so clientY - rect.top gives correct offset
     var yOffset = event.clientY - rect.top;
-    // Convert pixel offset to minutes from grid start
     var minutesFromStart = Math.round(yOffset / PX_PER_MIN);
     var totalMinutes = GRID_START_HOUR * 60 + minutesFromStart;
     // Round to nearest 30-min step
@@ -1043,7 +1054,11 @@ var App = {
     var hours = Math.floor(totalMinutes / 60);
     var mins = totalMinutes % 60;
     var timeStr = String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0');
-    // Execute the callback with the computed time
+    // In slot offer mode, toggle slot selection instead of opening schedule modal
+    if (AppState.slotOfferMode) {
+      this.toggleSlotSelection(dayStr, timeStr);
+      return;
+    }
     var callStr = onCellClickTemplate.replace('{DAY}', dayStr).replace("'09:00'", "'" + timeStr + "'");
     eval(callStr);
   },
@@ -1569,6 +1584,9 @@ var App = {
       }
       html += '<button class="btn btn-primary btn-sm" onclick="App.openScheduleModal(null, null, null, AppState.scheduleSelectedInstructor)">' + t('plusTermin') + '</button>' +
         '<button class="btn btn-ghost btn-sm" style="border:1px solid var(--color-border);" onclick="App.openBlockModal(null, null, AppState.scheduleSelectedInstructor)">' + t('plusZeitsperre') + '</button>' +
+        '<button class="btn btn-sm' + (AppState.slotOfferMode ? ' btn-active-offer' : ' btn-ghost') + '" style="border:1px solid ' + (AppState.slotOfferMode ? 'var(--color-info)' : 'var(--color-border)') + ';" onclick="App.toggleSlotOfferMode()">' + t('termineAnbieten') + '</button>' +
+        (AppState.slotOfferMode && AppState.slotOfferSelected.length > 0 ? '<button class="btn btn-sm" style="background:var(--color-info);color:#fff;border:none;" onclick="App.openSlotOfferDialog()">' + t('anbieten') + ' (' + AppState.slotOfferSelected.length + ')</button>' : '') +
+        '<button class="btn btn-sm btn-ghost" style="border:1px solid var(--color-border);" onclick="App.showSlotOfferManagement()">' + t('meineAngebote') + '</button>' +
         '<div class="multi-view-toggle" style="margin-left:auto;display:flex;gap:2px;">' +
           '<button class="btn btn-ghost btn-sm' + (AppState.multiViewCount === 1 ? ' btn-active-view' : '') + '" style="border:1px solid var(--color-border);min-width:34px;padding:4px 6px;" onclick="App.setMultiView(1)" title="Einzelansicht"><svg viewBox="0 0 20 16" fill="currentColor" style="width:18px;height:14px;"><rect x="2" y="1" width="16" height="14" rx="2"/></svg></button>' +
           '<button class="btn btn-ghost btn-sm' + (AppState.multiViewCount === 2 ? ' btn-active-view' : '') + '" style="border:1px solid var(--color-border);min-width:34px;padding:4px 6px;" onclick="App.setMultiView(2)" title="Zweier-Ansicht"><svg viewBox="0 0 20 16" fill="currentColor" style="width:18px;height:14px;"><rect x="1" y="1" width="8" height="14" rx="1.5"/><rect x="11" y="1" width="8" height="14" rx="1.5"/></svg></button>' +
@@ -1580,6 +1598,11 @@ var App = {
         '<button class="btn btn-ghost btn-sm" onclick="App.shiftWeek(-1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polyline points="15,18 9,12 15,6"/></svg></button>' +
         '<span class="schedule-week-label">' + this.weekLabel() + '</span>' +
         '<button class="btn btn-ghost btn-sm" onclick="App.shiftWeek(1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polyline points="9,18 15,12 9,6"/></svg></button></div>';
+
+      // Slot offer mode hint
+      if (AppState.slotOfferMode) {
+        html += '<div class="slot-offer-hint"><svg viewBox="0 0 20 20" fill="currentColor" style="width:16px;height:16px;"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>' + t('slotAuswahlModus') + '</div>';
+      }
 
       // Desktop week grid (absolute positioned)
       var slots = data.slots || [];
@@ -1769,6 +1792,195 @@ var App = {
     var panels = document.querySelectorAll('.multi-view-panel');
     var self = this;
     panels.forEach(function(panel) { self._initDragScrollOnPanel(panel); });
+  },
+
+  // ══════════════════════════════════════════
+  //  SLOT OFFER MODE (Termine anbieten)
+  // ══════════════════════════════════════════
+  toggleSlotOfferMode: function() {
+    AppState.slotOfferMode = !AppState.slotOfferMode;
+    AppState.slotOfferSelected = [];
+    this.renderSchoolScheduleTab();
+  },
+
+  toggleSlotSelection: function(date, startTime) {
+    if (!AppState.slotOfferMode) return;
+    var dur = AppState.slotOfferDuration;
+    var parts = startTime.split(':');
+    var endH = parseInt(parts[0]);
+    var endM = parseInt(parts[1]) + dur;
+    while (endM >= 60) { endH++; endM -= 60; }
+    var endTime = (endH < 10 ? '0' : '') + endH + ':' + (endM < 10 ? '0' : '') + endM;
+    var key = date + '|' + startTime + '|' + endTime;
+    var idx = -1;
+    for (var i = 0; i < AppState.slotOfferSelected.length; i++) {
+      if (AppState.slotOfferSelected[i].key === key) { idx = i; break; }
+    }
+    if (idx >= 0) {
+      AppState.slotOfferSelected.splice(idx, 1);
+    } else {
+      AppState.slotOfferSelected.push({ key: key, date: date, start_time: startTime, end_time: endTime, duration_min: dur });
+    }
+    this.renderSchoolScheduleTab();
+  },
+
+  openSlotOfferDialog: function() {
+    if (!AppState.slotOfferSelected.length) return;
+    var students = (AppState.scheduleData || {}).students || [];
+    // If students not loaded yet, fetch from dashboard data
+    if (!students.length && this._dashStudData) {
+      students = this._dashStudData.students || [];
+    }
+    var slotsHtml = '';
+    AppState.slotOfferSelected.forEach(function(s) {
+      var d = new Date(s.date);
+      var dayStr = d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' });
+      slotsHtml += '<div class="slot-offer-chip">' + dayStr + ' ' + s.start_time + '-' + s.end_time + '</div>';
+    });
+    // Fetch students
+    var self = this;
+    ApiClient.get('/api/school/dashboard').then(function(data) {
+      var stuList = (data.students || []);
+      var stuHtml = '';
+      stuList.forEach(function(st) {
+        stuHtml += '<label class="slot-offer-student-row"><input type="checkbox" value="' + st.id + '" class="slot-offer-stu-cb"> ' + st.name + ' <span class="text-xs text-muted">' + (st.license_class || '') + '</span></label>';
+      });
+      // Fetch vehicles
+      ApiClient.get('/api/vehicles').then(function(vehicles) {
+        var vehOptions = '<option value="">' + t('keinFahrzeug') + '</option>';
+        (vehicles || []).forEach(function(v) {
+          vehOptions += '<option value="' + v.id + '">' + v.make + ' ' + v.model + ' (' + v.plate + ')</option>';
+        });
+        self.showModal(
+          '<div class="slot-offer-dialog">' +
+            '<h3 style="margin-bottom:var(--space-3);">' + t('termineAnbieten') + '</h3>' +
+            '<div class="slot-offer-slots-list mb-3">' + slotsHtml + '</div>' +
+            '<div class="form-group mb-3"><label class="form-label">' + t('slotDauer') + '</label>' +
+              '<div style="display:flex;gap:var(--space-2);">' +
+                '<button class="btn btn-sm' + (AppState.slotOfferDuration === 45 ? ' btn-primary' : ' btn-ghost') + '" onclick="AppState.slotOfferDuration=45;App.openSlotOfferDialog()">45 min</button>' +
+                '<button class="btn btn-sm' + (AppState.slotOfferDuration === 90 ? ' btn-primary' : ' btn-ghost') + '" onclick="AppState.slotOfferDuration=90;App.openSlotOfferDialog()">90 min</button>' +
+              '</div></div>' +
+            '<div class="form-group mb-3"><label class="form-label">' + t('fahrzeug') + '</label>' +
+              '<select class="form-select" id="offer-vehicle">' + vehOptions + '</select></div>' +
+            '<div class="form-group mb-3"><label class="form-label">' + t('ablaufzeit') + '</label>' +
+              '<select class="form-select" id="offer-expires">' +
+                '<option value="6">6 ' + t('stunden') + '</option>' +
+                '<option value="12">12 ' + t('stunden') + '</option>' +
+                '<option value="24" selected>24 ' + t('stunden') + '</option>' +
+                '<option value="48">48 ' + t('stunden') + '</option>' +
+                '<option value="72">72 ' + t('stunden') + '</option>' +
+                '<option value="0">' + t('keinAblauf') + '</option>' +
+              '</select></div>' +
+            '<div class="form-group mb-3"><label class="form-label">' + t('absagefrist') + '</label>' +
+              '<select class="form-select" id="offer-cancel-deadline">' +
+                '<option value="24">24 ' + t('stunden') + '</option>' +
+                '<option value="48">48 ' + t('stunden') + '</option>' +
+                '<option value="72">72 ' + t('stunden') + '</option>' +
+              '</select></div>' +
+            '<div class="form-group mb-3"><label class="form-label">' + t('schuelerAuswaehlen') + '</label>' +
+              '<div class="slot-offer-student-list">' +
+                '<label class="slot-offer-student-row" style="font-weight:600;border-bottom:1px solid var(--color-border);padding-bottom:var(--space-2);margin-bottom:var(--space-2);"><input type="checkbox" id="offer-select-all" onchange="document.querySelectorAll(\'.slot-offer-stu-cb\').forEach(function(cb){cb.checked=document.getElementById(\'.offer-select-all\').checked})"> ' + t('alleAuswaehlen') + '</label>' +
+                stuHtml +
+              '</div></div>' +
+            '<div class="form-group mb-3"><label class="form-label"><input type="checkbox" id="offer-recurring"> ' + t('woechentlichWiederholen') + '</label></div>' +
+            '<button class="btn btn-primary btn-full btn-lg" onclick="App.submitSlotOffer()">' + t('abschicken') + '</button>' +
+          '</div>'
+        );
+        // Fix select-all checkbox
+        var selAll = document.getElementById('offer-select-all');
+        if (selAll) {
+          selAll.onchange = function() {
+            document.querySelectorAll('.slot-offer-stu-cb').forEach(function(cb) { cb.checked = selAll.checked; });
+          };
+        }
+      }).catch(function() {
+        self.showModal('<div class="slot-offer-dialog"><h3>' + t('termineAnbieten') + '</h3><div class="slot-offer-slots-list mb-3">' + slotsHtml + '</div><div class="slot-offer-student-list">' + stuHtml + '</div><button class="btn btn-primary btn-full btn-lg" onclick="App.submitSlotOffer()">' + t('abschicken') + '</button></div>');
+      });
+    });
+  },
+
+  showSlotOfferManagement: async function() {
+    var self = this;
+    try {
+      var offers = await ApiClient.get('/api/slot-offers/school');
+      var html = '<div class="slot-offer-dialog" style="max-width:600px;">';
+      html += '<h3 style="margin-bottom:var(--space-4);">' + t('meineAngebote') + '</h3>';
+      if (!offers || offers.length === 0) {
+        html += '<p class="text-sm text-muted">' + t('keineAngebote') + '</p>';
+      } else {
+        offers.forEach(function(offer) {
+          var isExpired = offer.expires_at && new Date(offer.expires_at) < new Date();
+          var statusBadge = offer.status === 'active' && !isExpired
+            ? '<span class="badge badge-success">' + t('aktiv') + '</span>'
+            : '<span class="badge badge-muted">' + t('abgelaufen') + '</span>';
+          html += '<div class="offer-card" style="margin-bottom:var(--space-3);">';
+          html += '<div class="offer-card-header">' + statusBadge;
+          if (offer.expires_at) {
+            var expDate = new Date(offer.expires_at);
+            html += '<div class="offer-card-expires">' + expDate.toLocaleDateString('de-DE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + '</div>';
+          }
+          if (offer.recurring) html += '<span class="badge badge-blue" style="margin-left:var(--space-1);">\uD83D\uDD01 ' + t('woechentlichWiederholen') + '</span>';
+          html += '</div>';
+          html += '<div class="offer-card-slots">';
+          (offer.slots || []).forEach(function(slot) {
+            var d = new Date(slot.date);
+            var dayStr2 = d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' });
+            var sClass = slot.status === 'booked' ? 'booked' : 'available';
+            var sText = slot.status === 'booked' ? t('gebucht') : t('offen2');
+            html += '<div class="offer-slot-row">' +
+              '<div class="offer-slot-time">' + dayStr2 + ' \u00b7 ' + slot.start_time + '\u2013' + slot.end_time + '</div>' +
+              '<span class="offer-slot-status ' + sClass + '">' + sText + '</span>' +
+            '</div>';
+          });
+          html += '</div>';
+          html += '<div class="text-xs text-muted" style="margin-top:var(--space-2);">' + t('empfaenger') + ': ' + (offer.recipients || []).length + ' ' + t('schueler') + '</div>';
+          html += '</div>';
+        });
+      }
+      html += '</div>';
+      self.showModal(html);
+    } catch (err) {
+      self.showToast(t('fehler') + ': ' + (err.message || err));
+    }
+  },
+
+  submitSlotOffer: async function() {
+    var selectedStudents = [];
+    document.querySelectorAll('.slot-offer-stu-cb:checked').forEach(function(cb) {
+      selectedStudents.push(cb.value);
+    });
+    if (!selectedStudents.length) {
+      this.showToast(t('bitteSchuelerWaehlen'));
+      return;
+    }
+    var expiresHours = parseInt(document.getElementById('offer-expires').value) || 0;
+    var expiresAt = null;
+    if (expiresHours > 0) {
+      expiresAt = new Date(Date.now() + expiresHours * 60 * 60 * 1000).toISOString();
+    }
+    var cancelDeadline = parseInt(document.getElementById('offer-cancel-deadline').value) || 24;
+    var vehicleId = document.getElementById('offer-vehicle') ? document.getElementById('offer-vehicle').value : null;
+    var recurring = document.getElementById('offer-recurring') ? document.getElementById('offer-recurring').checked : false;
+    try {
+      await ApiClient.post('/api/slot-offers', {
+        instructor_id: AppState.scheduleSelectedInstructor,
+        slots: AppState.slotOfferSelected.map(function(s) {
+          return { date: s.date, start_time: s.start_time, end_time: s.end_time, duration_min: s.duration_min };
+        }),
+        student_ids: selectedStudents,
+        expires_at: expiresAt,
+        cancel_deadline_hours: cancelDeadline,
+        vehicle_id: vehicleId || null,
+        recurring: recurring ? 'weekly' : null
+      });
+      this.closeModal();
+      AppState.slotOfferMode = false;
+      AppState.slotOfferSelected = [];
+      this.showToast(t('termineAngeboten'));
+      this.renderSchoolScheduleTab();
+    } catch (err) {
+      this.showToast(t('fehler') + ': ' + (err.message || err));
+    }
   },
 
   // ══════════════════════════════════════════
@@ -4099,6 +4311,7 @@ var App = {
       });
     }
     if (tab === 'overview') this.renderStudentOverview();
+    else if (tab === 'termine') this.renderStudentTermineTab();
     else if (tab === 'lessons') this.renderStudentLessonsTab();
     else if (tab === 'profile') this.renderStudentProfileTab();
   },
@@ -4184,6 +4397,145 @@ var App = {
   },
 
   toggleChecklist: function(el) { el.classList.toggle('checked'); },
+
+  // ══════════════════════════════════════════
+  //  STUDENT: Termine Tab (Offene Angebote + Fahrstunden)
+  // ══════════════════════════════════════════
+  _studentTermineSubTab: 'angebote',
+
+  renderStudentTermineTab: async function() {
+    var main = document.getElementById('student-main');
+    main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
+    var self = this;
+    var sub = this._studentTermineSubTab || 'angebote';
+    var html = '<div class="page-padding">';
+    // Sub-tabs
+    html += '<div class="student-fahrstunden-tabs">' +
+      '<button class="student-fahrstunden-tab' + (sub === 'angebote' ? ' active' : '') + '" onclick="App._studentTermineSubTab=\'angebote\';App.renderStudentTermineTab()">' + t('offeneAngebote') + '</button>' +
+      '<button class="student-fahrstunden-tab' + (sub === 'naechste' ? ' active' : '') + '" onclick="App._studentTermineSubTab=\'naechste\';App.renderStudentTermineTab()">' + t('naechsteFahrstunden') + '</button>' +
+      '<button class="student-fahrstunden-tab' + (sub === 'absolviert' ? ' active' : '') + '" onclick="App._studentTermineSubTab=\'absolviert\';App.renderStudentTermineTab()">' + t('absolvierteFahrstunden') + '</button>' +
+    '</div>';
+
+    if (sub === 'angebote') {
+      try {
+        var offers = await ApiClient.get('/api/slot-offers/student');
+        if (!offers || offers.length === 0) {
+          html += '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
+            '<div class="empty-state-title">' + t('keineOffenenAngebote') + '</div></div>';
+        } else {
+          offers.forEach(function(offer) {
+            var isExpired = offer.expires_at && new Date(offer.expires_at) < new Date();
+            html += '<div class="offer-card' + (isExpired ? ' expired' : '') + '">';
+            html += '<div class="offer-card-header">';
+            html += '<div class="offer-card-instructor">' + (offer.instructor_name || '') + '</div>';
+            if (offer.expires_at) {
+              var expDate = new Date(offer.expires_at);
+              var expStr = expDate.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' }) + ' ' + expDate.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+              html += '<div class="offer-card-expires">' + (isExpired ? t('abgelaufen') : t('ablaufzeit') + ': ' + expStr) + '</div>';
+            }
+            html += '</div>';
+            html += '<div class="offer-card-slots">';
+            (offer.slots || []).forEach(function(slot) {
+              var d = new Date(slot.date);
+              var dayStr2 = d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' });
+              var statusCls = slot.booked_by ? 'booked' : (isExpired ? 'expired' : 'available');
+              var statusText = slot.booked_by ? (t('gebuchtVon') + ' ' + (slot.booked_by_name || '?')) : (isExpired ? t('abgelaufen') : t('slotFrei'));
+              html += '<div class="offer-slot-row">';
+              html += '<div class="offer-slot-time">' + dayStr2 + ' · ' + slot.start_time + '–' + slot.end_time + '</div>';
+              html += '<div style="display:flex;align-items:center;gap:var(--space-2);">';
+              html += '<span class="offer-slot-status ' + statusCls + '">' + statusText + '</span>';
+              if (!slot.booked_by && !isExpired) {
+                html += '<button class="btn btn-sm btn-primary" onclick="App.bookSlotOffer(\'' + slot.id + '\')">' + t('buchungBestaetigen') + '</button>';
+              }
+              html += '</div></div>';
+            });
+            html += '</div></div>';
+          });
+        }
+      } catch (err) {
+        html += '<p class="text-sm text-muted">' + t('fehler') + ': ' + (err.message || err) + '</p>';
+      }
+    } else if (sub === 'naechste') {
+      // Upcoming booked lessons
+      try {
+        var data = AppState._cachedData.studentOverview;
+        if (!data) { data = await ApiClient.get('/api/student/overview'); AppState._cachedData.studentOverview = data; }
+        var lessons = (data.lessons || []);
+        var today = formatDateLocal(new Date());
+        var upcoming = lessons.filter(function(l) { return l.date >= today; }).sort(function(a, b) { return a.date < b.date ? -1 : 1; });
+        if (upcoming.length === 0) {
+          html += '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>' +
+            '<div class="empty-state-title">' + t('keineFahrstunden') + '</div></div>';
+        } else {
+          upcoming.forEach(function(l) {
+            var d = new Date(l.date);
+            var dayStr2 = d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' });
+            html += '<div class="lesson-card">' +
+              '<div class="lesson-card-info">' +
+                '<div class="lesson-card-date">' + dayStr2 + ' · ' + (l.start_time || '') + '</div>' +
+                '<div class="lesson-card-detail">' + tType(l.type) + (l.instructor_name ? ' · ' + l.instructor_name : '') + '</div>' +
+              '</div>' +
+            '</div>';
+          });
+        }
+      } catch (err) {
+        html += '<p class="text-sm text-muted">' + t('fehler') + '</p>';
+      }
+    } else if (sub === 'absolviert') {
+      // Past completed lessons
+      try {
+        var data = AppState._cachedData.studentOverview;
+        if (!data) { data = await ApiClient.get('/api/student/overview'); AppState._cachedData.studentOverview = data; }
+        var lessons = (data.lessons || []);
+        var today = formatDateLocal(new Date());
+        var past = lessons.filter(function(l) { return l.date < today; }).sort(function(a, b) { return a.date > b.date ? -1 : 1; });
+        if (past.length === 0) {
+          html += '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>' +
+            '<div class="empty-state-title">' + t('nochKeineFahrstunden') + '</div></div>';
+        } else {
+          past.forEach(function(l) {
+            var d = new Date(l.date);
+            var dayStr2 = d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' });
+            html += '<div class="lesson-card" onclick="App.showLessonReview(\'' + l.id + '\', \'' + AppState.currentUser.id + '\', \'student\')">' +
+              '<div class="lesson-card-info">' +
+                '<div class="lesson-card-date">' + dayStr2 + ' · ' + (l.start_time || '') + '</div>' +
+                '<div class="lesson-card-detail">' + tType(l.type) + ' · ' + self.formatDuration(l.duration) + (l.instructor_name ? ' · ' + l.instructor_name : '') + '</div>' +
+              '</div>' +
+              '<div class="lesson-card-action">' + self.skillLevelHtml(self.avgRating(l.ratings)) + '</div>' +
+            '</div>';
+          });
+        }
+      } catch (err) {
+        html += '<p class="text-sm text-muted">' + t('fehler') + '</p>';
+      }
+    }
+    html += '</div>';
+    main.innerHTML = html;
+  },
+
+  bookSlotOffer: async function(slotId) {
+    try {
+      await ApiClient.post('/api/slot-offers/book/' + slotId);
+      this.showToast(t('buchungErfolgreich'));
+      this.renderStudentTermineTab();
+    } catch (err) {
+      this.showToast(t('fehler') + ': ' + (err.message || err));
+    }
+  },
+
+  cancelBookedSlot: async function(slotId) {
+    try {
+      await ApiClient.post('/api/slot-offers/cancel/' + slotId);
+      this.showToast(t('absageErfolgreich'));
+      this.renderStudentTermineTab();
+    } catch (err) {
+      if (err.message && err.message.indexOf('Absagefrist') !== -1) {
+        this.showToast(t('absageFristAbgelaufen'));
+      } else {
+        this.showToast(t('fehler') + ': ' + (err.message || err));
+      }
+    }
+  },
 
   renderStudentLessonsTab: async function() {
     var stu = AppState.currentUser;

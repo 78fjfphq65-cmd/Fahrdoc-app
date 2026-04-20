@@ -2886,6 +2886,338 @@ app.get('/api/ausbildungsnachweis/:studentId', authMiddleware, async (req, res) 
 });
 
 // ============================================
+// SLOT OFFERS (Termine anbieten)
+// ============================================
+
+// Auto-create slot offer tables if they don't exist
+(async function ensureSlotOfferTables() {
+  try {
+    var { data, error } = await supabase.from('slot_offers').select('id').limit(1);
+    if (error && error.code === 'PGRST204') {
+      // Table doesn't exist — create via rpc or direct SQL
+      console.log('[SlotOffers] Tables not found, attempting to create...');
+      await supabase.rpc('exec_sql', { sql: `
+        CREATE TABLE IF NOT EXISTS slot_offers (
+          id text PRIMARY KEY, school_id text NOT NULL, instructor_id text NOT NULL,
+          expires_at timestamptz, cancel_deadline_hours integer DEFAULT 24,
+          vehicle_id text, status text DEFAULT 'active', recurring text,
+          created_at timestamptz DEFAULT now()
+        );
+        CREATE TABLE IF NOT EXISTS slot_offer_slots (
+          id text PRIMARY KEY, offer_id text NOT NULL REFERENCES slot_offers(id) ON DELETE CASCADE,
+          date date NOT NULL, start_time text NOT NULL, end_time text NOT NULL,
+          duration_min integer NOT NULL, status text DEFAULT 'open',
+          booked_by text, booked_at timestamptz
+        );
+        CREATE TABLE IF NOT EXISTS slot_offer_recipients (
+          id serial PRIMARY KEY, offer_id text NOT NULL REFERENCES slot_offers(id) ON DELETE CASCADE,
+          student_id text NOT NULL
+        );
+      ` });
+      console.log('[SlotOffers] Tables created successfully');
+    } else {
+      console.log('[SlotOffers] Tables exist');
+    }
+  } catch (e) {
+    console.log('[SlotOffers] Tables check/create:', e.message || e);
+    console.log('[SlotOffers] If tables do not exist, please create them manually in Supabase SQL editor.');
+  }
+})();
+
+// Create slot offer (school only)
+app.post('/api/slot-offers', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+  try {
+    var { instructor_id, slots, student_ids, expires_at, cancel_deadline_hours, vehicle_id, recurring } = req.body;
+    if (!instructor_id || !slots || !slots.length || !student_ids || !student_ids.length) {
+      return res.status(400).json({ error: 'instructor_id, slots und student_ids erforderlich' });
+    }
+    var offerId = generateId();
+    // Insert the offer
+    await supabase.from('slot_offers').insert({
+      id: offerId, school_id: req.user.id, instructor_id: instructor_id,
+      expires_at: expires_at || null, cancel_deadline_hours: cancel_deadline_hours || 24,
+      vehicle_id: vehicle_id || null, status: 'active',
+      recurring: recurring || null
+    });
+    // Insert slots
+    var slotInserts = slots.map(function(s) {
+      return {
+        id: generateId(), offer_id: offerId, date: s.date,
+        start_time: s.start_time, end_time: s.end_time,
+        duration_min: s.duration_min || 90, status: 'open'
+      };
+    });
+    await supabase.from('slot_offer_slots').insert(slotInserts);
+    // Insert student recipients
+    var studentInserts = student_ids.map(function(sid) {
+      return { id: generateId(), offer_id: offerId, student_id: sid };
+    });
+    await supabase.from('slot_offer_recipients').insert(studentInserts);
+    // Create notifications for each student
+    var { data: instructor } = await supabase.from('instructors').select('name').eq('id', instructor_id).single();
+    var instName = instructor ? instructor.name : 'Fahrlehrer';
+    var slotTexts = slots.map(function(s) {
+      var d = new Date(s.date);
+      var dayStr = d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' });
+      return dayStr + ' ' + s.start_time + '-' + s.end_time;
+    });
+    var msg = 'Neuer Termin bei ' + instName + ' verfügbar: ' + slotTexts.join(', ') + '. Jetzt in der App bestätigen!';
+    for (var i = 0; i < student_ids.length; i++) {
+      await createNotification(student_ids[i], 'student', 'slot_offer', 'Termin verfügbar', msg, offerId);
+    }
+    res.json({ id: offerId, success: true });
+  } catch (err) {
+    console.error('[SlotOffer] Create error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Get active offers for a student
+app.get('/api/slot-offers/student', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'student') return res.status(403).json({ error: 'Nur Schüler' });
+  try {
+    // Find offers where this student is a recipient
+    var { data: recipientRows } = await supabase.from('slot_offer_recipients')
+      .select('offer_id').eq('student_id', req.user.id);
+    if (!recipientRows || !recipientRows.length) return res.json([]);
+    var offerIds = recipientRows.map(function(r) { return r.offer_id; });
+    // Get active offers
+    var { data: offers } = await supabase.from('slot_offers')
+      .select('id, instructor_id, expires_at, cancel_deadline_hours, vehicle_id, status, recurring, created_at')
+      .in('id', offerIds).eq('status', 'active');
+    if (!offers || !offers.length) return res.json([]);
+    // Filter expired offers
+    var now = new Date();
+    var activeOffers = offers.filter(function(o) {
+      if (!o.expires_at) return true;
+      return new Date(o.expires_at) > now;
+    });
+    // Get slots for these offers
+    var activeIds = activeOffers.map(function(o) { return o.id; });
+    var { data: allSlots } = await supabase.from('slot_offer_slots')
+      .select('id, offer_id, date, start_time, end_time, duration_min, status, booked_by, booked_at')
+      .in('offer_id', activeIds).order('date').order('start_time');
+    // Get instructor names
+    var instIds = [...new Set(activeOffers.map(function(o) { return o.instructor_id; }))];
+    var { data: instructors } = await supabase.from('instructors')
+      .select('id, name').in('id', instIds);
+    var instMap = {};
+    (instructors || []).forEach(function(inst) { instMap[inst.id] = inst.name; });
+    // Combine
+    var result = activeOffers.map(function(o) {
+      o.instructor_name = instMap[o.instructor_id] || '';
+      o.slots = (allSlots || []).filter(function(s) { return s.offer_id === o.id; });
+      return o;
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('[SlotOffer] Student fetch error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Book a slot (student)
+app.post('/api/slot-offers/book/:slotId', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'student') return res.status(403).json({ error: 'Nur Schüler' });
+  try {
+    var slotId = req.params.slotId;
+    // Get the slot
+    var { data: slot } = await supabase.from('slot_offer_slots')
+      .select('id, offer_id, date, start_time, end_time, duration_min, status, booked_by')
+      .eq('id', slotId).single();
+    if (!slot) return res.status(404).json({ error: 'Slot nicht gefunden' });
+    if (slot.status !== 'open') return res.status(409).json({ error: 'Dieser Termin ist leider nicht mehr verfügbar.', expired: true });
+    // Check offer is still active and not expired
+    var { data: offer } = await supabase.from('slot_offers')
+      .select('id, instructor_id, school_id, expires_at, vehicle_id, status, cancel_deadline_hours')
+      .eq('id', slot.offer_id).single();
+    if (!offer || offer.status !== 'active') return res.status(409).json({ error: 'Angebot abgelaufen', expired: true });
+    if (offer.expires_at && new Date(offer.expires_at) < new Date()) {
+      return res.status(409).json({ error: 'Angebot abgelaufen', expired: true });
+    }
+    // Check student is a recipient
+    var { data: isRecipient } = await supabase.from('slot_offer_recipients')
+      .select('id').eq('offer_id', slot.offer_id).eq('student_id', req.user.id).maybeSingle();
+    if (!isRecipient) return res.status(403).json({ error: 'Nicht berechtigt' });
+    // Double-booking check: does this instructor already have a lesson at this time?
+    var { data: overlaps } = await supabase.from('scheduled_lessons')
+      .select('id').eq('instructor_id', offer.instructor_id)
+      .eq('date', slot.date)
+      .lt('start_time', slot.end_time)
+      .gt('end_time', slot.start_time);
+    if (overlaps && overlaps.length > 0) {
+      return res.status(409).json({ error: 'Dieser Termin ist leider nicht mehr verfügbar.', expired: true });
+    }
+    // Atomic: Update slot to booked (only if still open)
+    var { data: updated, error: updateErr } = await supabase.from('slot_offer_slots')
+      .update({ status: 'booked', booked_by: req.user.id, booked_at: new Date().toISOString() })
+      .eq('id', slotId).eq('status', 'open')
+      .select();
+    if (updateErr || !updated || !updated.length) {
+      return res.status(409).json({ error: 'Dieser Termin ist leider nicht mehr verfügbar.', expired: true });
+    }
+    // Create scheduled_lesson entry
+    var lessonId = generateId();
+    await supabase.from('scheduled_lessons').insert({
+      id: lessonId, instructor_id: offer.instructor_id, school_id: offer.school_id,
+      student_id: req.user.id, date: slot.date,
+      start_time: slot.start_time, end_time: slot.end_time,
+      type: 'Übungsfahrt', license_class: null, status: 'bestätigt',
+      notes: 'Über Slot-Angebot gebucht', vehicle_id: offer.vehicle_id || null,
+      created_by_role: 'student', created_by_id: req.user.id
+    });
+    // Notify school + instructor
+    var { data: student } = await supabase.from('students').select('name').eq('id', req.user.id).single();
+    var stuName = student ? student.name : 'Schüler';
+    var dayStr = new Date(slot.date).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' });
+    var bookMsg = stuName + ' hat den Termin am ' + dayStr + ' (' + slot.start_time + '-' + slot.end_time + ') bestätigt.';
+    await createNotification(offer.school_id, 'school', 'slot_booked', 'Termin bestätigt', bookMsg, lessonId);
+    await createNotification(offer.instructor_id, 'instructor', 'slot_booked', 'Termin bestätigt', bookMsg, lessonId);
+    res.json({ success: true, lesson_id: lessonId });
+  } catch (err) {
+    console.error('[SlotOffer] Book error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Cancel a booked slot (student) — respects cancel deadline
+app.post('/api/slot-offers/cancel/:slotId', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'student') return res.status(403).json({ error: 'Nur Schüler' });
+  try {
+    var slotId = req.params.slotId;
+    var { data: slot } = await supabase.from('slot_offer_slots')
+      .select('id, offer_id, date, start_time, end_time, status, booked_by')
+      .eq('id', slotId).single();
+    if (!slot || slot.booked_by !== req.user.id) return res.status(404).json({ error: 'Nicht gefunden' });
+    if (slot.status !== 'booked') return res.status(400).json({ error: 'Slot nicht gebucht' });
+    // Check cancel deadline
+    var { data: offer } = await supabase.from('slot_offers')
+      .select('cancel_deadline_hours, school_id, instructor_id').eq('id', slot.offer_id).single();
+    var deadlineHours = (offer && offer.cancel_deadline_hours) || 24;
+    var slotDateTime = new Date(slot.date + 'T' + slot.start_time);
+    var deadlineTime = new Date(slotDateTime.getTime() - deadlineHours * 60 * 60 * 1000);
+    if (new Date() > deadlineTime) {
+      return res.status(400).json({ error: 'Absagefrist von ' + deadlineHours + ' Stunden abgelaufen' });
+    }
+    // Re-open slot
+    await supabase.from('slot_offer_slots')
+      .update({ status: 'open', booked_by: null, booked_at: null })
+      .eq('id', slotId);
+    // Delete the scheduled_lesson
+    await supabase.from('scheduled_lessons')
+      .delete()
+      .eq('instructor_id', offer.instructor_id)
+      .eq('student_id', req.user.id)
+      .eq('date', slot.date)
+      .eq('start_time', slot.start_time);
+    // Notify school + instructor
+    var { data: student } = await supabase.from('students').select('name').eq('id', req.user.id).single();
+    var stuName = student ? student.name : 'Schüler';
+    var dayStr = new Date(slot.date).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' });
+    var cancelMsg = stuName + ' hat den Termin am ' + dayStr + ' (' + slot.start_time + '-' + slot.end_time + ') abgesagt. Slot ist wieder verfügbar.';
+    await createNotification(offer.school_id, 'school', 'slot_cancelled', 'Termin abgesagt', cancelMsg, slotId);
+    await createNotification(offer.instructor_id, 'instructor', 'slot_cancelled', 'Termin abgesagt', cancelMsg, slotId);
+    // Re-notify other recipients
+    var { data: recipients } = await supabase.from('slot_offer_recipients')
+      .select('student_id').eq('offer_id', slot.offer_id);
+    if (recipients) {
+      for (var r = 0; r < recipients.length; r++) {
+        if (recipients[r].student_id !== req.user.id) {
+          await createNotification(recipients[r].student_id, 'student', 'slot_available',
+            'Termin wieder verfügbar', 'Ein Termin am ' + dayStr + ' (' + slot.start_time + '-' + slot.end_time + ') ist wieder frei!', slot.offer_id);
+        }
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[SlotOffer] Cancel error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Get all offers for school (management view)
+app.get('/api/slot-offers/school', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+  try {
+    var { data: offers } = await supabase.from('slot_offers')
+      .select('id, instructor_id, expires_at, cancel_deadline_hours, vehicle_id, status, recurring, created_at')
+      .eq('school_id', req.user.id).order('created_at', { ascending: false }).limit(50);
+    if (!offers || !offers.length) return res.json([]);
+    var offerIds = offers.map(function(o) { return o.id; });
+    var { data: allSlots } = await supabase.from('slot_offer_slots')
+      .select('id, offer_id, date, start_time, end_time, duration_min, status, booked_by')
+      .in('offer_id', offerIds);
+    var { data: allRecipients } = await supabase.from('slot_offer_recipients')
+      .select('offer_id, student_id').in('offer_id', offerIds);
+    offers.forEach(function(o) {
+      o.slots = (allSlots || []).filter(function(s) { return s.offer_id === o.id; });
+      o.recipients = (allRecipients || []).filter(function(r) { return r.offer_id === o.id; }).map(function(r) { return r.student_id; });
+    });
+    res.json(offers);
+  } catch (err) {
+    console.error('[SlotOffer] School fetch error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Update vehicle on offer (school)
+app.put('/api/slot-offers/:offerId/vehicle', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+  try {
+    var { vehicle_id } = req.body;
+    await supabase.from('slot_offers').update({ vehicle_id: vehicle_id || null })
+      .eq('id', req.params.offerId).eq('school_id', req.user.id);
+    // Also update any already-booked lessons from this offer
+    var { data: bookedSlots } = await supabase.from('slot_offer_slots')
+      .select('date, start_time').eq('offer_id', req.params.offerId).eq('status', 'booked');
+    if (bookedSlots) {
+      for (var bs = 0; bs < bookedSlots.length; bs++) {
+        await supabase.from('scheduled_lessons')
+          .update({ vehicle_id: vehicle_id || null })
+          .eq('date', bookedSlots[bs].date).eq('start_time', bookedSlots[bs].start_time);
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Get student's lessons (upcoming + past)
+app.get('/api/student/lessons', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'student') return res.status(403).json({ error: 'Nur Schüler' });
+  try {
+    var today = new Date().toISOString().split('T')[0];
+    var { data: lessons } = await supabase.from('scheduled_lessons')
+      .select('id, date, start_time, end_time, type, status, instructor_id, vehicle_id, notes')
+      .eq('student_id', req.user.id)
+      .neq('type', 'Zeitsperre')
+      .order('date', { ascending: false }).order('start_time', { ascending: false });
+    // Split into upcoming and past
+    var upcoming = [];
+    var past = [];
+    (lessons || []).forEach(function(l) {
+      if (l.date >= today) upcoming.push(l);
+      else past.push(l);
+    });
+    upcoming.reverse(); // Nearest first
+    // Get instructor names
+    var instIds = [...new Set((lessons || []).map(function(l) { return l.instructor_id; }).filter(Boolean))];
+    var instMap = {};
+    if (instIds.length) {
+      var { data: insts } = await supabase.from('instructors').select('id, name').in('id', instIds);
+      (insts || []).forEach(function(inst) { instMap[inst.id] = inst.name; });
+    }
+    (lessons || []).forEach(function(l) { l.instructor_name = instMap[l.instructor_id] || ''; });
+    res.json({ upcoming: upcoming, past: past });
+  } catch (err) {
+    console.error('[Student Lessons] Error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// ============================================
 // FALLBACK: SPA
 // ============================================
 app.get('*', (req, res) => {
