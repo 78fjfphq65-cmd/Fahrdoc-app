@@ -437,7 +437,8 @@ var TRANSLATIONS = {
   aktiv: { de:'Aktiv', en:'Active', tr:'Aktif', ar:'نشط', es:'Activo', fr:'Actif' },
   offen2: { de:'Offen', en:'Open', tr:'Açık', ar:'مفتوح', es:'Abierto', fr:'Ouvert' },
   gebucht: { de:'Gebucht', en:'Booked', tr:'Rezerve', ar:'محجوز', es:'Reservado', fr:'Réservé' },
-  empfaenger: { de:'Empfänger', en:'Recipients', tr:'Alıcılar', ar:'المستلمون', es:'Destinatarios', fr:'Destinataires' }
+  empfaenger: { de:'Empfänger', en:'Recipients', tr:'Alıcılar', ar:'المستلمون', es:'Destinatarios', fr:'Destinataires' },
+  fahrzeug: { de:'Fahrzeug', en:'Vehicle', tr:'Araç', ar:'مركبة', es:'Vehículo', fr:'Véhicule' }
 };
 
 // ── Day names by language ──
