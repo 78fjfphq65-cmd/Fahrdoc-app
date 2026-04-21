@@ -1852,9 +1852,8 @@ var App = {
         vList.forEach(function(v) {
           vehOptions += '<option value="' + v.id + '">' + (v.brand || v.make || '') + ' (' + (v.license_plate || v.plate || '') + ')</option>';
         });
-        self.showModal(
+        self.openModal(t('termineAnbieten'),
           '<div class="slot-offer-dialog">' +
-            '<h3 style="margin-bottom:var(--space-3);">' + t('termineAnbieten') + '</h3>' +
             '<div class="slot-offer-slots-list mb-3">' + slotsHtml + '</div>' +
             '<div class="form-group mb-3"><label class="form-label">' + t('slotDauer') + '</label>' +
               '<div style="display:flex;gap:var(--space-2);">' +
@@ -1896,7 +1895,7 @@ var App = {
         }
       }).catch(function(err) {
         console.error('[SlotOffer] vehicles fetch error:', err);
-        self.showModal('<div class="slot-offer-dialog"><h3>' + t('termineAnbieten') + '</h3><div class="slot-offer-slots-list mb-3">' + slotsHtml + '</div><div class="slot-offer-student-list">' + stuHtml + '</div><button class="btn btn-primary btn-full btn-lg" onclick="App.submitSlotOffer()">' + t('abschicken') + '</button></div>');
+        self.openModal(t('termineAnbieten'), '<div class="slot-offer-dialog"><div class="slot-offer-slots-list mb-3">' + slotsHtml + '</div><div class="slot-offer-student-list">' + stuHtml + '</div><button class="btn btn-primary btn-full btn-lg" onclick="App.submitSlotOffer()">' + t('abschicken') + '</button></div>');
       });
     }).catch(function(err) {
       console.error('[SlotOffer] dashboard fetch error:', err);
@@ -1943,7 +1942,7 @@ var App = {
         });
       }
       html += '</div>';
-      self.showModal(html);
+      self.openModal(t('meineAngebote'), html);
     } catch (err) {
       self.showToast(t('fehler') + ': ' + (err.message || err));
     }
