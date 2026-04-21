@@ -1953,16 +1953,101 @@ var App = {
             var sText = slot.status === 'booked' ? t('gebucht') : t('offen2');
             html += '<div class="offer-slot-row">' +
               '<div class="offer-slot-time">' + dayStr2 + ' \u00b7 ' + slot.start_time + '\u2013' + slot.end_time + '</div>' +
-              '<span class="offer-slot-status ' + sClass + '">' + sText + '</span>' +
-            '</div>';
+              '<span class="offer-slot-status ' + sClass + '">' + sText + '</span>';
+            // Edit + Delete buttons (only for open slots)
+            if (slot.status === 'open') {
+              html += '<div class="offer-slot-actions">' +
+                '<button class="btn-icon btn-icon-edit" title="' + t('bearbeiten') + '" onclick="App.editOfferSlot(\'' + slot.id + '\',\'' + slot.date + '\',\'' + slot.start_time + '\',\'' + slot.end_time + '\',' + (slot.duration_min || 90) + ')">\u270F\uFE0F</button>' +
+                '<button class="btn-icon btn-icon-delete" title="' + t('loeschen') + '" onclick="App.deleteOfferSlot(\'' + slot.id + '\')">\uD83D\uDDD1\uFE0F</button>' +
+              '</div>';
+            }
+            html += '</div>';
           });
           html += '</div>';
-          html += '<div class="text-xs text-muted" style="margin-top:var(--space-2);">' + t('empfaenger') + ': ' + (offer.recipients || []).length + ' ' + t('schueler') + '</div>';
+          html += '<div class="offer-card-footer">';
+          html += '<div class="text-xs text-muted">' + t('empfaenger') + ': ' + (offer.recipients || []).length + ' ' + t('schueler') + '</div>';
+          html += '<button class="btn btn-sm btn-danger-outline" onclick="App.deleteOffer(\'' + offer.id + '\')" style="margin-left:auto;">' + t('angebotLoeschen') + '</button>';
+          html += '</div>';
           html += '</div>';
         });
       }
       html += '</div>';
       self.openModal(t('meineAngebote'), html);
+    } catch (err) {
+      self.showToast(t('fehler') + ': ' + (err.message || err));
+    }
+  },
+
+  editOfferSlot: function(slotId, date, start, end, duration) {
+    var self = this;
+    var html = '<div style="padding:var(--space-2);max-width:420px;">' +
+      '<div class="form-group"><label class="form-label">' + t('datum') + '</label>' +
+        '<input type="date" id="edit-slot-date" class="form-input" value="' + date + '"></div>' +
+      '<div style="display:flex;gap:var(--space-2);">' +
+        '<div class="form-group" style="flex:1;"><label class="form-label">' + t('start') + '</label>' +
+          '<input type="time" id="edit-slot-start" class="form-input" value="' + (start || '').substring(0,5) + '"></div>' +
+        '<div class="form-group" style="flex:1;"><label class="form-label">' + t('ende') + '</label>' +
+          '<input type="time" id="edit-slot-end" class="form-input" value="' + (end || '').substring(0,5) + '"></div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">' + t('dauer') + ' (min)</label>' +
+        '<input type="number" id="edit-slot-duration" class="form-input" value="' + (duration || 90) + '" min="15" step="15"></div>' +
+      '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-top:var(--space-3);">' +
+        '<button class="btn btn-secondary" onclick="App.closeModal()">' + t('abbrechen') + '</button>' +
+        '<button class="btn btn-primary" onclick="App.submitEditOfferSlot(\'' + slotId + '\')">' + t('speichern') + '</button>' +
+      '</div>' +
+    '</div>';
+    self.openModal(t('bearbeiten'), html);
+  },
+
+  submitEditOfferSlot: async function(slotId) {
+    var self = this;
+    var dateEl = document.getElementById('edit-slot-date');
+    var startEl = document.getElementById('edit-slot-start');
+    var endEl = document.getElementById('edit-slot-end');
+    var durEl = document.getElementById('edit-slot-duration');
+    if (!dateEl || !startEl || !endEl) return;
+    var payload = {
+      date: dateEl.value,
+      start_time: startEl.value,
+      end_time: endEl.value,
+      duration_min: parseInt(durEl && durEl.value || '90', 10) || 90
+    };
+    if (!payload.date || !payload.start_time || !payload.end_time) {
+      self.showToast(t('fehler'));
+      return;
+    }
+    try {
+      await ApiClient.put('/api/slot-offers/slot/' + slotId, payload);
+      self.closeModal();
+      self.showToast(t('slotBearbeitet'));
+      self.showSlotOfferManagement();
+      if (typeof self.renderSchedule === 'function') { try { self.renderSchedule(); } catch(e){} }
+    } catch (err) {
+      self.showToast(t('fehler') + ': ' + (err.message || err));
+    }
+  },
+
+  deleteOfferSlot: async function(slotId) {
+    var self = this;
+    if (!window.confirm(t('slotLoeschenBestaetigung'))) return;
+    try {
+      await ApiClient.del('/api/slot-offers/slot/' + slotId);
+      self.showToast(t('slotGeloescht'));
+      self.showSlotOfferManagement();
+      if (typeof self.renderSchedule === 'function') { try { self.renderSchedule(); } catch(e){} }
+    } catch (err) {
+      self.showToast(t('fehler') + ': ' + (err.message || err));
+    }
+  },
+
+  deleteOffer: async function(offerId) {
+    var self = this;
+    if (!window.confirm(t('angebotLoeschenBestaetigung'))) return;
+    try {
+      await ApiClient.del('/api/slot-offers/' + offerId);
+      self.showToast(t('angebotGeloescht'));
+      self.showSlotOfferManagement();
+      if (typeof self.renderSchedule === 'function') { try { self.renderSchedule(); } catch(e){} }
     } catch (err) {
       self.showToast(t('fehler') + ': ' + (err.message || err));
     }

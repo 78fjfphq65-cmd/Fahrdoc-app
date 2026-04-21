@@ -3,7 +3,7 @@
    Caching strategy: Network-first for API calls,
    Cache-first for static assets.
    ============================================ */
-const CACHE_NAME = 'fahrdoc-v2-slotoffer';
+const CACHE_NAME = 'fahrdoc-v3-slot-edit';
 const STATIC_ASSETS = [
   './',
   './index.html',

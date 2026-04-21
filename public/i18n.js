@@ -439,7 +439,13 @@ var TRANSLATIONS = {
   offen2: { de:'Offen', en:'Open', tr:'Açık', ar:'مفتوح', es:'Abierto', fr:'Ouvert' },
   gebucht: { de:'Gebucht', en:'Booked', tr:'Rezerve', ar:'محجوز', es:'Reservado', fr:'Réservé' },
   empfaenger: { de:'Empfänger', en:'Recipients', tr:'Alıcılar', ar:'المستلمون', es:'Destinatarios', fr:'Destinataires' },
-  fahrzeug: { de:'Fahrzeug', en:'Vehicle', tr:'Araç', ar:'مركبة', es:'Vehículo', fr:'Véhicule' }
+  fahrzeug: { de:'Fahrzeug', en:'Vehicle', tr:'Araç', ar:'مركبة', es:'Vehículo', fr:'Véhicule' },
+  angebotLoeschen: { de:'Angebot löschen', en:'Delete offer', tr:'Teklifi sil', ar:'حذف العرض', es:'Eliminar oferta', fr:'Supprimer l\'offre' },
+  slotBearbeitet: { de:'Slot aktualisiert', en:'Slot updated', tr:'Slot güncellendi', ar:'تم تحديث الموعد', es:'Slot actualizado', fr:'Créneau mis à jour' },
+  slotGeloescht: { de:'Slot gelöscht', en:'Slot deleted', tr:'Slot silindi', ar:'تم حذف الموعد', es:'Slot eliminado', fr:'Créneau supprimé' },
+  angebotGeloescht: { de:'Angebot gelöscht', en:'Offer deleted', tr:'Teklif silindi', ar:'تم حذف العرض', es:'Oferta eliminada', fr:'Offre supprimée' },
+  slotLoeschenBestaetigung: { de:'Diesen Slot wirklich löschen?', en:'Really delete this slot?', tr:'Bu slotu silmek istiyor musunuz?', ar:'هل تريد حقا حذف هذا الموعد؟', es:'¿Eliminar este slot?', fr:'Vraiment supprimer ce créneau?' },
+  angebotLoeschenBestaetigung: { de:'Komplettes Angebot löschen? Offene Slots werden entfernt, bereits gebuchte Fahrstunden bleiben bestehen.', en:'Delete entire offer? Open slots will be removed, booked lessons remain.', tr:'Tüm teklifi sil? Açık slotlar silinir, rezerve edilen dersler kalır.', ar:'حذف العرض بالكامل؟ ستتم إزالة المواعيد المفتوحة وتبقى الدروس المحجوزة.', es:'¿Eliminar toda la oferta? Los slots abiertos se eliminarán, las clases reservadas permanecen.', fr:'Supprimer toute l\'offre? Les créneaux ouverts seront supprimés, les leçons réservées restent.' }
 };
 
 // ── Day names by language ──

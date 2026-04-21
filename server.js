@@ -3197,16 +3197,25 @@ app.post('/api/slot-offers/book/:slotId', authMiddleware, async (req, res) => {
     if (updateErr || !updated || !updated.length) {
       return res.status(409).json({ error: 'Dieser Termin ist leider nicht mehr verfügbar.', expired: true });
     }
+    // Get student license class for the booking
+    var { data: studentData } = await supabase.from('students').select('license_class').eq('id', req.user.id).single();
+    var licClass = (studentData && studentData.license_class) || 'B';
     // Create scheduled_lesson entry
     var lessonId = generateId();
-    await supabase.from('scheduled_lessons').insert({
+    var { error: lessonInsertErr } = await supabase.from('scheduled_lessons').insert({
       id: lessonId, instructor_id: offer.instructor_id, school_id: offer.school_id,
       student_id: req.user.id, date: slot.date,
       start_time: slot.start_time, end_time: slot.end_time,
-      type: 'Übungsfahrt', license_class: null, status: 'bestätigt',
+      type: 'Übungsfahrt', license_class: licClass, status: 'bestätigt',
       notes: 'Über Slot-Angebot gebucht', vehicle_id: offer.vehicle_id || null,
-      created_by_role: 'student', created_by_id: req.user.id
+      created_by_role: 'school', created_by_id: offer.school_id
     });
+    if (lessonInsertErr) {
+      console.error('[SlotOffer] Lesson insert error:', lessonInsertErr);
+      // Revert slot booking since lesson creation failed
+      await supabase.from('slot_offer_slots').update({ status: 'open', booked_by: null, booked_at: null }).eq('id', slotId);
+      return res.status(500).json({ error: 'Buchung fehlgeschlagen: ' + lessonInsertErr.message });
+    }
     // Notify school + instructor
     var { data: student } = await supabase.from('students').select('name').eq('id', req.user.id).single();
     var stuName = student ? student.name : 'Schüler';
@@ -3297,6 +3306,81 @@ app.get('/api/slot-offers/school', authMiddleware, async (req, res) => {
     res.json(offers);
   } catch (err) {
     console.error('[SlotOffer] School fetch error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Delete a single offer slot (school) - only if status=open
+app.delete('/api/slot-offers/slot/:slotId', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+  try {
+    var slotId = req.params.slotId;
+    var { data: slot } = await supabase.from('slot_offer_slots')
+      .select('id, offer_id, status').eq('id', slotId).single();
+    if (!slot) return res.status(404).json({ error: 'Slot nicht gefunden' });
+    if (slot.status !== 'open') return res.status(409).json({ error: 'Gebuchte Slots können nicht gelöscht werden' });
+    // Verify offer belongs to this school
+    var { data: offer } = await supabase.from('slot_offers')
+      .select('school_id').eq('id', slot.offer_id).single();
+    if (!offer || offer.school_id !== req.user.id) return res.status(403).json({ error: 'Nicht berechtigt' });
+    await supabase.from('slot_offer_slots').delete().eq('id', slotId);
+    // If this was the last open slot, mark offer as cancelled
+    var { data: remaining } = await supabase.from('slot_offer_slots')
+      .select('id').eq('offer_id', slot.offer_id).eq('status', 'open');
+    if (!remaining || remaining.length === 0) {
+      var { data: booked } = await supabase.from('slot_offer_slots')
+        .select('id').eq('offer_id', slot.offer_id).eq('status', 'booked');
+      if (!booked || booked.length === 0) {
+        await supabase.from('slot_offers').update({ status: 'cancelled' }).eq('id', slot.offer_id);
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[SlotOffer] Delete slot error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Delete an entire offer (school) - only open slots, booked slots stay as lessons
+app.delete('/api/slot-offers/:offerId', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+  try {
+    var offerId = req.params.offerId;
+    var { data: offer } = await supabase.from('slot_offers')
+      .select('school_id').eq('id', offerId).single();
+    if (!offer || offer.school_id !== req.user.id) return res.status(403).json({ error: 'Nicht berechtigt' });
+    // Delete only open slots; keep booked ones for history
+    await supabase.from('slot_offer_slots').delete().eq('offer_id', offerId).eq('status', 'open');
+    // Mark offer as cancelled
+    await supabase.from('slot_offers').update({ status: 'cancelled' }).eq('id', offerId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[SlotOffer] Delete offer error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// Edit an open slot (school) - change date/time/duration
+app.put('/api/slot-offers/slot/:slotId', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+  try {
+    var slotId = req.params.slotId;
+    var { date, start_time, end_time, duration_min } = req.body;
+    if (!date || !start_time || !end_time) return res.status(400).json({ error: 'date/start/end erforderlich' });
+    var { data: slot } = await supabase.from('slot_offer_slots')
+      .select('id, offer_id, status').eq('id', slotId).single();
+    if (!slot) return res.status(404).json({ error: 'Slot nicht gefunden' });
+    if (slot.status !== 'open') return res.status(409).json({ error: 'Gebuchte Slots können nicht bearbeitet werden' });
+    var { data: offer } = await supabase.from('slot_offers')
+      .select('school_id').eq('id', slot.offer_id).single();
+    if (!offer || offer.school_id !== req.user.id) return res.status(403).json({ error: 'Nicht berechtigt' });
+    await supabase.from('slot_offer_slots').update({
+      date: date, start_time: start_time, end_time: end_time,
+      duration_min: duration_min || 90
+    }).eq('id', slotId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[SlotOffer] Edit slot error:', err.message);
     res.status(500).json({ error: 'Serverfehler' });
   }
 });
