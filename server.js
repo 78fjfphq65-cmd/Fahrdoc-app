@@ -1321,6 +1321,67 @@ app.get('/api/schedule', authMiddleware, async (req, res) => {
       instructors = data || [];
     }
 
+    // Also include OPEN slot-offer slots so they appear as "pending" in the calendar
+    try {
+      let offerQuery = supabase.from('slot_offers')
+        .select('id, instructor_id, vehicle_id, expires_at, status')
+        .eq('school_id', schoolId)
+        .eq('status', 'active');
+      if (filterInstructorId) offerQuery = offerQuery.eq('instructor_id', filterInstructorId);
+      const { data: activeOffers } = await offerQuery;
+      const now = new Date();
+      const validOfferIds = (activeOffers || [])
+        .filter(o => !o.expires_at || new Date(o.expires_at) > now)
+        .map(o => o.id);
+      const offerById = {};
+      (activeOffers || []).forEach(o => { offerById[o.id] = o; });
+
+      if (validOfferIds.length > 0) {
+        const { data: openSlots } = await supabase.from('slot_offer_slots')
+          .select('id, offer_id, date, start_time, end_time, duration_min, status')
+          .in('offer_id', validOfferIds)
+          .eq('status', 'open')
+          .gte('date', weekStart)
+          .lte('date', weekEnd);
+        // Load vehicle info for offers that have vehicles
+        const vehicleIds = [...new Set((activeOffers || []).map(o => o.vehicle_id).filter(Boolean))];
+        const vehicleById = {};
+        if (vehicleIds.length > 0) {
+          const { data: vehs } = await supabase.from('vehicles')
+            .select('id, brand, license_plate').in('id', vehicleIds);
+          (vehs || []).forEach(v => { vehicleById[v.id] = v; });
+        }
+        const instructorById = {};
+        (instructors || []).forEach(i => { instructorById[i.id] = i; });
+        (openSlots || []).forEach(os => {
+          const offer = offerById[os.offer_id];
+          if (!offer) return;
+          const veh = offer.vehicle_id ? vehicleById[offer.vehicle_id] : null;
+          const inst = instructorById[offer.instructor_id];
+          slots.push({
+            id: 'offer-' + os.id,
+            offer_slot_id: os.id,
+            offer_id: os.offer_id,
+            instructor_id: offer.instructor_id,
+            vehicle_id: offer.vehicle_id || null,
+            date: os.date,
+            start_time: os.start_time,
+            end_time: os.end_time,
+            type: 'Angebot',
+            slot_type: 'offer',
+            status: 'angeboten',
+            confirmed: false,
+            student_name: null,
+            instructor_name: inst ? inst.name : null,
+            vehicle_brand: veh ? veh.brand : null,
+            vehicle_plate: veh ? veh.license_plate : null,
+          });
+        });
+      }
+    } catch (offerErr) {
+      console.error('[Schedule] offer merge error:', offerErr.message);
+    }
+
     res.json({ slots: slots || [], instructors });
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
@@ -2148,9 +2209,50 @@ app.get('/api/school/vehicles/:id/week', authMiddleware, async (req, res) => {
         id: b.id, date: b.date, start_time: b.start_time, end_time: b.end_time,
         type: b.type, instructor_id: b.instructor_id,
         instructor_name: b.instructors?.name || '?',
-        student_name: b.students?.name || '—'
+        student_name: b.students?.name || '—',
+        slot_type: 'lesson'
       };
     });
+
+    // Also include pending slot offers for this vehicle
+    try {
+      const { data: activeOffers } = await supabase.from('slot_offers')
+        .select('id, instructor_id, expires_at, status')
+        .eq('vehicle_id', req.params.id)
+        .eq('status', 'active');
+      const nowT = new Date();
+      const validIds = (activeOffers || [])
+        .filter(o => !o.expires_at || new Date(o.expires_at) > nowT)
+        .map(o => o.id);
+      if (validIds.length > 0) {
+        const { data: openSlots } = await supabase.from('slot_offer_slots')
+          .select('id, offer_id, date, start_time, end_time, status')
+          .in('offer_id', validIds).eq('status', 'open')
+          .gte('date', weekStart)
+          .lte('date', we.toISOString().split('T')[0]);
+        const offerById = {};
+        (activeOffers || []).forEach(o => { offerById[o.id] = o; });
+        const instIds = [...new Set((activeOffers || []).map(o => o.instructor_id))];
+        const instById = {};
+        if (instIds.length > 0) {
+          const { data: insts } = await supabase.from('instructors').select('id, name').in('id', instIds);
+          (insts || []).forEach(i => { instById[i.id] = i; });
+        }
+        (openSlots || []).forEach(os => {
+          const offer = offerById[os.offer_id];
+          const inst = offer ? instById[offer.instructor_id] : null;
+          result.push({
+            id: 'offer-' + os.id, date: os.date,
+            start_time: os.start_time, end_time: os.end_time,
+            type: 'Angebot', slot_type: 'offer',
+            instructor_id: offer ? offer.instructor_id : null,
+            instructor_name: inst ? inst.name : '?',
+            student_name: '—'
+          });
+        });
+      }
+    } catch(e) { console.error('[VehicleWeek] offer merge:', e.message); }
+
     res.json({ bookings: result });
   } catch (err) {
     console.error('Vehicle week error:', err);
@@ -2172,6 +2274,19 @@ app.get('/api/school/vehicles/bookings', authMiddleware, async (req, res) => {
     const { data: instructors } = await supabase.from('instructors')
       .select('id, name').eq('school_id', schoolId);
 
+    // Pre-fetch active slot offers once
+    const nowT2 = new Date();
+    const { data: activeOffers2 } = await supabase.from('slot_offers')
+      .select('id, instructor_id, vehicle_id, expires_at, status')
+      .eq('school_id', schoolId).eq('status', 'active');
+    const validOffersByVehicle = {};
+    (activeOffers2 || []).forEach(o => {
+      if (o.vehicle_id && (!o.expires_at || new Date(o.expires_at) > nowT2)) {
+        validOffersByVehicle[o.vehicle_id] = validOffersByVehicle[o.vehicle_id] || [];
+        validOffersByVehicle[o.vehicle_id].push(o);
+      }
+    });
+
     for (const v of (vehicles || [])) {
       const { data: bookings } = await supabase.from('scheduled_lessons')
         .select('id, date, start_time, end_time, type, instructor_id, instructors(name)')
@@ -2179,8 +2294,29 @@ app.get('/api/school/vehicles/bookings', authMiddleware, async (req, res) => {
         .eq('date', date);
       v.bookings = (bookings || []).map(b => ({
         id: b.id, date: b.date, start_time: b.start_time, end_time: b.end_time,
-        type: b.type, instructor_id: b.instructor_id, instructor_name: b.instructors?.name || '?'
+        type: b.type, instructor_id: b.instructor_id, instructor_name: b.instructors?.name || '?',
+        slot_type: 'lesson'
       }));
+
+      // Add pending offer slots for this vehicle on this date
+      const vehOffers = validOffersByVehicle[v.id] || [];
+      if (vehOffers.length > 0) {
+        const offerIds = vehOffers.map(o => o.id);
+        const { data: openSlots } = await supabase.from('slot_offer_slots')
+          .select('id, offer_id, date, start_time, end_time, status')
+          .in('offer_id', offerIds).eq('status', 'open').eq('date', date);
+        (openSlots || []).forEach(os => {
+          const offer = vehOffers.find(o => o.id === os.offer_id);
+          const inst = (instructors || []).find(i => i.id === (offer && offer.instructor_id));
+          v.bookings.push({
+            id: 'offer-' + os.id, date: os.date,
+            start_time: os.start_time, end_time: os.end_time,
+            type: 'Angebot', slot_type: 'offer',
+            instructor_id: offer ? offer.instructor_id : null,
+            instructor_name: inst ? inst.name : '?'
+          });
+        });
+      }
     }
 
     res.json({ vehicles: vehicles || [], instructors: instructors || [] });

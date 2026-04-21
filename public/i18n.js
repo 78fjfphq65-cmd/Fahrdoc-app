@@ -433,6 +433,7 @@ var TRANSLATIONS = {
   keineOffenenAngebote: { de:'Keine offenen Angebote', en:'No open offers', tr:'Açık teklif yok', ar:'لا عروض مفتوحة', es:'Sin ofertas abiertas', fr:'Aucune offre ouverte' },
   angebotAbgelaufen: { de:'Angebot abgelaufen', en:'Offer expired', tr:'Teklif süresi doldu', ar:'انتهت صلاحية العرض', es:'Oferta expirada', fr:'Offre expirée' },
   meineAngebote: { de:'Meine Angebote', en:'My offers', tr:'Tekliflerim', ar:'عروضي', es:'Mis ofertas', fr:'Mes offres' },
+  angebotenOffen: { de:'Angeboten', en:'Offered', tr:'Teklif edildi', ar:'معروض', es:'Ofrecido', fr:'Proposé' },
   keineAngebote: { de:'Noch keine Angebote erstellt', en:'No offers created yet', tr:'Henüz teklif oluşturulmadı', ar:'لم يتم إنشاء عروض بعد', es:'Aún no se han creado ofertas', fr:'Aucune offre créée' },
   aktiv: { de:'Aktiv', en:'Active', tr:'Aktif', ar:'نشط', es:'Activo', fr:'Actif' },
   offen2: { de:'Offen', en:'Open', tr:'Açık', ar:'مفتوح', es:'Abierto', fr:'Ouvert' },

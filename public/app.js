@@ -746,17 +746,20 @@ var App = {
         var isRecurring = !isBlock && slot.notes && slot.notes.indexOf('[recurring:') !== -1;
         var isConfirmed = !isBlock && slot.confirmed !== false;
         var isTheory = slot.slot_type === 'theory';
-        var typeCls = isBlock ? 'slot-block' : (isTheory ? (slot.instructor_id ? 'theory-slot-assigned' : 'theory-slot') : slotTypeClass(slot.type));
-        var isOffen = !slot.student_id && !isBlock && !isTheory;
-        var pruef = !isBlock && !isTheory && isPruefung(slot.type);
-        var isUnconfirmed = !isBlock && !isTheory && slot.confirmed === false;
-        var isConfirmed = !isBlock && !isTheory && slot.confirmed !== false;
+        var isOffer = slot.slot_type === 'offer';
+        var typeCls = isBlock ? 'slot-block' : (isTheory ? (slot.instructor_id ? 'theory-slot-assigned' : 'theory-slot') : (isOffer ? 'slot-uebungsfahrt slot-offer-pending' : slotTypeClass(slot.type)));
+        var isOffen = !slot.student_id && !isBlock && !isTheory && !isOffer;
+        var pruef = !isBlock && !isTheory && !isOffer && isPruefung(slot.type);
+        var isUnconfirmed = !isBlock && !isTheory && !isOffer && slot.confirmed === false;
+        var isConfirmed = !isBlock && !isTheory && !isOffer && slot.confirmed !== false;
         var isAdminView = AppState.currentUser && AppState.currentUser.role === 'school';
         var clickJs;
         if (isTheory) {
           clickJs = 'App.openTheoryDetail(&quot;' + slot.id + '&quot;)';
         } else if (isBlock) {
           clickJs = 'App.openBlockDetail(' + JSON.stringify(slot).replace(/"/g, '&quot;') + ')';
+        } else if (isOffer) {
+          clickJs = 'App.openOfferSlotDetail(&quot;' + slot.offer_id + '&quot;)';
         } else {
           clickJs = onSlotClick.replace('{SLOT}', JSON.stringify(slot).replace(/"/g, '&quot;'));
         }
@@ -787,6 +790,18 @@ var App = {
             html += '<div class="week-grid-slot-name">' + t('nichtVerfuegbar') + '</div>';
           } else {
             html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + t('nichtVerfuegbar') + '</div>';
+          }
+        } else if (isOffer) {
+          // Pending slot offer display
+          if (height >= 40) {
+            html += '<div class="week-grid-slot-time">' + slot.start_time + '\u2013' + slot.end_time + '</div>';
+            if (slot.instructor_name) {
+              html += '<div class="week-grid-slot-instructor">' + slot.instructor_name + '</div>';
+            }
+            html += '<div class="week-grid-slot-name">' + t('angebotenOffen') + '</div>';
+            html += '<div class="week-grid-slot-type">' + t('termineAnbieten') + '</div>';
+          } else {
+            html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + t('angebotenOffen') + '</div>';
           }
         } else if (height >= 40) {
           html += '<div class="week-grid-slot-time">' + slot.start_time + '\u2013' + slot.end_time + '</div>';
@@ -1901,6 +1916,11 @@ var App = {
       console.error('[SlotOffer] dashboard fetch error:', err);
       self.showToast(t('fehler') + ': ' + (err.message || err));
     });
+  },
+
+  openOfferSlotDetail: function(offerId) {
+    // When user clicks a pending offer slot in the calendar, show management view
+    this.showSlotOfferManagement();
   },
 
   showSlotOfferManagement: async function() {

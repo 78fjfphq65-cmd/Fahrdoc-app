@@ -3025,6 +3025,25 @@ html[dir="rtl"] .notif-panel {
 /* Offer mode overlay on grid cells - cursor changes */
 .week-grid-offer-mode .week-grid-day-col{cursor:crosshair}
 
+/* Pending slot offer in calendar - dashed border, blass Füllung */
+.week-grid-slot.slot-offer-pending{
+  background:rgba(5,150,105,0.08) !important;
+  border:2px dashed var(--color-primary) !important;
+  color:var(--color-primary) !important;
+  opacity:0.85;
+}
+.week-grid-slot.slot-offer-pending .week-grid-slot-time,
+.week-grid-slot.slot-offer-pending .week-grid-slot-name,
+.week-grid-slot.slot-offer-pending .week-grid-slot-instructor,
+.week-grid-slot.slot-offer-pending .week-grid-slot-type{
+  color:var(--color-primary) !important;
+  font-style:italic;
+}
+.week-grid-slot.slot-offer-pending:hover{
+  background:rgba(5,150,105,0.15) !important;
+  opacity:1;
+}
+
 /* Slot offer dialog */
 .slot-offer-dialog{padding:var(--space-4);max-width:500px;margin:0 auto}
 .slot-offer-dialog h3{font-size:var(--text-lg);font-weight:700;color:var(--color-text)}
