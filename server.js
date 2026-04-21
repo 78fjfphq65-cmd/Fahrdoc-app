@@ -2949,11 +2949,15 @@ app.post('/api/slot-offers', authMiddleware, async (req, res) => {
       };
     });
     await supabase.from('slot_offer_slots').insert(slotInserts);
-    // Insert student recipients
+    // Insert student recipients (id is auto-generated serial, don't provide it)
     var studentInserts = student_ids.map(function(sid) {
-      return { id: generateId(), offer_id: offerId, student_id: sid };
+      return { offer_id: offerId, student_id: sid };
     });
-    await supabase.from('slot_offer_recipients').insert(studentInserts);
+    var { error: recipErr } = await supabase.from('slot_offer_recipients').insert(studentInserts);
+    if (recipErr) {
+      console.error('[SlotOffer] Recipient insert error:', recipErr);
+      return res.status(500).json({ error: 'Empfänger konnten nicht gespeichert werden: ' + recipErr.message });
+    }
     // Create notifications for each student
     var { data: instructor } = await supabase.from('instructors').select('name').eq('id', instructor_id).single();
     var instName = instructor ? instructor.name : 'Fahrlehrer';
