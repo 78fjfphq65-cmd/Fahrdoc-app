@@ -3,7 +3,7 @@
    Caching strategy: Network-first for API calls,
    Cache-first for static assets.
    ============================================ */
-const CACHE_NAME = 'fahrdoc-v1';
+const CACHE_NAME = 'fahrdoc-v2-slotoffer';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -61,20 +61,29 @@ self.addEventListener('fetch', (event) => {
   // Google Maps & external: network only
   if (url.origin !== self.location.origin) return;
 
-  // Static assets: cache-first
+  // Core app files: NETWORK-FIRST (always get fresh code)
+  const isCoreFile = /\.(js|css|html)$/.test(url.pathname) || url.pathname === '/' || url.pathname.endsWith('/index.html');
+  if (isCoreFile) {
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        if (response && response.ok) {
+          const cloned = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, cloned);
+          });
+        }
+        return response;
+      }).catch(() => {
+        return caches.match(event.request);
+      })
+    );
+    return;
+  }
+
+  // Images & other static: cache-first
   event.respondWith(
     caches.match(event.request).then((cached) => {
-      if (cached) {
-        // Return cache, but also update it in background
-        fetch(event.request).then((response) => {
-          if (response && response.ok) {
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, response);
-            });
-          }
-        }).catch(() => {});
-        return cached;
-      }
+      if (cached) return cached;
       return fetch(event.request).then((response) => {
         if (response && response.ok) {
           const cloned = response.clone();
