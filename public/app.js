@@ -4565,13 +4565,19 @@ var App = {
         html += '<p class="text-sm text-muted">' + t('fehler') + ': ' + (err.message || err) + '</p>';
       }
     } else if (sub === 'naechste') {
-      // Upcoming booked lessons
+      // Upcoming scheduled/booked lessons (aus scheduled_lessons Tabelle)
       try {
-        var data = AppState._cachedData.studentOverview;
-        if (!data) { data = await ApiClient.get('/api/student/overview'); AppState._cachedData.studentOverview = data; }
-        var lessons = (data.lessons || []);
+        // Always fetch fresh for upcoming list (bookings can happen anytime)
+        var data = await ApiClient.get('/api/student/overview');
+        AppState._cachedData.studentOverview = data;
+        var scheduled = (data.scheduledLessons || []);
         var today = formatDateLocal(new Date());
-        var upcoming = lessons.filter(function(l) { return l.date >= today; }).sort(function(a, b) { return a.date < b.date ? -1 : 1; });
+        var upcoming = scheduled.filter(function(l) {
+          return l.date >= today && l.status !== 'abgesagt' && l.status !== 'storniert';
+        }).sort(function(a, b) {
+          if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+          return (a.start_time || '') < (b.start_time || '') ? -1 : 1;
+        });
         if (upcoming.length === 0) {
           html += '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>' +
             '<div class="empty-state-title">' + t('keineFahrstunden') + '</div></div>';
@@ -4579,9 +4585,11 @@ var App = {
           upcoming.forEach(function(l) {
             var d = new Date(l.date);
             var dayStr2 = d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' });
+            var timeStr = (l.start_time || '').substring(0,5);
+            if (l.end_time) timeStr += '–' + l.end_time.substring(0,5);
             html += '<div class="lesson-card">' +
               '<div class="lesson-card-info">' +
-                '<div class="lesson-card-date">' + dayStr2 + ' · ' + (l.start_time || '') + '</div>' +
+                '<div class="lesson-card-date">' + dayStr2 + ' · ' + timeStr + '</div>' +
                 '<div class="lesson-card-detail">' + tType(l.type) + (l.instructor_name ? ' · ' + l.instructor_name : '') + '</div>' +
               '</div>' +
             '</div>';

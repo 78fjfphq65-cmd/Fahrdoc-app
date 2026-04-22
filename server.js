@@ -887,6 +887,16 @@ app.get('/api/student/overview', authMiddleware, async (req, res) => {
       l.images = images || [];
     }
 
+    // Upcoming / scheduled lessons (geplante + bestätigte Termine — noch nicht absolviert)
+    const { data: scheduled } = await supabase.from('scheduled_lessons')
+      .select('*, instructors(name)')
+      .eq('student_id', stuId)
+      .order('date', { ascending: true });
+    for (const s of (scheduled || [])) {
+      s.instructor_name = s.instructors?.name || '?';
+      delete s.instructors;
+    }
+
     const instructors = await getStudentInstructors(stuId);
     const instructorNames = instructors.map(i => i.name).join(', ') || '—';
 
@@ -898,6 +908,7 @@ app.get('/api/student/overview', authMiddleware, async (req, res) => {
 
     res.json({
       lessons: lessons || [],
+      scheduledLessons: scheduled || [],
       instructorName: instructorNames,
       instructors,
       school,
