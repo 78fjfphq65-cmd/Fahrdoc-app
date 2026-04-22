@@ -870,51 +870,68 @@ app.get('/api/student/overview', authMiddleware, async (req, res) => {
     if (req.user.role !== 'student') return res.status(403).json({ error: 'Nur für Fahrschüler' });
     const stuId = req.user.id;
 
-    const { data: lessons } = await supabase.from('lessons')
-      .select('*, instructors(name)')
-      .eq('student_id', stuId)
-      .order('date', { ascending: false });
+    // Parallelisiere alle unabhängigen Queries
+    const [
+      lessonsRes,
+      scheduledRes,
+      instructors,
+      schoolRes,
+      subRes
+    ] = await Promise.all([
+      supabase.from('lessons').select('*, instructors(name)').eq('student_id', stuId).order('date', { ascending: false }),
+      supabase.from('scheduled_lessons').select('*, instructors(name)').eq('student_id', stuId).order('date', { ascending: true }),
+      getStudentInstructors(stuId),
+      supabase.from('schools').select('id, name').eq('id', req.user.school_id).single(),
+      supabase.from('subscriptions').select('*').eq('school_id', req.user.school_id).single()
+    ]);
 
-    for (const l of (lessons || [])) {
+    const lessons = lessonsRes.data || [];
+    const scheduled = scheduledRes.data || [];
+    const school = schoolRes.data;
+    const sub = subRes.data;
+
+    // Bulk-load ratings + images für ALLE Lessons in je EINER Query (statt N+N)
+    const lessonIds = lessons.map(l => l.id);
+    let ratingsByLesson = {};
+    let imagesByLesson = {};
+    if (lessonIds.length > 0) {
+      const [ratingsRes, imagesRes] = await Promise.all([
+        supabase.from('skill_ratings').select('lesson_id, skill_name, rating').in('lesson_id', lessonIds),
+        supabase.from('lesson_images').select('id, filename, lesson_id').in('lesson_id', lessonIds)
+      ]);
+      (ratingsRes.data || []).forEach(r => {
+        if (!ratingsByLesson[r.lesson_id]) ratingsByLesson[r.lesson_id] = {};
+        ratingsByLesson[r.lesson_id][r.skill_name] = r.rating;
+      });
+      (imagesRes.data || []).forEach(img => {
+        if (!imagesByLesson[img.lesson_id]) imagesByLesson[img.lesson_id] = [];
+        imagesByLesson[img.lesson_id].push({ id: img.id, filename: img.filename });
+      });
+    }
+    for (const l of lessons) {
       l.instructor_name = l.instructors?.name || '?';
       delete l.instructors;
-      const { data: ratings } = await supabase.from('skill_ratings')
-        .select('skill_name, rating').eq('lesson_id', l.id);
-      l.ratings = {};
-      (ratings || []).forEach(r => { l.ratings[r.skill_name] = r.rating; });
-      const { data: images } = await supabase.from('lesson_images')
-        .select('id, filename').eq('lesson_id', l.id);
-      l.images = images || [];
+      l.ratings = ratingsByLesson[l.id] || {};
+      l.images = imagesByLesson[l.id] || [];
     }
-
-    // Upcoming / scheduled lessons (geplante + bestätigte Termine — noch nicht absolviert)
-    const { data: scheduled } = await supabase.from('scheduled_lessons')
-      .select('*, instructors(name)')
-      .eq('student_id', stuId)
-      .order('date', { ascending: true });
-    for (const s of (scheduled || [])) {
+    for (const s of scheduled) {
       s.instructor_name = s.instructors?.name || '?';
       delete s.instructors;
     }
 
-    const instructors = await getStudentInstructors(stuId);
-    const instructorNames = instructors.map(i => i.name).join(', ') || '—';
-
-    const { data: school } = await supabase.from('schools')
-      .select('id, name').eq('id', req.user.school_id).single();
-    const { data: sub } = await supabase.from('subscriptions')
-      .select('*').eq('school_id', req.user.school_id).single();
+    const instructorNames = (instructors || []).map(i => i.name).join(', ') || '—';
     const isExpired = sub ? (new Date() > new Date(sub.trial_end) && !sub.is_active) : false;
 
     res.json({
-      lessons: lessons || [],
-      scheduledLessons: scheduled || [],
+      lessons,
+      scheduledLessons: scheduled,
       instructorName: instructorNames,
-      instructors,
+      instructors: instructors || [],
       school,
       isExpired
     });
   } catch (err) {
+    console.error('[student/overview] error:', err.message);
     res.status(500).json({ error: 'Serverfehler' });
   }
 });
@@ -945,13 +962,21 @@ app.get('/api/lessons/:studentId', authMiddleware, async (req, res) => {
       .select('*').eq('student_id', req.params.studentId)
       .order('date', { ascending: false });
 
-    for (const l of (lessons || [])) {
+    const list = lessons || [];
+    const lessonIds = list.map(l => l.id);
+    let ratingsByLesson = {};
+    if (lessonIds.length > 0) {
       const { data: ratings } = await supabase.from('skill_ratings')
-        .select('skill_name, rating').eq('lesson_id', l.id);
-      l.ratings = {};
-      (ratings || []).forEach(r => { l.ratings[r.skill_name] = r.rating; });
+        .select('lesson_id, skill_name, rating').in('lesson_id', lessonIds);
+      (ratings || []).forEach(r => {
+        if (!ratingsByLesson[r.lesson_id]) ratingsByLesson[r.lesson_id] = {};
+        ratingsByLesson[r.lesson_id][r.skill_name] = r.rating;
+      });
     }
-    res.json(lessons || []);
+    for (const l of list) {
+      l.ratings = ratingsByLesson[l.id] || {};
+    }
+    res.json(list);
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
   }
@@ -1125,27 +1150,38 @@ app.get('/api/student-detail/:id', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Kein Zugriff' });
     }
 
-    const { data: lessons } = await supabase.from('lessons')
-      .select('*, instructors(name)')
-      .eq('student_id', student.id)
-      .order('date', { ascending: false });
-
-    for (const l of (lessons || [])) {
+    const [lessonsRes, instructors] = await Promise.all([
+      supabase.from('lessons').select('*, instructors(name)').eq('student_id', student.id).order('date', { ascending: false }),
+      getStudentInstructors(student.id)
+    ]);
+    const lessons = lessonsRes.data || [];
+    const lessonIds = lessons.map(l => l.id);
+    let ratingsByLesson = {};
+    let imagesByLesson = {};
+    if (lessonIds.length > 0) {
+      const [ratingsRes, imagesRes] = await Promise.all([
+        supabase.from('skill_ratings').select('lesson_id, skill_name, rating').in('lesson_id', lessonIds),
+        supabase.from('lesson_images').select('id, filename, lesson_id').in('lesson_id', lessonIds)
+      ]);
+      (ratingsRes.data || []).forEach(r => {
+        if (!ratingsByLesson[r.lesson_id]) ratingsByLesson[r.lesson_id] = {};
+        ratingsByLesson[r.lesson_id][r.skill_name] = r.rating;
+      });
+      (imagesRes.data || []).forEach(img => {
+        if (!imagesByLesson[img.lesson_id]) imagesByLesson[img.lesson_id] = [];
+        imagesByLesson[img.lesson_id].push({ id: img.id, filename: img.filename });
+      });
+    }
+    for (const l of lessons) {
       l.instructor_name = l.instructors?.name || '?';
       delete l.instructors;
-      const { data: ratings } = await supabase.from('skill_ratings')
-        .select('skill_name, rating').eq('lesson_id', l.id);
-      l.ratings = {};
-      (ratings || []).forEach(r => { l.ratings[r.skill_name] = r.rating; });
-      const { data: images } = await supabase.from('lesson_images')
-        .select('id, filename').eq('lesson_id', l.id);
-      l.images = images || [];
+      l.ratings = ratingsByLesson[l.id] || {};
+      l.images = imagesByLesson[l.id] || [];
     }
 
-    const instructors = await getStudentInstructors(student.id);
-    const instructorNames = instructors.map(i => i.name).join(', ') || '—';
+    const instructorNames = (instructors || []).map(i => i.name).join(', ') || '—';
 
-    res.json({ student, lessons: lessons || [], instructorName: instructorNames, instructors });
+    res.json({ student, lessons, instructorName: instructorNames, instructors: instructors || [] });
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
   }

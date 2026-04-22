@@ -4567,9 +4567,14 @@ var App = {
     } else if (sub === 'naechste') {
       // Upcoming scheduled/booked lessons (aus scheduled_lessons Tabelle)
       try {
-        // Always fetch fresh for upcoming list (bookings can happen anytime)
-        var data = await ApiClient.get('/api/student/overview');
-        AppState._cachedData.studentOverview = data;
+        // 30s-Cache: schnell bei Tab-Wechseln, aber Buchungen erscheinen zeitnah
+        var data = AppState._cachedData.studentOverview;
+        var ts = AppState._cachedData._studentOverviewTs || 0;
+        if (!data || (Date.now() - ts) > 30000) {
+          data = await ApiClient.get('/api/student/overview');
+          AppState._cachedData.studentOverview = data;
+          AppState._cachedData._studentOverviewTs = Date.now();
+        }
         var scheduled = (data.scheduledLessons || []);
         var today = formatDateLocal(new Date());
         var upcoming = scheduled.filter(function(l) {
@@ -4634,6 +4639,9 @@ var App = {
     try {
       await ApiClient.post('/api/slot-offers/book/' + slotId);
       this.showToast(t('buchungErfolgreich'));
+      // Invalidiere Overview-Cache, damit neue Fahrstunde sofort erscheint
+      AppState._cachedData.studentOverview = null;
+      AppState._cachedData._studentOverviewTs = 0;
       this.renderStudentTermineTab();
     } catch (err) {
       this.showToast(t('fehler') + ': ' + (err.message || err));
