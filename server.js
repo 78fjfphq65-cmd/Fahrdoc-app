@@ -562,16 +562,6 @@ app.get('/api/school/dashboard', authMiddleware, async (req, res) => {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
     const schoolId = req.user.id;
 
-    const { data: instructors } = await supabase.from('instructors')
-      .select('id, name, email, phone').eq('school_id', schoolId);
-    const { data: students } = await supabase.from('students')
-      .select('id, name, email, license_class, status, created_at').eq('school_id', schoolId);
-    const { data: sub } = await supabase.from('subscriptions')
-      .select('*').eq('school_id', schoolId).single();
-
-    const { count: totalLessons } = await supabase.from('lessons')
-      .select('id', { count: 'exact', head: true }).eq('school_id', schoolId);
-
     // New students this week
     const now = new Date();
     const dayOfWeek = now.getDay();
@@ -580,28 +570,38 @@ app.get('/api/school/dashboard', authMiddleware, async (req, res) => {
     monday.setHours(0, 0, 0, 0);
     const mondayStr = monday.toISOString();
 
-    const { data: newStudentsThisWeek } = await supabase.from('students')
-      .select('id, name, created_at').eq('school_id', schoolId).gte('created_at', mondayStr);
+    // Alles parallel laden
+    const [instRes, studRes, subRes, totalLessonsRes, newStudRes, recentLessonsRes] = await Promise.all([
+      supabase.from('instructors').select('id, name, email, phone').eq('school_id', schoolId),
+      supabase.from('students').select('id, name, email, license_class, status, created_at').eq('school_id', schoolId),
+      supabase.from('subscriptions').select('*').eq('school_id', schoolId).single(),
+      supabase.from('lessons').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
+      supabase.from('students').select('id, name, created_at').eq('school_id', schoolId).gte('created_at', mondayStr),
+      supabase.from('lessons').select('*, students(name)').eq('school_id', schoolId).order('date', { ascending: false }).limit(5)
+    ]);
 
-    const { data: recentLessons } = await supabase.from('lessons')
-      .select('*, students(name)').eq('school_id', schoolId)
-      .order('date', { ascending: false }).limit(5);
-
-    // Attach ratings and student_name
-    for (const l of (recentLessons || [])) {
+    const recentLessons = recentLessonsRes.data || [];
+    const recentLessonIds = recentLessons.map(l => l.id);
+    let ratingsByLesson = {};
+    if (recentLessonIds.length > 0) {
+      const { data: ratings } = await supabase.from('skill_ratings')
+        .select('lesson_id, skill_name, rating').in('lesson_id', recentLessonIds);
+      (ratings || []).forEach(r => {
+        if (!ratingsByLesson[r.lesson_id]) ratingsByLesson[r.lesson_id] = {};
+        ratingsByLesson[r.lesson_id][r.skill_name] = r.rating;
+      });
+    }
+    for (const l of recentLessons) {
       l.student_name = l.students?.name || '?';
       delete l.students;
-      const { data: ratings } = await supabase.from('skill_ratings')
-        .select('skill_name, rating').eq('lesson_id', l.id);
-      l.ratings = {};
-      (ratings || []).forEach(r => { l.ratings[r.skill_name] = r.rating; });
+      l.ratings = ratingsByLesson[l.id] || {};
     }
 
     res.json({
-      instructors: instructors || [], students: students || [], subscription: sub,
-      stats: { totalLessons: totalLessons || 0 },
-      recentLessons: recentLessons || [],
-      newStudentsThisWeek: newStudentsThisWeek || []
+      instructors: instRes.data || [], students: studRes.data || [], subscription: subRes.data,
+      stats: { totalLessons: totalLessonsRes.count || 0 },
+      recentLessons,
+      newStudentsThisWeek: newStudRes.data || []
     });
   } catch (err) {
     console.error('Dashboard error:', err);
@@ -612,21 +612,28 @@ app.get('/api/school/dashboard', authMiddleware, async (req, res) => {
 app.get('/api/school/instructors', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const schoolId = req.user.id;
 
-    const { data: instructors } = await supabase.from('instructors')
-      .select('id, name, email, phone').eq('school_id', req.user.id);
+    // Parallel: instructors + codes laden
+    const [instRes, codesRes] = await Promise.all([
+      supabase.from('instructors').select('id, name, email, phone').eq('school_id', schoolId),
+      supabase.from('invite_codes').select('*').eq('school_id', schoolId).eq('type', 'instructor').order('created_at', { ascending: false })
+    ]);
+    const instructors = instRes.data || [];
 
-    for (const inst of (instructors || [])) {
-      const { count } = await supabase.from('student_instructors')
-        .select('student_id', { count: 'exact', head: true }).eq('instructor_id', inst.id);
-      inst.studentCount = count || 0;
+    // Bulk: alle student_instructors-Mappings in EINER Query (statt N)
+    if (instructors.length > 0) {
+      const instIds = instructors.map(i => i.id);
+      const { data: mappings } = await supabase.from('student_instructors')
+        .select('instructor_id, student_id').in('instructor_id', instIds);
+      const countByInst = {};
+      (mappings || []).forEach(m => {
+        countByInst[m.instructor_id] = (countByInst[m.instructor_id] || 0) + 1;
+      });
+      instructors.forEach(inst => { inst.studentCount = countByInst[inst.id] || 0; });
     }
 
-    const { data: codes } = await supabase.from('invite_codes')
-      .select('*').eq('school_id', req.user.id).eq('type', 'instructor')
-      .order('created_at', { ascending: false });
-
-    res.json({ instructors: instructors || [], codes: codes || [] });
+    res.json({ instructors, codes: codesRes.data || [] });
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
   }
@@ -635,36 +642,70 @@ app.get('/api/school/instructors', authMiddleware, async (req, res) => {
 app.get('/api/school/students', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const schoolId = req.user.id;
 
-    const { data: students } = await supabase.from('students')
-      .select('*').eq('school_id', req.user.id);
+    const { data: studentsData } = await supabase.from('students').select('*').eq('school_id', schoolId);
+    const students = studentsData || [];
+    if (students.length === 0) return res.json({ students: [] });
 
-    for (const st of (students || [])) {
-      const instructors = await getStudentInstructors(st.id);
-      st.instructor_name = instructors.length > 0 ? instructors.map(i => i.name).join(', ') : '—';
+    const studentIds = students.map(s => s.id);
 
-      const { count } = await supabase.from('lessons')
-        .select('id', { count: 'exact', head: true }).eq('student_id', st.id);
-      st.lessonCount = count || 0;
+    // Alles in einem Rutsch parallel laden (statt 4 Queries pro Schüler)
+    const [mappingsRes, lessonsRes, theoryRes, instructorsListRes] = await Promise.all([
+      supabase.from('student_instructors').select('student_id, instructor_id').in('student_id', studentIds),
+      supabase.from('lessons').select('id, student_id, date').in('student_id', studentIds).order('date', { ascending: false }),
+      supabase.from('theory_attendance').select('id, student_id').in('student_id', studentIds).eq('is_present', true),
+      supabase.from('instructors').select('id, name').eq('school_id', schoolId)
+    ]);
 
-      if (st.lessonCount > 0) {
-        const { data: latest } = await supabase.from('lessons')
-          .select('id').eq('student_id', st.id).order('date', { ascending: false }).limit(1);
-        if (latest && latest[0]) {
-          const { data: ratings } = await supabase.from('skill_ratings')
-            .select('rating').eq('lesson_id', latest[0].id);
-          let sum = 0;
-          (ratings || []).forEach(r => sum += r.rating);
-          st.avgSkill = ratings && ratings.length > 0 ? sum / ratings.length : 0;
-        } else { st.avgSkill = 0; }
+    const instructorById = {};
+    (instructorsListRes.data || []).forEach(i => { instructorById[i.id] = i; });
+
+    // Instructor-Namen pro Schüler
+    const instructorNamesByStud = {};
+    (mappingsRes.data || []).forEach(m => {
+      if (!instructorNamesByStud[m.student_id]) instructorNamesByStud[m.student_id] = [];
+      const inst = instructorById[m.instructor_id];
+      if (inst) instructorNamesByStud[m.student_id].push(inst.name);
+    });
+
+    // Lesson-Count + latest-lesson-ID pro Schüler
+    const lessonCountByStud = {};
+    const latestLessonByStud = {};
+    (lessonsRes.data || []).forEach(l => {
+      lessonCountByStud[l.student_id] = (lessonCountByStud[l.student_id] || 0) + 1;
+      if (!latestLessonByStud[l.student_id]) latestLessonByStud[l.student_id] = l.id;
+    });
+
+    // Theory-Count pro Schüler
+    const theoryCountByStud = {};
+    (theoryRes.data || []).forEach(t => {
+      theoryCountByStud[t.student_id] = (theoryCountByStud[t.student_id] || 0) + 1;
+    });
+
+    // Bulk: ratings für alle latest-lessons
+    const latestLessonIds = Object.values(latestLessonByStud);
+    const ratingsByLesson = {};
+    if (latestLessonIds.length > 0) {
+      const { data: ratings } = await supabase.from('skill_ratings')
+        .select('lesson_id, rating').in('lesson_id', latestLessonIds);
+      (ratings || []).forEach(r => {
+        if (!ratingsByLesson[r.lesson_id]) ratingsByLesson[r.lesson_id] = [];
+        ratingsByLesson[r.lesson_id].push(r.rating);
+      });
+    }
+
+    // Daten zusammenführen
+    for (const st of students) {
+      const names = instructorNamesByStud[st.id] || [];
+      st.instructor_name = names.length > 0 ? names.join(', ') : '—';
+      st.lessonCount = lessonCountByStud[st.id] || 0;
+      st.theoryCount = theoryCountByStud[st.id] || 0;
+      const latestId = latestLessonByStud[st.id];
+      if (latestId && ratingsByLesson[latestId]) {
+        const rs = ratingsByLesson[latestId];
+        st.avgSkill = rs.reduce((a, b) => a + b, 0) / rs.length;
       } else { st.avgSkill = 0; }
-
-      // Count attended theory lessons
-      const { count: theoryCount } = await supabase.from('theory_attendance')
-        .select('id', { count: 'exact', head: true })
-        .eq('student_id', st.id)
-        .eq('is_present', true);
-      st.theoryCount = theoryCount || 0;
     }
 
     const { data: codes } = await supabase.from('invite_codes')
