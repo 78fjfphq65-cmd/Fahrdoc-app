@@ -1397,11 +1397,28 @@ var App = {
 
   renderSchoolDashboardTab: async function() {
     var main = document.getElementById('school-main');
-    main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
+    var self = this;
+    // TTL-Cache: 60s. Zweiter Klick auf Dashboard-Tab = instant.
+    var cache = AppState._cachedData._dashboardBundle;
+    var cacheTs = AppState._cachedData._dashboardBundleTs || 0;
+    if (!cache || (Date.now() - cacheTs) > 60000) {
+      main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
+    }
     try {
-      var data = await ApiClient.get('/api/school/dashboard');
-      var studData = await ApiClient.get('/api/school/students');
-      var instData = await ApiClient.get('/api/school/instructors');
+      var data, studData, instData;
+      if (cache && (Date.now() - cacheTs) <= 60000) {
+        data = cache.data; studData = cache.studData; instData = cache.instData;
+      } else {
+        // Parallel statt sequenziell → 3x schneller
+        var res = await Promise.all([
+          ApiClient.get('/api/school/dashboard'),
+          ApiClient.get('/api/school/students'),
+          ApiClient.get('/api/school/instructors')
+        ]);
+        data = res[0]; studData = res[1]; instData = res[2];
+        AppState._cachedData._dashboardBundle = { data: data, studData: studData, instData: instData };
+        AppState._cachedData._dashboardBundleTs = Date.now();
+      }
       var school = AppState.currentUser;
       var mode = this.dashboardViewMode || 'students';
       var html = '<div class="page-padding">' +
@@ -2103,17 +2120,32 @@ var App = {
 
   showTheoryView: async function() {
     var main = document.getElementById('school-main');
-    main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
+    var cache = AppState._cachedData._theoryBundle;
+    var cacheTs = AppState._cachedData._theoryBundleTs || 0;
+    if (!cache || (Date.now() - cacheTs) > 60000) {
+      main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
+    }
     try {
-      var rooms = await ApiClient.get('/api/theory/rooms');
-      var topics = await ApiClient.get('/api/theory/topics');
-      if ((!topics || topics.length === 0) && (!topics || !topics.message)) {
-        topics = await ApiClient.post('/api/theory/topics', {});
-        if (topics && topics.message) {
-          topics = await ApiClient.get('/api/theory/topics');
+      var rooms, topics, rotations;
+      if (cache && (Date.now() - cacheTs) <= 60000) {
+        rooms = cache.rooms; topics = cache.topics; rotations = cache.rotations;
+      } else {
+        // Parallel: 3 Calls auf einmal
+        var res = await Promise.all([
+          ApiClient.get('/api/theory/rooms'),
+          ApiClient.get('/api/theory/topics'),
+          ApiClient.get('/api/theory/rotation')
+        ]);
+        rooms = res[0]; topics = res[1]; rotations = res[2];
+        if ((!topics || topics.length === 0) && (!topics || !topics.message)) {
+          topics = await ApiClient.post('/api/theory/topics', {});
+          if (topics && topics.message) {
+            topics = await ApiClient.get('/api/theory/topics');
+          }
         }
+        AppState._cachedData._theoryBundle = { rooms: rooms, topics: topics, rotations: rotations };
+        AppState._cachedData._theoryBundleTs = Date.now();
       }
-      var rotations = await ApiClient.get('/api/theory/rotation');
       this._theoryRooms = rooms || [];
       this._theoryTopics = Array.isArray(topics) ? topics : [];
       this._theoryRotations = rotations || [];
@@ -2247,6 +2279,7 @@ var App = {
       this._theoryShowRoomForm = false;
       this._theoryEditRoomId = null;
       this.showToast(t('raumGespeichert'));
+      AppState._cachedData._theoryBundle = null;
       this.showTheoryView();
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
   },
@@ -2256,6 +2289,7 @@ var App = {
     try {
       await ApiClient.del('/api/theory/rooms/' + roomId);
       this.showToast(t('raumGeloescht'));
+      AppState._cachedData._theoryBundle = null;
       this.showTheoryView();
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
   },
@@ -2281,6 +2315,7 @@ var App = {
         start_topic_number: startTopic
       });
       this.showToast(t('rotationGespeichert') + ' - ' + result.generated + ' ' + t('termineGeneriert'));
+      AppState._cachedData._theoryBundle = null;
       this.showTheoryView();
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
   },
@@ -2290,6 +2325,7 @@ var App = {
     try {
       await ApiClient.del('/api/theory/rotation/' + rotId);
       this.showToast(t('geloescht'));
+      AppState._cachedData._theoryBundle = null;
       this.showTheoryView();
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
   },
@@ -2299,6 +2335,7 @@ var App = {
     try {
       await ApiClient.del('/api/theory/rotation');
       this.showToast(t('geloescht'));
+      AppState._cachedData._theoryBundle = null;
       this.showTheoryView();
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
   },

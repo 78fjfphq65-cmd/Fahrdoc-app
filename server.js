@@ -1661,77 +1661,84 @@ app.post('/api/schedule/:id/confirm', authMiddleware, async (req, res) => {
 // NOTIFICATION ROUTES
 // ============================================
 
-app.get('/api/notifications', authMiddleware, async (req, res) => {
+// Memory-Cache für Auto-Reminder-Checks — prüft max. 1x pro 10 Min. je User
+const _reminderCheckCache = new Map();
+async function runSchoolReminderChecks(userId) {
+  const lastCheck = _reminderCheckCache.get(userId) || 0;
+  if (Date.now() - lastCheck < 10 * 60 * 1000) return; // 10 Min TTL
+  _reminderCheckCache.set(userId, Date.now());
   try {
-    // For school admins, auto-generate HU/inspection reminders for vehicles due within 30 days
-    if (req.user.role === 'school') {
-      try {
-        const { data: vehicles } = await supabase.from('vehicles')
-          .select('id, brand, license_plate, hu_au_date')
-          .eq('school_id', req.user.id);
-        if (vehicles) {
-          const now = new Date();
-          const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-          const monthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-          for (const v of vehicles) {
-            if (!v.hu_au_date) continue;
-            const huDate = new Date(v.hu_au_date);
-            if (huDate <= in30 && huDate >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)) {
-              // Check if reminder already sent this month for this vehicle
-              const { data: existing } = await supabase.from('notifications')
-                .select('id')
-                .eq('user_id', req.user.id)
-                .eq('type', 'hu_reminder')
-                .eq('reference_id', v.id + '_' + monthKey)
-                .maybeSingle();
-              if (!existing) {
-                const huStr = new Date(v.hu_au_date).toLocaleDateString('de-DE');
-                await createNotification(req.user.id, 'school', 'hu_reminder',
-                  'HU/AU fällig: ' + (v.brand || '') + ' ' + (v.license_plate || ''),
-                  'HU/AU-Termin am ' + huStr + '. Bitte Werkstatttermin vereinbaren.',
-                  v.id + '_' + monthKey);
-              }
-            }
-          }
-        }
-      } catch (e) { /* ignore HU check errors */ }
+    const now = new Date();
+    const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const monthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-      // Auto-generate reminders for upcoming scheduled lessons (tomorrow) for instructors
-      try {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        const tomorrowStr = tomorrow.toISOString().split('T')[0];
-        const { data: tomorrowLessons } = await supabase.from('scheduled_lessons')
-          .select('id, instructor_id, student_id, start_time, type, students(name)')
-          .eq('school_id', req.user.id)
-          .eq('date', tomorrowStr);
-        if (tomorrowLessons) {
-          for (const lesson of tomorrowLessons) {
-            const reminderKey = lesson.id + '_reminder_' + tomorrowStr;
-            const { data: existing } = await supabase.from('notifications')
-              .select('id').eq('reference_id', reminderKey).maybeSingle();
-            if (!existing && lesson.instructor_id) {
-              const studentName = lesson.students ? lesson.students.name : 'Fahrschüler';
-              await createNotification(lesson.instructor_id, 'instructor', 'lesson_reminder',
-                'Fahrstunde morgen',
-                lesson.type + ' mit ' + studentName + ' um ' + lesson.start_time,
-                reminderKey);
-            }
-          }
-        }
-      } catch (e) { /* ignore reminder errors */ }
+    // Parallel: Vehicles + Tomorrow lessons laden
+    const [vehiclesRes, tomorrowLessonsRes] = await Promise.all([
+      supabase.from('vehicles').select('id, brand, license_plate, hu_au_date').eq('school_id', userId),
+      supabase.from('scheduled_lessons').select('id, instructor_id, student_id, start_time, type, students(name)').eq('school_id', userId).eq('date', tomorrowStr)
+    ]);
+    const vehicles = vehiclesRes.data || [];
+    const tomorrowLessons = tomorrowLessonsRes.data || [];
+
+    // Alle potenziellen Reference-IDs sammeln
+    const huRefs = [];
+    vehicles.forEach(v => {
+      if (!v.hu_au_date) return;
+      const huDate = new Date(v.hu_au_date);
+      if (huDate <= in30 && huDate >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)) {
+        huRefs.push({ ref: v.id + '_' + monthKey, v });
+      }
+    });
+    const lessonRefs = tomorrowLessons.filter(l => l.instructor_id).map(l => ({
+      ref: l.id + '_reminder_' + tomorrowStr, l
+    }));
+
+    // Bulk-Check: existieren diese references bereits?
+    const allRefs = huRefs.map(r => r.ref).concat(lessonRefs.map(r => r.ref));
+    let existingRefs = new Set();
+    if (allRefs.length > 0) {
+      const { data: existing } = await supabase.from('notifications')
+        .select('reference_id').in('reference_id', allRefs);
+      (existing || []).forEach(e => existingRefs.add(e.reference_id));
     }
 
-    const { data: notifs } = await supabase.from('notifications')
-      .select('*')
-      .eq('user_id', req.user.id).eq('user_role', req.user.role)
-      .order('created_at', { ascending: false }).limit(50);
+    // Parallel: Nur fehlende Reminder erstellen
+    const creates = [];
+    huRefs.forEach(({ ref, v }) => {
+      if (existingRefs.has(ref)) return;
+      const huStr = new Date(v.hu_au_date).toLocaleDateString('de-DE');
+      creates.push(createNotification(userId, 'school', 'hu_reminder',
+        'HU/AU fällig: ' + (v.brand || '') + ' ' + (v.license_plate || ''),
+        'HU/AU-Termin am ' + huStr + '. Bitte Werkstatttermin vereinbaren.', ref));
+    });
+    lessonRefs.forEach(({ ref, l }) => {
+      if (existingRefs.has(ref)) return;
+      const studentName = l.students ? l.students.name : 'Fahrschüler';
+      creates.push(createNotification(l.instructor_id, 'instructor', 'lesson_reminder',
+        'Fahrstunde morgen',
+        l.type + ' mit ' + studentName + ' um ' + l.start_time, ref));
+    });
+    if (creates.length > 0) await Promise.all(creates);
+  } catch (e) { /* ignore reminder errors */ }
+}
 
-    const { count: unreadCount } = await supabase.from('notifications')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', req.user.id).eq('user_role', req.user.role).eq('is_read', 0);
+app.get('/api/notifications', authMiddleware, async (req, res) => {
+  try {
+    // Auto-Reminder: läuft async im Hintergrund, blockiert die Response NICHT
+    if (req.user.role === 'school') {
+      runSchoolReminderChecks(req.user.id).catch(() => {});
+    }
 
-    res.json({ notifications: notifs || [], unreadCount: unreadCount || 0 });
+    // Parallel: notifications + unread count
+    const [notifsRes, unreadRes] = await Promise.all([
+      supabase.from('notifications').select('*').eq('user_id', req.user.id).eq('user_role', req.user.role).order('created_at', { ascending: false }).limit(50),
+      supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', req.user.id).eq('user_role', req.user.role).eq('is_read', 0)
+    ]);
+
+    res.json({ notifications: notifsRes.data || [], unreadCount: unreadRes.count || 0 });
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
   }
