@@ -3586,12 +3586,17 @@ var App = {
       html += '<div class="card mb-4 theory-progress-section"><div class="section-title mb-3">' + t('theorieFortschritt') + '</div>' +
         '<div id="theory-progress-container"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div></div>';
 
-      // ── Ausbildungsnachweis Button (only for school/admin) ──
+      // ── Bescheinigungen (only for school/admin) ──
       if (AppState.currentUser && AppState.currentUser.role === 'school') {
-        html += '<button class="btn btn-primary btn-full" style="margin-bottom:var(--space-4);gap:var(--space-2);display:flex;align-items:center;justify-content:center;" ' +
-          'onclick="App.generateAusbildungsnachweis(\'' + studentId + '\')">' +
-          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/></svg> ' +
-          t('ausbildungsnachweisGenerieren') + '</button>';
+        var docIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;flex-shrink:0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/></svg>';
+        html += '<div class="card mb-4">' +
+          '<div class="section-title mb-3">' + t('bescheinigungen') + '</div>' +
+          '<div style="display:flex;flex-direction:column;gap:var(--space-2);">' +
+            '<button class="btn btn-primary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.generateAusbildungsnachweis(\'' + studentId + '\')">' + docIcon + ' ' + t('ausbildungsnachweisGenerieren') + '</button>' +
+            '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openFristverkuerzungDialog(\'' + studentId + '\',\'theorie\')">' + docIcon + ' ' + t('fristverkuerzungTheorie') + '</button>' +
+            '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openFristverkuerzungDialog(\'' + studentId + '\',\'praxis\')">' + docIcon + ' ' + t('fristverkuerzungPraxis') + '</button>' +
+          '</div>' +
+        '</div>';
       }
 
       html += '</div>'; content.innerHTML = html;
@@ -3911,6 +3916,224 @@ var App = {
     } catch (err) {
       this.showToast(t('fehler') + ': ' + err.message);
     }
+  },
+
+  // ══════════════════════════════════════════
+  //  FRISTVERKUERZUNG BESCHEINIGUNGEN (Theorie + Praxis)
+  // ══════════════════════════════════════════
+  openFristverkuerzungDialog: function(studentId, pruefungArt) {
+    var self = this;
+    var isTheorie = pruefungArt === 'theorie';
+    var title = isTheorie ? t('fristverkuerzungTheorie') : t('fristverkuerzungPraxis');
+    var minTage = isTheorie ? 3 : 7;
+    var today = new Date();
+    var todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+    var html = '<div style="padding:var(--space-2);max-width:520px;">' +
+      '<p class="text-sm text-muted" style="margin-bottom:var(--space-3);">' + t('fristverkuerzungHinweis').replace('{tage}', minTage) + '</p>' +
+      '<div class="form-group"><label class="form-label"><input type="checkbox" id="fv-leer" style="margin-right:var(--space-2);"> ' + t('bescheinigungLeerDrucken') + '</label>' +
+      '<div class="text-xs text-muted" style="margin-top:4px;">' + t('bescheinigungLeerHinweis') + '</div></div>' +
+      '<div id="fv-fields">' +
+        '<div class="form-group"><label class="form-label">' + t('pruefungsdatum') + '</label>' +
+          '<input type="date" id="fv-pruefungsdatum" class="form-input" value="' + todayStr + '"></div>' +
+        '<div class="form-group"><label class="form-label">' + t('pruefungsort') + '</label>' +
+          '<input type="text" id="fv-pruefungsort" class="form-input" placeholder="' + t('pruefungsortPlaceholder') + '"></div>' +
+        '<div class="form-group"><label class="form-label">' + t('wiederholungNachTagen') + '</label>' +
+          '<input type="number" id="fv-tage" class="form-input" value="' + minTage + '" min="' + minTage + '" step="1">' +
+          '<div class="text-xs text-muted" style="margin-top:4px;">' + t('mindestensTage').replace('{tage}', minTage) + '</div></div>' +
+        '<div class="form-group"><label class="form-label">' + t('begruendung') + '</label>' +
+          '<textarea id="fv-begruendung" class="form-input" rows="3" placeholder="' + t('begruendungPlaceholder') + '"></textarea></div>' +
+      '</div>' +
+      '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-top:var(--space-3);">' +
+        '<button class="btn btn-secondary" onclick="App.closeModalForce()">' + t('abbrechen') + '</button>' +
+        '<button class="btn btn-primary" onclick="App.generateFristverkuerzung(\'' + studentId + '\',\'' + pruefungArt + '\')">' + t('pdfErstellen') + '</button>' +
+      '</div>' +
+    '</div>';
+    self.openModal(title, html);
+    setTimeout(function() {
+      var leerCb = document.getElementById('fv-leer');
+      var fields = document.getElementById('fv-fields');
+      if (leerCb && fields) {
+        leerCb.addEventListener('change', function() {
+          fields.style.opacity = leerCb.checked ? '0.4' : '1';
+          fields.style.pointerEvents = leerCb.checked ? 'none' : 'auto';
+        });
+      }
+    }, 50);
+  },
+
+  generateFristverkuerzung: async function(studentId, pruefungArt) {
+    var self = this;
+    var leerCb = document.getElementById('fv-leer');
+    var leer = !!(leerCb && leerCb.checked);
+    var pruefungsdatum = '';
+    var pruefungsort = '';
+    var tage = '';
+    var begruendung = '';
+    if (!leer) {
+      pruefungsdatum = (document.getElementById('fv-pruefungsdatum') || {}).value || '';
+      pruefungsort = (document.getElementById('fv-pruefungsort') || {}).value || '';
+      tage = (document.getElementById('fv-tage') || {}).value || '';
+      begruendung = (document.getElementById('fv-begruendung') || {}).value || '';
+    }
+    self.closeModalForce();
+    self.showToast(t('pdfWirdErstellt'));
+    try {
+      var data = leer
+        ? { student: { name:'', email:'', license_class:'', geburtsdatum:'', anschrift:'' }, school: { name:'', address:'', phone:'', email:'' } }
+        : await ApiClient.get('/api/ausbildungsnachweis/' + studentId);
+      if (!window.jspdf || !window.jspdf.jsPDF) {
+        self.showToast('PDF-Bibliothek wird geladen, bitte nochmal versuchen...');
+        return;
+      }
+      self.renderFristverkuerzungPdf(data, {
+        art: pruefungArt,
+        leer: leer,
+        pruefungsdatum: pruefungsdatum,
+        pruefungsort: pruefungsort,
+        tage: tage,
+        begruendung: begruendung
+      });
+    } catch (err) {
+      self.showToast(t('fehler') + ': ' + (err.message || err));
+    }
+  },
+
+  renderFristverkuerzungPdf: function(data, opts) {
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    var pw = 210, ph = 297;
+    var ml = 18, mr = 18, mt = 14;
+    var cw = pw - ml - mr;
+    var isTheorie = opts.art === 'theorie';
+
+    var fmtDate = function(d) {
+      if (!d) return '';
+      var p = String(d).split('-');
+      return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : d;
+    };
+    var drawLine = function(x1, y1, x2, y2) { doc.setDrawColor(0); doc.setLineWidth(0.3); doc.line(x1, y1, x2, y2); };
+    var drawField = function(label, value, x, y, w) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      doc.text(label, x, y);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      doc.text(value || '', x, y + 6);
+      drawLine(x, y + 7, x + w, y + 7);
+    };
+
+    var y = mt;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text('Antrag auf vorzeitige Wiederholung der ersten Fahrerlaubnispruefung', pw / 2, y, { align: 'center' });
+    y += 6;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    var subtitle = isTheorie
+      ? 'Fristverkuerzung theoretische Pruefung (\u00a7 16 Abs. 3 FeV)'
+      : 'Fristverkuerzung praktische Pruefung (\u00a7 17 Abs. 3 FeV)';
+    doc.text(subtitle, pw / 2, y, { align: 'center' });
+    y += 7;
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.text('An die Technische Pruefstelle / FE-Buero der Region', ml, y); y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    drawLine(ml, y + 3, ml + cw * 0.6, y + 3); y += 5;
+    drawLine(ml, y + 3, ml + cw * 0.6, y + 3); y += 8;
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+    doc.text('Angaben der Fahrschule', ml, y); y += 5;
+    drawField('Name der Fahrschule', opts.leer ? '' : (data.school.name || ''), ml, y, cw * 0.6);
+    drawField('Fahrschul-Nr.', '', ml + cw * 0.65, y, cw * 0.35);
+    y += 12;
+    drawField('Anschrift', opts.leer ? '' : (data.school.address || ''), ml, y, cw);
+    y += 12;
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+    doc.text('Angaben des Fahrerlaubnisbewerbers', ml, y); y += 5;
+    drawField('Name, Vorname', opts.leer ? '' : (data.student.name || ''), ml, y, cw * 0.55);
+    drawField('Geburtsdatum', opts.leer ? '' : fmtDate(data.student.geburtsdatum || ''), ml + cw * 0.58, y, cw * 0.22);
+    drawField('Klasse(n)', opts.leer ? '' : (data.student.license_class || ''), ml + cw * 0.82, y, cw * 0.18);
+    y += 12;
+    drawField('Anschrift', opts.leer ? '' : (data.student.anschrift || ''), ml, y, cw * 0.7);
+    drawField('EDV-Nr. Fahrschueler', '', ml + cw * 0.73, y, cw * 0.27);
+    y += 12;
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    var pruefText = isTheorie ? 'theoretische' : 'praktische';
+    var tageText = opts.leer ? '_______' : (opts.tage || '_______');
+    var antragText = 'Hiermit wird beantragt, die erste ' + pruefText + ' Fahrerlaubnispruefung bereits nach ' + tageText + ' Tagen zu wiederholen.';
+    var antragLines = doc.splitTextToSize(antragText, cw);
+    doc.text(antragLines, ml, y);
+    y += antragLines.length * 5 + 2;
+
+    var pdText = 'Die erste ' + pruefText + ' Fahrerlaubnispruefung fand statt am:';
+    doc.text(pdText, ml, y); y += 5;
+    var dateStr = opts.leer ? '' : fmtDate(opts.pruefungsdatum);
+    var ortStr = opts.leer ? '' : (opts.pruefungsort || '');
+    drawField('Datum', dateStr, ml, y, cw * 0.4);
+    drawField('Ort', ortStr, ml + cw * 0.45, y, cw * 0.55);
+    y += 12;
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+    doc.text('Begruendung:', ml, y); y += 3;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    var begruendungH = 22;
+    doc.setDrawColor(0); doc.setLineWidth(0.3);
+    doc.rect(ml, y, cw, begruendungH);
+    if (!opts.leer && opts.begruendung) {
+      var begrLines = doc.splitTextToSize(opts.begruendung, cw - 4);
+      doc.text(begrLines, ml + 2, y + 5);
+    }
+    y += begruendungH + 5;
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.text('Bestaetigung der Fahrschule', ml, y); y += 4;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    var bestText = 'Die Fahrschule bestaetigt, dass die Ausbildungsdefizite durch die Teilnahme an einer Kompaktausbildung behoben werden bzw. behoben sind und der Bewerber ueber die zum Fuehren eines Kraftfahrzeugs erforderlichen Kenntnisse und Faehigkeiten verfuegt (\u00a7\u00a7 6 Abs. 1 und 7 Abs. 2 FahrschAusbO).';
+    var bestLines = doc.splitTextToSize(bestText, cw);
+    doc.text(bestLines, ml, y);
+    y += bestLines.length * 3.8 + 4;
+
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5);
+    var hinweisText = isTheorie
+      ? 'Hinweis: Die Wiederholung der theoretischen Pruefung ist fruehestens nach 3 Tagen zulaessig, sofern keine schwerwiegenden Maengel vorliegen (max. 14 Fehlerpunkte bei Klassen C/D bzw. 9 bei uebrigen Klassen). Gebuehr: 29,16 EUR (Nr. 499 GebOSt).'
+      : 'Hinweis: Die Wiederholung der praktischen Pruefung ist fruehestens nach 7 Tagen zulaessig, sofern keine schwerwiegenden Maengel festgestellt wurden. Gebuehr: 29,16 EUR (Nr. 499 GebOSt).';
+    var hinweisLines = doc.splitTextToSize(hinweisText, cw);
+    doc.text(hinweisLines, ml, y);
+    y += hinweisLines.length * 3.3 + 5;
+    doc.setFont('helvetica', 'normal');
+
+    // Unterschriften (Antragsteller + Fahrschule)
+    var sigW = (cw - 8) / 2;
+    doc.setFontSize(9);
+    drawLine(ml, y + 8, ml + sigW, y + 8);
+    drawLine(ml + sigW + 8, y + 8, ml + cw, y + 8);
+    doc.setFontSize(7);
+    doc.text('Ort, Datum, Unterschrift Fahrerlaubnisbewerber', ml, y + 11);
+    doc.text('Ort, Datum, Unterschrift Fahrschule / Stempel', ml + sigW + 8, y + 11);
+    y += 18;
+
+    // Entscheidungsfeld (Behoerde)
+    doc.setDrawColor(150); doc.setLineWidth(0.2);
+    doc.line(ml, y, ml + cw, y);
+    doc.setDrawColor(0); doc.setLineWidth(0.3);
+    y += 3;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+    doc.text('Entscheidung der Fahrerlaubnisbehoerde (nur von der Behoerde auszufuellen)', ml, y); y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.rect(ml, y - 3, 3.5, 3.5);
+    doc.text('stattgegeben', ml + 5, y);
+    doc.rect(ml + 42, y - 3, 3.5, 3.5);
+    doc.text('nicht stattgegeben', ml + 47, y);
+    y += 8;
+    drawLine(ml, y + 5, ml + sigW, y + 5);
+    drawLine(ml + sigW + 8, y + 5, ml + cw, y + 5);
+    doc.setFontSize(7);
+    doc.text('Ort, Datum, Unterschrift Regionalleitung', ml, y + 8);
+    doc.text('Sachbearbeiter/in FE-Buero', ml + sigW + 8, y + 8);
+
+    var nameForFile = opts.leer ? 'Blanko' : (data.student.name || 'Schueler').replace(/\s+/g, '_');
+    var suffix = isTheorie ? 'Theorie' : 'Praxis';
+    var fileName = 'Fristverkuerzung_' + suffix + '_' + nameForFile + '.pdf';
+    doc.save(fileName);
+    this.showToast(t('pdfErstellt'));
   },
 
   // ══════════════════════════════════════════
