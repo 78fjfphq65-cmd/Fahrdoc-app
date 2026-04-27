@@ -304,12 +304,13 @@ app.post('/api/auth/signup', async (req, res) => {
 
       // Send verification email
       const vCode = generateCode();
+      const vToken = crypto.randomBytes(24).toString('hex');
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-      await supabase.from('verification_codes').insert({
-        id: generateId(), user_id: id, user_role: 'school',
-        email, code: vCode, type: 'email_verify', expires_at: expiresAt
-      });
-      await sendVerificationEmail(email, fullName, vCode);
+      await supabase.from('verification_codes').insert([
+        { id: generateId(), user_id: id, user_role: 'school', email, code: vCode, type: 'email_verify', expires_at: expiresAt },
+        { id: generateId(), user_id: id, user_role: 'school', email, code: vToken, type: 'email_verify', expires_at: expiresAt }
+      ]);
+      await sendVerificationEmail(email, fullName, vCode, vToken, id, 'school');
 
       return res.json({ success: true, userId: id, role: 'school' });
     }
@@ -330,12 +331,13 @@ app.post('/api/auth/signup', async (req, res) => {
 
       // Send verification email
       const vCode = generateCode();
+      const vToken = crypto.randomBytes(24).toString('hex');
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-      await supabase.from('verification_codes').insert({
-        id: generateId(), user_id: id, user_role: 'instructor',
-        email, code: vCode, type: 'email_verify', expires_at: expiresAt
-      });
-      await sendVerificationEmail(email, fullName, vCode);
+      await supabase.from('verification_codes').insert([
+        { id: generateId(), user_id: id, user_role: 'instructor', email, code: vCode, type: 'email_verify', expires_at: expiresAt },
+        { id: generateId(), user_id: id, user_role: 'instructor', email, code: vToken, type: 'email_verify', expires_at: expiresAt }
+      ]);
+      await sendVerificationEmail(email, fullName, vCode, vToken, id, 'instructor');
 
       return res.json({ success: true, userId: id, role: 'instructor' });
     }
@@ -356,12 +358,13 @@ app.post('/api/auth/signup', async (req, res) => {
 
       // Send verification email
       const vCode = generateCode();
+      const vToken = crypto.randomBytes(24).toString('hex');
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-      await supabase.from('verification_codes').insert({
-        id: generateId(), user_id: id, user_role: 'student',
-        email, code: vCode, type: 'email_verify', expires_at: expiresAt
-      });
-      await sendVerificationEmail(email, fullName, vCode);
+      await supabase.from('verification_codes').insert([
+        { id: generateId(), user_id: id, user_role: 'student', email, code: vCode, type: 'email_verify', expires_at: expiresAt },
+        { id: generateId(), user_id: id, user_role: 'student', email, code: vToken, type: 'email_verify', expires_at: expiresAt }
+      ]);
+      await sendVerificationEmail(email, fullName, vCode, vToken, id, 'student');
 
       return res.json({ success: true, userId: id, role: 'student' });
     }
@@ -378,6 +381,9 @@ app.post('/api/auth/verify-email', async (req, res) => {
   try {
     const { userId, role, code } = req.body;
     if (!code || code.length < 6) return res.status(400).json({ error: 'Ungültiger Code' });
+
+    // Code path: only accept 6-digit numeric codes via this endpoint (link uses /verify-link)
+    if (code.length > 8) return res.status(400).json({ error: 'Ungültiger Code' });
 
     // Check verification code in database
     const { data: vc } = await supabase.from('verification_codes')
@@ -407,6 +413,42 @@ app.post('/api/auth/verify-email', async (req, res) => {
   }
 });
 
+// Verify email via link (GET — clicked from email)
+app.get('/api/auth/verify-link', async (req, res) => {
+  try {
+    const { token, uid, role } = req.query;
+    if (!token || !uid || !role) return res.status(400).json({ error: 'Ungültiger Verifizierungslink' });
+
+    // Token is stored in code field — must be longer than 6 chars (the 6-digit code path)
+    if (String(token).length < 20) return res.status(400).json({ error: 'Ungültiger Token' });
+
+    const { data: vc } = await supabase.from('verification_codes')
+      .select('*')
+      .eq('user_id', uid)
+      .eq('code', token)
+      .eq('type', 'email_verify')
+      .eq('used', 0)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+
+    if (!vc) return res.status(400).json({ error: 'Link ungültig oder abgelaufen' });
+
+    // Mark all email_verify codes for this user as used (token + 6-digit code)
+    await supabase.from('verification_codes')
+      .update({ used: 1 })
+      .eq('user_id', uid).eq('type', 'email_verify').eq('used', 0);
+
+    // Verify user
+    const table = role === 'school' ? 'schools' : role === 'instructor' ? 'instructors' : 'students';
+    await supabase.from(table).update({ verified: 1 }).eq('id', uid);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Verify-link error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
 // Resend verification code
 app.post('/api/auth/resend-code', async (req, res) => {
   try {
@@ -425,12 +467,13 @@ app.post('/api/auth/resend-code', async (req, res) => {
     const name = user ? (user.admin_name || user.name) : '';
 
     const vCode = generateCode();
+    const vToken = crypto.randomBytes(24).toString('hex');
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-    await supabase.from('verification_codes').insert({
-      id: generateId(), user_id: userId, user_role: role,
-      email, code: vCode, type: 'email_verify', expires_at: expiresAt
-    });
-    await sendVerificationEmail(email, name, vCode);
+    await supabase.from('verification_codes').insert([
+      { id: generateId(), user_id: userId, user_role: role, email, code: vCode, type: 'email_verify', expires_at: expiresAt },
+      { id: generateId(), user_id: userId, user_role: role, email, code: vToken, type: 'email_verify', expires_at: expiresAt }
+    ]);
+    await sendVerificationEmail(email, name, vCode, vToken, userId, role);
 
     res.json({ success: true });
   } catch (err) {
@@ -1287,7 +1330,7 @@ app.get('/api/schedule/blocks', authMiddleware, async (req, res) => {
 app.post('/api/schedule/blocks', authMiddleware, async (req, res) => {
   try {
     if (req.user.role === 'student') return res.status(403).json({ error: 'Kein Zugriff' });
-    const { instructorId, date, startTime, endTime, notes } = req.body;
+    const { instructorId, date, endDate, startTime, endTime, reason, notes, allDay } = req.body;
     if (!date || !startTime || !endTime) return res.status(400).json({ error: 'Datum, Start- und Endzeit erforderlich' });
 
     let targetInstructorId = instructorId;
@@ -1300,33 +1343,68 @@ app.post('/api/schedule/blocks', authMiddleware, async (req, res) => {
       schoolId = req.user.id;
     }
 
-    // Check overlap with existing lessons/blocks
+    // Build list of dates between date and endDate (inclusive)
+    const dates = [];
+    const startD = new Date(date + 'T00:00:00');
+    const endD = endDate ? new Date(endDate + 'T00:00:00') : startD;
+    if (endD < startD) return res.status(400).json({ error: 'Bis-Datum darf nicht vor Von-Datum liegen' });
+    // Cap to 90 days to prevent abuse
+    const dayMs = 24 * 60 * 60 * 1000;
+    const span = Math.round((endD - startD) / dayMs) + 1;
+    if (span > 90) return res.status(400).json({ error: 'Maximaler Sperr-Zeitraum: 90 Tage' });
+    for (let i = 0; i < span; i++) {
+      const d = new Date(startD);
+      d.setDate(d.getDate() + i);
+      dates.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+    }
+
+    // Check overlaps for the entire range in one query
     const { data: overlaps } = await supabase.from('scheduled_lessons')
-      .select('id')
+      .select('id, date, start_time, end_time')
       .eq('instructor_id', targetInstructorId)
-      .eq('date', date)
+      .in('date', dates)
       .lt('start_time', endTime)
       .gt('end_time', startTime);
-    if (overlaps && overlaps.length > 0) return res.status(409).json({ error: 'Zeitüberschneidung mit bestehendem Termin oder Sperre' });
+    if (overlaps && overlaps.length > 0) {
+      const conflictDates = [...new Set(overlaps.map(o => o.date))].sort().slice(0, 3).join(', ');
+      return res.status(409).json({ error: 'Zeitüberschneidung am ' + conflictDates + (overlaps.length > 3 ? ' (und weitere)' : '') });
+    }
 
-    const id = generateId();
-    await supabase.from('scheduled_lessons').insert({
-      id, instructor_id: targetInstructorId, school_id: schoolId,
-      student_id: null, date, start_time: startTime, end_time: endTime,
+    // Build group ID and notes prefix
+    const groupId = generateId();
+    const reasonStr = reason ? String(reason).trim().slice(0, 40) : '';
+    let metaPrefix = '[group:' + groupId + ']';
+    if (reasonStr) metaPrefix += '[reason:' + reasonStr + ']';
+    const fullNotes = metaPrefix + (notes ? ' ' + String(notes).slice(0, 500) : '');
+
+    const rows = dates.map(d => ({
+      id: generateId(),
+      instructor_id: targetInstructorId, school_id: schoolId,
+      student_id: null, date: d, start_time: startTime, end_time: endTime,
       type: 'Zeitsperre', license_class: null, status: 'bestätigt',
-      notes: notes || null, vehicle_id: null,
+      notes: fullNotes, vehicle_id: null,
       created_by_role: req.user.role, created_by_id: req.user.id
-    });
+    }));
+    await supabase.from('scheduled_lessons').insert(rows);
 
     // Notify admin when instructor creates a time block
     if (req.user.role === 'instructor' && schoolId) {
-      const dayStr = new Date(date).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+      let msg;
+      if (dates.length === 1) {
+        const dayStr = new Date(date).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+        msg = req.user.name + ' hat eine Zeitsperre am ' + dayStr + ' (' + startTime + '–' + endTime + ')' + (reasonStr ? ' — ' + reasonStr : '') + ' erstellt';
+      } else {
+        const fromStr = new Date(dates[0]).toLocaleDateString('de-DE', { day: 'numeric', month: 'long' });
+        const toStr = new Date(dates[dates.length - 1]).toLocaleDateString('de-DE', { day: 'numeric', month: 'long' });
+        msg = req.user.name + ' hat eine Zeitsperre vom ' + fromStr + ' bis ' + toStr + ' (' + dates.length + ' Tage)' + (reasonStr ? ' — ' + reasonStr : '') + ' erstellt';
+      }
       await createNotification(schoolId, 'school', 'timeblock_created',
-        'Neue Zeitsperre', req.user.name + ' hat eine Zeitsperre am ' + dayStr + ' (' + startTime + '–' + endTime + ') erstellt', id);
+        'Neue Zeitsperre', msg, rows[0].id);
     }
 
-    res.json({ id, success: true });
+    res.json({ id: rows[0].id, groupId: groupId, count: rows.length, success: true });
   } catch (err) {
+    console.error('Block create error:', err);
     res.status(500).json({ error: 'Serverfehler' });
   }
 });
@@ -1334,6 +1412,7 @@ app.post('/api/schedule/blocks', authMiddleware, async (req, res) => {
 app.delete('/api/schedule/blocks/:id', authMiddleware, async (req, res) => {
   try {
     if (req.user.role === 'student') return res.status(403).json({ error: 'Kein Zugriff' });
+    const deleteAll = req.query.deleteAll === '1' || req.query.deleteAll === 'true';
     const { data: block } = await supabase.from('scheduled_lessons')
       .select('*').eq('id', req.params.id).eq('type', 'Zeitsperre').single();
     if (!block) return res.status(404).json({ error: 'Zeitsperre nicht gefunden' });
@@ -1343,6 +1422,20 @@ app.delete('/api/schedule/blocks/:id', authMiddleware, async (req, res) => {
     }
     if (req.user.role === 'school' && block.school_id !== req.user.id) {
       return res.status(403).json({ error: 'Kein Zugriff auf diese Zeitsperre' });
+    }
+
+    // If deleteAll and block belongs to a group, delete all blocks in that group
+    if (deleteAll && block.notes) {
+      const groupMatch = String(block.notes).match(/\[group:([a-f0-9]+)\]/);
+      if (groupMatch) {
+        const groupId = groupMatch[1];
+        await supabase.from('scheduled_lessons')
+          .delete()
+          .eq('type', 'Zeitsperre')
+          .eq('instructor_id', block.instructor_id)
+          .like('notes', '%[group:' + groupId + ']%');
+        return res.json({ success: true, deletedGroup: true });
+      }
     }
 
     await supabase.from('scheduled_lessons').delete().eq('id', req.params.id);

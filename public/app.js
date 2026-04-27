@@ -187,6 +187,71 @@ function formatDateLocal(d) {
 }
 
 // ============================================
+// HOLIDAYS — German public holidays (federal + Berlin)
+// ============================================
+// Easter Sunday calculation (Gauss algorithm)
+function _easterSunday(year) {
+  var a = year % 19;
+  var b = Math.floor(year / 100);
+  var c = year % 100;
+  var d = Math.floor(b / 4);
+  var e = b % 4;
+  var f = Math.floor((b + 8) / 25);
+  var g = Math.floor((b - f + 1) / 3);
+  var h = (19 * a + b - d - g + 15) % 30;
+  var i = Math.floor(c / 4);
+  var k = c % 4;
+  var l = (32 + 2 * e + 2 * i - h - k) % 7;
+  var m = Math.floor((a + 11 * h + 22 * l) / 451);
+  var month = Math.floor((h + l - 7 * m + 114) / 31);
+  var day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+function _addDays(date, n) { var d = new Date(date); d.setDate(d.getDate() + n); return d; }
+
+// Returns object: { 'YYYY-MM-DD': 'Feiertagsname', ... } for given year
+// Berlin public holidays (Bundesland Berlin)
+function getHolidaysForYear(year) {
+  var easter = _easterSunday(year);
+  var holidays = {};
+  function add(d, name) { holidays[formatDateLocal(d)] = name; }
+
+  add(new Date(year, 0, 1), 'Neujahr');
+  add(new Date(year, 2, 8), 'Internationaler Frauentag');
+  add(_addDays(easter, -2), 'Karfreitag');
+  add(_addDays(easter, 1), 'Ostermontag');
+  add(new Date(year, 4, 1), 'Tag der Arbeit');
+  add(_addDays(easter, 39), 'Christi Himmelfahrt');
+  add(_addDays(easter, 50), 'Pfingstmontag');
+  add(new Date(year, 9, 3), 'Tag der Deutschen Einheit');
+  add(new Date(year, 11, 25), '1. Weihnachtstag');
+  add(new Date(year, 11, 26), '2. Weihnachtstag');
+
+  return holidays;
+}
+
+// Cache holidays per year
+var _holidayCache = {};
+function getHolidayForDate(date) {
+  var year = date.getFullYear();
+  if (!_holidayCache[year]) _holidayCache[year] = getHolidaysForYear(year);
+  return _holidayCache[year][formatDateLocal(date)] || null;
+}
+
+// Parse [group:xxx] and [reason:yyy] from block notes; return { group, reason, text }
+function parseBlockNotes(notes) {
+  var out = { group: null, reason: null, text: '' };
+  if (!notes) return out;
+  var s = notes;
+  var gm = s.match(/\[group:([a-f0-9]+)\]/);
+  if (gm) { out.group = gm[1]; s = s.replace(gm[0], ''); }
+  var rm = s.match(/\[reason:([^\]]+)\]/);
+  if (rm) { out.reason = rm[1]; s = s.replace(rm[0], ''); }
+  out.text = s.trim();
+  return out;
+}
+
+// ============================================
 // APP STATE
 // ============================================
 var AppState = {
@@ -289,6 +354,14 @@ var App = {
       if (!ApiClient.token) {
         setTimeout(function() { App.navigate('signup'); }, 600);
       }
+    }
+    // Show success toast after email link verification
+    if (urlParams.get('verified') === '1') {
+      window.history.replaceState({}, '', window.location.pathname);
+      setTimeout(function() {
+        App.showToast(t('emailBestaetigt') || 'E-Mail bestätigt — bitte anmelden');
+        if (!ApiClient.token) App.navigate('login');
+      }, 400);
     }
   },
 
@@ -506,6 +579,7 @@ var App = {
       var result = await ApiClient.post('/api/auth/signup', body);
       AppState.signupUserId = result.userId;
       AppState.signupRole = result.role;
+      AppState.signupEmail = body.email;
       this.navigate('verify-email');
     } catch (err) { errorEl.textContent = err.message; errorEl.classList.remove('hidden'); }
     finally { this.showLoading(false); }
@@ -540,6 +614,23 @@ var App = {
       var dash = { school: 'school-dashboard', instructor: 'instructor-dashboard', student: 'student-dashboard' };
       this.navigate(dash[user.role]);
     } catch (err) { var errEl = document.getElementById('verify-error'); errEl.textContent = err.message; errEl.classList.remove('hidden'); }
+    finally { this.showLoading(false); }
+  },
+
+  resendCode: async function() {
+    if (!AppState.signupUserId || !AppState.signupRole || !AppState.signupEmail) {
+      this.showToast(t('fehler') + ': Sitzung abgelaufen — bitte neu registrieren');
+      return;
+    }
+    try {
+      this.showLoading(true);
+      await ApiClient.post('/api/auth/resend-code', {
+        userId: AppState.signupUserId,
+        role: AppState.signupRole,
+        email: AppState.signupEmail
+      });
+      this.showToast(t('emailErneutGesendet') || 'E-Mail erneut gesendet');
+    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
     finally { this.showLoading(false); }
   },
 
@@ -704,9 +795,14 @@ var App = {
     html += '<div class="week-grid-header"><div class="week-grid-time-gutter"></div>';
     days.forEach(function(day, idx) {
       var isToday = day.toDateString() === new Date().toDateString();
-      html += '<div class="week-grid-day-header' + (isToday ? ' today' : '') + '">' +
+      var holiday = getHolidayForDate(day);
+      var classes = 'week-grid-day-header' + (isToday ? ' today' : '') + (holiday ? ' holiday' : '');
+      var titleAttr = holiday ? ' title="' + holiday.replace(/"/g, '&quot;') + '"' : '';
+      html += '<div class="' + classes + '"' + titleAttr + '>' +
         '<div class="week-grid-day-name">' + getDayNames()[idx] + '</div>' +
-        '<div class="week-grid-day-date">' + day.getDate() + '.' + String(day.getMonth() + 1).padStart(2, '0') + '.</div></div>';
+        '<div class="week-grid-day-date">' + day.getDate() + '.' + String(day.getMonth() + 1).padStart(2, '0') + '.</div>' +
+        (holiday ? '<div class="week-grid-day-holiday">' + holiday + '</div>' : '') +
+        '</div>';
     });
     html += '</div>';
     // Body
@@ -721,8 +817,9 @@ var App = {
     days.forEach(function(day, dayIdx) {
       var dayStr = day.getFullYear() + '-' + String(day.getMonth() + 1).padStart(2, '0') + '-' + String(day.getDate()).padStart(2, '0');
       var isToday = day.toDateString() === new Date().toDateString();
+      var holiday = getHolidayForDate(day);
       var daySlots = slots.filter(function(s) { return s.date === dayStr; });
-      html += '<div class="week-grid-day-col' + (isToday ? ' today' : '') + '" onclick="App.onWeekGridCellClick(event, \'' + dayStr + '\', ' + JSON.stringify(onCellClick).replace(/"/g, '&quot;') + ')">';
+      html += '<div class="week-grid-day-col' + (isToday ? ' today' : '') + (holiday ? ' holiday' : '') + '" onclick="App.onWeekGridCellClick(event, \'' + dayStr + '\', ' + JSON.stringify(onCellClick).replace(/"/g, '&quot;') + ')">';
       // Hour lines
       for (var hh = GRID_START_HOUR; hh < GRID_END_HOUR; hh++) {
         html += '<div class="week-grid-hour-line" style="top:' + ((hh - GRID_START_HOUR) * HOUR_HEIGHT) + 'px;"></div>';
@@ -782,14 +879,15 @@ var App = {
           }
         } else if (isBlock) {
           // Block display
+          var bp = parseBlockNotes(slot.notes);
           if (height >= 40) {
             html += '<div class="week-grid-slot-time">' + slot.start_time + '\u2013' + slot.end_time + '</div>';
             if (slot.instructor_name) {
               html += '<div class="week-grid-slot-instructor">' + slot.instructor_name + '</div>';
             }
-            html += '<div class="week-grid-slot-name">' + t('nichtVerfuegbar') + '</div>';
+            html += '<div class="week-grid-slot-name">' + (bp.reason || t('nichtVerfuegbar')) + '</div>';
           } else {
-            html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + t('nichtVerfuegbar') + '</div>';
+            html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + (bp.reason || t('nichtVerfuegbar')) + '</div>';
           }
         } else if (isOffer) {
           // Pending slot offer display
@@ -1277,46 +1375,106 @@ var App = {
       html += '</select></div>';
     }
 
-    html += '<div class="form-group mb-3"><label class="form-label">' + t('datum') + '</label>' +
-      '<input class="form-input" type="date" id="block-date" value="' + date + '"></div>';
-
+    // Date range: Von / Bis
     html += '<div class="form-row form-row-2 mb-3">' +
+      '<div class="form-group"><label class="form-label">' + t('von') + '</label>' +
+        '<input class="form-input" type="date" id="block-date" value="' + date + '" oninput="App.onBlockDateChange()"></div>' +
+      '<div class="form-group"><label class="form-label">' + t('bis') + '</label>' +
+        '<input class="form-input" type="date" id="block-end-date" value="' + date + '"></div>' +
+    '</div>';
+
+    // All-day toggle
+    html += '<div class="form-group mb-3"><label style="display:flex;align-items:center;gap:var(--space-2);cursor:pointer;">' +
+      '<input type="checkbox" id="block-all-day" onchange="App.toggleBlockAllDay()" style="width:18px;height:18px;">' +
+      '<span>' + t('ganztaegig') + '</span></label></div>';
+
+    html += '<div class="form-row form-row-2 mb-3" id="block-time-row">' +
       '<div class="form-group"><label class="form-label">' + t('start') + '</label>' +
         '<input class="form-input" type="time" id="block-start-time" value="' + startTime + '" step="1800"></div>' +
       '<div class="form-group"><label class="form-label">' + t('ende') + '</label>' +
         '<input class="form-input" type="time" id="block-end-time" value="' + endTime + '" step="1800"></div>' +
     '</div>';
 
-    html += '<div class="form-group mb-3"><label class="form-label">' + t('notizen') + '</label>' +
-      '<textarea class="form-textarea" id="block-notes" placeholder="' + t('optional') + '"></textarea></div>';
+    // Reason dropdown
+    html += '<div class="form-group mb-3"><label class="form-label">' + t('grund') + '</label>' +
+      '<select class="form-select" id="block-reason">' +
+        '<option value="">' + t('grundWaehlen') + '</option>' +
+        '<option value="Urlaub">' + t('urlaub') + '</option>' +
+        '<option value="Krank">' + t('krank') + '</option>' +
+        '<option value="Fortbildung">' + t('fortbildung') + '</option>' +
+        '<option value="Privat">' + t('privat') + '</option>' +
+        '<option value="Sonstiges">' + t('sonstiges') + '</option>' +
+      '</select></div>';
+
+    html += '<div class="form-group mb-3"><label class="form-label">' + t('notizen') + ' (' + t('optional') + ')</label>' +
+      '<textarea class="form-textarea" id="block-notes" placeholder=""></textarea></div>';
 
     html += '<button type="button" class="btn btn-primary btn-full btn-lg" onclick="App.createBlock()">' + t('zeitsperreErstellen') + '</button>';
     html += '</form>';
     this.openModal(title, html);
   },
 
+  onBlockDateChange: function() {
+    // Auto-sync end-date if it's before start-date
+    var s = document.getElementById('block-date');
+    var e = document.getElementById('block-end-date');
+    if (s && e && (!e.value || e.value < s.value)) e.value = s.value;
+  },
+
+  toggleBlockAllDay: function() {
+    var cb = document.getElementById('block-all-day');
+    var st = document.getElementById('block-start-time');
+    var et = document.getElementById('block-end-time');
+    var row = document.getElementById('block-time-row');
+    if (!cb || !st || !et) return;
+    if (cb.checked) {
+      st.value = '00:00';
+      et.value = '23:30';
+      st.disabled = true;
+      et.disabled = true;
+      if (row) row.style.opacity = '0.5';
+    } else {
+      st.disabled = false;
+      et.disabled = false;
+      if (row) row.style.opacity = '1';
+    }
+  },
+
   openBlockDetail: function(block) {
     var title = t('zeitsperre');
+    var parsed = parseBlockNotes(block.notes);
     var html = '<div style="margin-bottom:var(--space-3);">';
     html += '<div class="form-group mb-2"><label class="form-label">' + t('datum') + '</label><div>' + block.date + '</div></div>';
     html += '<div class="form-group mb-2"><label class="form-label">' + t('start') + ' \u2013 ' + t('ende') + '</label><div>' + block.start_time + ' \u2013 ' + block.end_time + '</div></div>';
     if (block.instructor_name) {
       html += '<div class="form-group mb-2"><label class="form-label">' + t('fahrlehrer') + '</label><div>' + block.instructor_name + '</div></div>';
     }
-    if (block.notes) {
-      html += '<div class="form-group mb-2"><label class="form-label">' + t('notizen') + '</label><div>' + block.notes + '</div></div>';
+    if (parsed.reason) {
+      html += '<div class="form-group mb-2"><label class="form-label">' + t('grund') + '</label><div>' + parsed.reason + '</div></div>';
+    }
+    if (parsed.text) {
+      html += '<div class="form-group mb-2"><label class="form-label">' + t('notizen') + '</label><div>' + parsed.text + '</div></div>';
     }
     html += '</div>';
-    html += '<button type="button" class="btn btn-danger btn-full" onclick="App.deleteBlock(\'' + block.id + '\')">' + t('zeitsperreLoeschen') + '</button>';
+    html += '<button type="button" class="btn btn-danger btn-full" onclick="App.deleteBlock(\'' + block.id + '\', false)">' + t('zeitsperreLoeschen') + '</button>';
+    if (parsed.group) {
+      html += '<button type="button" class="btn btn-danger btn-full" style="margin-top:var(--space-2);" onclick="App.deleteBlock(\'' + block.id + '\', true)">' + t('alleTageLoeschen') + '</button>';
+    }
     this.openModal(title, html);
   },
 
   createBlock: async function() {
+    var startDate = document.getElementById('block-date').value;
+    var endDate = document.getElementById('block-end-date').value || startDate;
+    if (endDate < startDate) { this.showToast(t('fehler') + ': Bis-Datum vor Von-Datum'); return; }
     var blockData = {
-      date: document.getElementById('block-date').value,
+      date: startDate,
+      endDate: endDate,
       startTime: document.getElementById('block-start-time').value,
       endTime: document.getElementById('block-end-time').value,
-      notes: document.getElementById('block-notes').value
+      notes: document.getElementById('block-notes').value,
+      reason: document.getElementById('block-reason').value,
+      allDay: document.getElementById('block-all-day').checked
     };
     var instSel = document.getElementById('block-instructor-select');
     if (instSel && instSel.value) blockData.instructorId = instSel.value;
@@ -1331,11 +1489,12 @@ var App = {
     finally { this.showLoading(false); }
   },
 
-  deleteBlock: async function(id) {
+  deleteBlock: async function(id, deleteAll) {
     if (!confirm(t('zeitsperreWirklichLoeschen'))) return;
     try {
       this.showLoading(true);
-      await ApiClient.del('/api/schedule/blocks/' + id);
+      var url = '/api/schedule/blocks/' + id + (deleteAll ? '?deleteAll=1' : '');
+      await ApiClient.del(url);
       this.closeModalForce(); this.showToast(t('zeitsperreGeloescht'));
       AppState.scheduleData = null;
       if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
@@ -3403,16 +3562,23 @@ var App = {
       w.days.forEach(function(day, idx) {
         var isToday = day.toDateString() === new Date().toDateString();
         var isActive = idx === selectedDay;
-        var cls = 'schedule-day-tab' + (isActive ? ' active' : '') + (isToday ? ' today' : '');
+        var dayHoliday = getHolidayForDate(day);
+        var cls = 'schedule-day-tab' + (isActive ? ' active' : '') + (isToday ? ' today' : '') + (dayHoliday ? ' holiday' : '');
         var dStr = formatDateLocal(day);
         var cnt = slots.filter(function(s) { return s.date === dStr; }).length;
-        html += '<button class="' + cls + '" onclick="App.selectDay(' + idx + ')">' +
+        var titleAttr = dayHoliday ? ' title="' + dayHoliday.replace(/"/g, '&quot;') + '"' : '';
+        html += '<button class="' + cls + '"' + titleAttr + ' onclick="App.selectDay(' + idx + ')">' +
           '<div class="schedule-day-tab-name">' + getDayNames()[idx] + '</div>' +
           '<div class="schedule-day-tab-date">' + day.getDate() + '</div>' +
           (cnt > 0 ? '<div class="schedule-day-tab-dots">' + cnt + '</div>' : '') +
         '</button>';
       });
       html += '</div>';
+
+      var selectedHoliday = getHolidayForDate(selectedDate);
+      if (selectedHoliday) {
+        html += '<div class="holiday-banner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span>' + t('feiertag') + ': ' + selectedHoliday + '</span></div>';
+      }
 
       html += '<div class="schedule-day-header"><span>' + getDayNamesLong()[selectedDay] + ', ' + selectedDate.getDate() + '.' + String(selectedDate.getMonth() + 1).padStart(2, '0') + '.</span>' +
         '<div style="display:flex;gap:var(--space-2);">' +
@@ -3427,6 +3593,7 @@ var App = {
         html += '<div class="schedule-slot-list">';
         daySlots.forEach(function(slot) {
           var isBlock = slot.slot_type === 'block';
+          var blockParsed = isBlock ? parseBlockNotes(slot.notes) : null;
           var isUnconfirmed = !isBlock && slot.confirmed === false;
           var isRecurring = !isBlock && slot.notes && slot.notes.indexOf('[recurring:') !== -1;
           var isTheory = slot.slot_type === 'theory';
@@ -3452,10 +3619,8 @@ var App = {
               '<div class="schedule-slot-card-end">' + slot.end_time + '</div>' +
             '</div>' +
             '<div class="schedule-slot-card-body">' +
-              '<div class="schedule-slot-card-title">' + (isBlock ? t('nichtVerfuegbar') : (slot.student_name || t('offenerBlock'))) + '</div>' +
-              '<div class="schedule-slot-card-meta">' + (isBlock ? t('zeitsperre') : (tType(slot.type) + (slot.license_class ? ' \u00b7 ' + t('klasse') + ' ' + slot.license_class : '') + (isRecurring ? ' \uD83D\uDD01' : ''))) + '</div>' +
-              '<div class="schedule-slot-card-title">' + (isTheory ? t('theorieThema') + ' ' + (slot.theory_topic_number || '') : (isBlock ? t('nichtVerfuegbar') : (slot.student_name || t('offenerBlock')))) + '</div>' +
-              '<div class="schedule-slot-card-meta">' + (isTheory ? (slot.theory_topic_title || '') : (isBlock ? t('zeitsperre') : (tType(slot.type) + (slot.license_class ? ' \u00b7 ' + t('klasse') + ' ' + slot.license_class : '')))) + '</div>' +
+              '<div class="schedule-slot-card-title">' + (isTheory ? t('theorieThema') + ' ' + (slot.theory_topic_number || '') : (isBlock ? ((blockParsed && blockParsed.reason) || t('nichtVerfuegbar')) : (slot.student_name || t('offenerBlock')))) + '</div>' +
+              '<div class="schedule-slot-card-meta">' + (isTheory ? (slot.theory_topic_title || '') : (isBlock ? (t('zeitsperre') + (blockParsed && blockParsed.text ? ' \u00b7 ' + blockParsed.text : '')) : (tType(slot.type) + (slot.license_class ? ' \u00b7 ' + t('klasse') + ' ' + slot.license_class : '') + (isRecurring ? ' \uD83D\uDD01' : '')))) + '</div>' +
             '</div>' +
             (isTheory ? '<span class="badge" style="background:var(--color-purple-highlight);color:var(--color-purple);">' + t('theorie') + '</span>' :
               (isBlock ? '<span class="badge badge-muted">' + t('zeitsperre') + '</span>' :
