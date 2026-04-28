@@ -232,7 +232,7 @@ var TRANSLATIONS = {
   strecke: { de:'Strecke', en:'Distance', tr:'Mesafe', ar:'المسافة', es:'Distancia', fr:'Distance' },
   geschwindigkeitLabel: { de:'Geschwindigkeit', en:'Speed', tr:'Hız', ar:'السرعة', es:'Velocidad', fr:'Vitesse' },
   markierungen: { de:'Markierungen', en:'Markers', tr:'İşaretler', ar:'العلامات', es:'Marcadores', fr:'Repères' },
-  markierungSetzen: { de:'Markierung setzen', en:'Set marker', tr:'İşaret koy', ar:'وضع علامة', es:'Poner marcador', fr:'Placer un repère' },
+  markierungSetzen: { de:'Markieren', en:'Mark', tr:'İşaretle', ar:'علامة', es:'Marcar', fr:'Marquer' },
   markierungNotiz: { de:'Anmerkung zur Markierung (optional)', en:'Marker note (optional)', tr:'İşaret notu (isteğe bağlı)', ar:'ملاحظة العلامة (اختياري)', es:'Nota del marcador (opcional)', fr:'Note du repère (facultatif)' },
   markierungGesetzt: { de:'Markierung gesetzt!', en:'Marker placed!', tr:'İşaret konuldu!', ar:'تم وضع العلامة!', es:'¡Marcador colocado!', fr:'Repère placé !' },
   streetView: { de:'Straßenansicht', en:'Street View', tr:'Sokak Görünümü', ar:'عرض الشارع', es:'Vista de calle', fr:'Vue de la rue' },

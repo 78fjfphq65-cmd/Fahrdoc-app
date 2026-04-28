@@ -2262,6 +2262,47 @@ html[dir="rtl"] .notif-panel {
 .lesson-stat-value { font-weight: 600; font-size: var(--text-sm); display: block; }
 .lesson-stat-label { font-size: var(--text-xs); color: var(--color-text-muted); }
 
+/* Lesson tracking action buttons - prevent overflow on narrow screens */
+.lesson-actions-row {
+  display: flex;
+  gap: var(--space-2);
+  width: 100%;
+}
+.lesson-action-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-left: var(--space-2);
+  padding-right: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lesson-action-icon {
+  flex: 0 0 auto;
+  line-height: 1;
+}
+.lesson-action-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Narrow screens: shorten 'Markierung setzen' to fit */
+@media (max-width: 480px) {
+  .lesson-action-btn {
+    font-size: var(--text-sm);
+    padding-left: var(--space-1);
+    padding-right: var(--space-1);
+  }
+}
+@media (max-width: 380px) {
+  .lesson-action-btn .lesson-action-label { font-size: 0.78rem; }
+}
+
 /* GPS Status indicator */
 .gps-status {
   position: absolute; top: var(--space-2); right: var(--space-2);
