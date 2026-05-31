@@ -288,6 +288,19 @@ var AppState = {
 };
 
 // ============================================
+// FAHRSTUNDEN-TYPEN (single source of truth)
+// Identisch mit den <option>-Werten in index.html (#lesson-type-select)
+// und mit #edit-lesson-type. Werden auch fuer Preis-Auto-Match genutzt.
+// ============================================
+var LESSON_TYPES = [
+  'Übungsfahrt',
+  'Überlandfahrt',
+  'Autobahnfahrt',
+  'Nachtfahrt',
+  'Prüfungsvorbereitung'
+];
+
+// ============================================
 // MAIN APP OBJECT
 // ============================================
 var App = {
@@ -3636,7 +3649,8 @@ var App = {
     var price = existing ? (existing.price_cents / 100).toFixed(2).replace('.', ',') : '';
     var matchVal = existing ? (existing.lesson_type_match || '') : '';
     var autoApply = existing ? !!existing.auto_apply : true;
-    var typeOptions = ['', 'Grundfahrstunde', 'Sonderfahrt \u00dcberland', 'Sonderfahrt Autobahn', 'Sonderfahrt Nacht', 'Theorie', 'Pr\u00fcfungsfahrt'];
+    // Optionen = exakt die Fahrstunden-Typen + Leer-Option fuer reine Manuell-Vorlagen
+    var typeOptions = [''].concat(LESSON_TYPES);
     var typeOptsHtml = '';
     var j;
     for (j = 0; j < typeOptions.length; j++) {
@@ -3645,7 +3659,7 @@ var App = {
       typeOptsHtml += '<option value="' + this._escapeHtml(v) + '"' + sel + '>' + (v ? this._escapeHtml(v) : '\u2014 kein Auto-Match \u2014') + '</option>';
     }
     var body = '<div class="form-group"><label class="form-label">Bezeichnung *</label>' +
-      '<input type="text" id="tpl-name" class="form-input" value="' + this._escapeHtml(name) + '" placeholder="z.B. Grundfahrstunde"></div>' +
+      '<input type="text" id="tpl-name" class="form-input" value="' + this._escapeHtml(name) + '" placeholder="z.B. \u00dcbungsfahrt oder Grundbetrag"></div>' +
       '<div class="form-group"><label class="form-label">Preis (EUR) *</label>' +
       '<input type="text" id="tpl-price" class="form-input" value="' + price + '" placeholder="55,00" inputmode="decimal"></div>' +
       '<div class="form-group"><label class="form-label">Fahrstunden-Typ (Auto-Match)</label>' +
