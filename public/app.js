@@ -4105,8 +4105,6 @@ var App = {
         '<div class="form-group"><label class="form-label">' + t('wiederholungNachTagen') + '</label>' +
           '<input type="number" id="fv-tage" class="form-input" value="' + minTage + '" min="' + minTage + '" step="1">' +
           '<div class="text-xs text-muted" style="margin-top:4px;">' + t('mindestensTage').replace('{tage}', minTage) + '</div></div>' +
-        '<div class="form-group"><label class="form-label">' + t('begruendung') + '</label>' +
-          '<textarea id="fv-begruendung" class="form-input" rows="3" placeholder="' + t('begruendungPlaceholder') + '"></textarea></div>' +
       '</div>' +
       '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-top:var(--space-3);">' +
         '<button class="btn btn-secondary" onclick="App.closeModalForce()">' + t('abbrechen') + '</button>' +
@@ -4133,12 +4131,10 @@ var App = {
     var pruefungsdatum = '';
     var pruefungsort = '';
     var tage = '';
-    var begruendung = '';
     if (!leer) {
       pruefungsdatum = (document.getElementById('fv-pruefungsdatum') || {}).value || '';
       pruefungsort = (document.getElementById('fv-pruefungsort') || {}).value || '';
       tage = (document.getElementById('fv-tage') || {}).value || '';
-      begruendung = (document.getElementById('fv-begruendung') || {}).value || '';
     }
     self.closeModalForce();
     self.showToast(t('pdfWirdErstellt'));
@@ -4155,8 +4151,7 @@ var App = {
         leer: leer,
         pruefungsdatum: pruefungsdatum,
         pruefungsort: pruefungsort,
-        tage: tage,
-        begruendung: begruendung
+        tage: tage
       });
     } catch (err) {
       self.showToast(t('fehler') + ': ' + (err.message || err));
@@ -4186,83 +4181,66 @@ var App = {
     };
 
     var y = mt;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-    doc.text('Antrag auf vorzeitige Wiederholung der ersten Fahrerlaubnispruefung', pw / 2, y, { align: 'center' });
-    y += 6;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    var subtitle = isTheorie
-      ? 'Fristverkuerzung theoretische Pruefung (\u00a7 16 Abs. 3 FeV)'
-      : 'Fristverkuerzung praktische Pruefung (\u00a7 17 Abs. 3 FeV)';
-    doc.text(subtitle, pw / 2, y, { align: 'center' });
-    y += 7;
+    // Überschrift
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+    var titleText = isTheorie
+      ? 'Fristverk\u00fcrzung theoretische Pr\u00fcfung'
+      : 'Fristverk\u00fcrzung praktische Pr\u00fcfung';
+    doc.text(titleText, pw / 2, y, { align: 'center' });
+    y += 10;
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-    doc.text('An die Technische Pruefstelle / FE-Buero der Region', ml, y); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    drawLine(ml, y + 3, ml + cw * 0.6, y + 3); y += 5;
-    drawLine(ml, y + 3, ml + cw * 0.6, y + 3); y += 8;
-
+    // Angaben der Fahrschule
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
     doc.text('Angaben der Fahrschule', ml, y); y += 5;
     drawField('Name der Fahrschule', opts.leer ? '' : (data.school.name || ''), ml, y, cw * 0.6);
     drawField('Fahrschul-Nr.', '', ml + cw * 0.65, y, cw * 0.35);
     y += 12;
     drawField('Anschrift', opts.leer ? '' : (data.school.address || ''), ml, y, cw);
-    y += 12;
+    y += 14;
 
+    // Angaben des Fahrerlaubnisbewerbers (ohne Anschrift)
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
     doc.text('Angaben des Fahrerlaubnisbewerbers', ml, y); y += 5;
-    drawField('Name, Vorname', opts.leer ? '' : (data.student.name || ''), ml, y, cw * 0.55);
-    drawField('Geburtsdatum', opts.leer ? '' : fmtDate(data.student.geburtsdatum || ''), ml + cw * 0.58, y, cw * 0.22);
-    drawField('Klasse(n)', opts.leer ? '' : (data.student.license_class || ''), ml + cw * 0.82, y, cw * 0.18);
-    y += 12;
-    drawField('Anschrift', opts.leer ? '' : (data.student.anschrift || ''), ml, y, cw * 0.7);
-    drawField('EDV-Nr. Fahrschueler', '', ml + cw * 0.73, y, cw * 0.27);
-    y += 12;
+    drawField('Name, Vorname', opts.leer ? '' : (data.student.name || ''), ml, y, cw * 0.5);
+    drawField('Geburtsdatum', opts.leer ? '' : fmtDate(data.student.geburtsdatum || ''), ml + cw * 0.53, y, cw * 0.22);
+    drawField('Klasse(n)', opts.leer ? '' : (data.student.license_class || ''), ml + cw * 0.78, y, cw * 0.22);
+    y += 14;
 
+    // Antragstext
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
     var pruefText = isTheorie ? 'theoretische' : 'praktische';
     var tageText = opts.leer ? '_______' : (opts.tage || '_______');
-    var antragText = 'Hiermit wird beantragt, die erste ' + pruefText + ' Fahrerlaubnispruefung bereits nach ' + tageText + ' Tagen zu wiederholen.';
+    var antragText = 'Hiermit wird beantragt, die erste ' + pruefText + ' Fahrerlaubnispr\u00fcfung bereits nach ' + tageText + ' Tagen zu wiederholen.';
     var antragLines = doc.splitTextToSize(antragText, cw);
     doc.text(antragLines, ml, y);
-    y += antragLines.length * 5 + 2;
+    y += antragLines.length * 5 + 4;
 
-    var pdText = 'Die erste ' + pruefText + ' Fahrerlaubnispruefung fand statt am:';
+    // Datum der ersten Prüfung
+    var pdText = 'Die erste ' + pruefText + ' Fahrerlaubnispr\u00fcfung fand statt am:';
     doc.text(pdText, ml, y); y += 5;
     var dateStr = opts.leer ? '' : fmtDate(opts.pruefungsdatum);
     var ortStr = opts.leer ? '' : (opts.pruefungsort || '');
     drawField('Datum', dateStr, ml, y, cw * 0.4);
     drawField('Ort', ortStr, ml + cw * 0.45, y, cw * 0.55);
-    y += 12;
+    y += 16;
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('Begruendung:', ml, y); y += 3;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-    var begruendungH = 22;
-    doc.setDrawColor(0); doc.setLineWidth(0.3);
-    doc.rect(ml, y, cw, begruendungH);
-    if (!opts.leer && opts.begruendung) {
-      var begrLines = doc.splitTextToSize(opts.begruendung, cw - 4);
-      doc.text(begrLines, ml + 2, y + 5);
-    }
-    y += begruendungH + 5;
-
+    // Bestätigung der Fahrschule
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-    doc.text('Bestaetigung der Fahrschule', ml, y); y += 4;
+    doc.text('Best\u00e4tigung der Fahrschule', ml, y); y += 4;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-    var bestText = 'Die Fahrschule bestaetigt, dass die Ausbildungsdefizite durch die Teilnahme an einer Kompaktausbildung behoben werden bzw. behoben sind und der Bewerber ueber die zum Fuehren eines Kraftfahrzeugs erforderlichen Kenntnisse und Faehigkeiten verfuegt (\u00a7\u00a7 6 Abs. 1 und 7 Abs. 2 FahrschAusbO).';
+    var bestText = 'Die Fahrschule best\u00e4tigt, dass die Ausbildungsdefizite durch die Teilnahme an einer Kompaktausbildung behoben werden bzw. behoben sind und der Bewerber \u00fcber die zum F\u00fchren eines Kraftfahrzeugs erforderlichen Kenntnisse und F\u00e4higkeiten verf\u00fcgt (\u00a7\u00a7 6 Abs. 1 und 7 Abs. 2 FahrschAusbO).';
     var bestLines = doc.splitTextToSize(bestText, cw);
     doc.text(bestLines, ml, y);
     y += bestLines.length * 3.8 + 4;
 
+    // Hinweis
     doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5);
     var hinweisText = isTheorie
-      ? 'Hinweis: Die Wiederholung der theoretischen Pruefung ist fruehestens nach 3 Tagen zulaessig, sofern keine schwerwiegenden Maengel vorliegen (max. 14 Fehlerpunkte bei Klassen C/D bzw. 9 bei uebrigen Klassen). Gebuehr: 29,16 EUR (Nr. 499 GebOSt).'
-      : 'Hinweis: Die Wiederholung der praktischen Pruefung ist fruehestens nach 7 Tagen zulaessig, sofern keine schwerwiegenden Maengel festgestellt wurden. Gebuehr: 29,16 EUR (Nr. 499 GebOSt).';
+      ? 'Hinweis: Die Wiederholung der theoretischen Pr\u00fcfung ist fr\u00fchestens nach 3 Tagen zul\u00e4ssig, sofern keine schwerwiegenden M\u00e4ngel vorliegen (max. 14 Fehlerpunkte bei Klassen C/D bzw. 9 bei \u00fcbrigen Klassen). Geb\u00fchr: 29,16 EUR (Nr. 499 GebOSt).'
+      : 'Hinweis: Die Wiederholung der praktischen Pr\u00fcfung ist fr\u00fchestens nach 7 Tagen zul\u00e4ssig, sofern keine schwerwiegenden M\u00e4ngel festgestellt wurden. Geb\u00fchr: 29,16 EUR (Nr. 499 GebOSt).';
     var hinweisLines = doc.splitTextToSize(hinweisText, cw);
     doc.text(hinweisLines, ml, y);
-    y += hinweisLines.length * 3.3 + 5;
+    y += hinweisLines.length * 3.3 + 8;
     doc.setFont('helvetica', 'normal');
 
     // Unterschriften (Antragsteller + Fahrschule)
@@ -4273,30 +4251,10 @@ var App = {
     doc.setFontSize(7);
     doc.text('Ort, Datum, Unterschrift Fahrerlaubnisbewerber', ml, y + 11);
     doc.text('Ort, Datum, Unterschrift Fahrschule / Stempel', ml + sigW + 8, y + 11);
-    y += 18;
 
-    // Entscheidungsfeld (Behoerde)
-    doc.setDrawColor(150); doc.setLineWidth(0.2);
-    doc.line(ml, y, ml + cw, y);
-    doc.setDrawColor(0); doc.setLineWidth(0.3);
-    y += 3;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-    doc.text('Entscheidung der Fahrerlaubnisbehoerde (nur von der Behoerde auszufuellen)', ml, y); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-    doc.rect(ml, y - 3, 3.5, 3.5);
-    doc.text('stattgegeben', ml + 5, y);
-    doc.rect(ml + 42, y - 3, 3.5, 3.5);
-    doc.text('nicht stattgegeben', ml + 47, y);
-    y += 8;
-    drawLine(ml, y + 5, ml + sigW, y + 5);
-    drawLine(ml + sigW + 8, y + 5, ml + cw, y + 5);
-    doc.setFontSize(7);
-    doc.text('Ort, Datum, Unterschrift Regionalleitung', ml, y + 8);
-    doc.text('Sachbearbeiter/in FE-Buero', ml + sigW + 8, y + 8);
-
-    var nameForFile = opts.leer ? 'Blanko' : (data.student.name || 'Schueler').replace(/\s+/g, '_');
+    var nameForFile = opts.leer ? 'Blanko' : (data.student.name || 'Sch\u00fcler').replace(/\s+/g, '_');
     var suffix = isTheorie ? 'Theorie' : 'Praxis';
-    var fileName = 'Fristverkuerzung_' + suffix + '_' + nameForFile + '.pdf';
+    var fileName = 'Fristverk\u00fcrzung_' + suffix + '_' + nameForFile + '.pdf';
     doc.save(fileName);
     this.showToast(t('pdfErstellt'));
   },
