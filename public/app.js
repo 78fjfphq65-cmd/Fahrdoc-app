@@ -3561,6 +3561,7 @@ var App = {
         '<div class="profile-row"><span class="profile-row-label">' + t('adresse') + '</span><span class="profile-row-value">' + (u.address || '—') + '</span></div>' +
       '</div>' +
       '<div id="profile-abo-section"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>' +
+      '<div id="profile-billing-settings-section"></div>' +
       '<div id="profile-pricing-section"></div>' +
       '<div class="card mb-4"><div class="section-title mb-3">' + t('supportFeedback') + '</div>' +
         '<div class="form-group mb-3"><label class="form-label">' + t('feedbackKategorie') + '</label>' +
@@ -3580,6 +3581,90 @@ var App = {
     this._loadProfileAbo();
     // Load pricing templates (nur Fahrschule sieht/aendert)
     this._loadPricingTemplates();
+    // Load billing settings (nur Fahrschule)
+    this._loadBillingSettings();
+  },
+
+  _loadBillingSettings: async function() {
+    var container = document.getElementById('profile-billing-settings-section');
+    if (!container) return;
+    var u = AppState.currentUser;
+    if (u.role !== 'school') { container.innerHTML = ''; return; }
+    container.innerHTML = '<div class="card mb-4"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>';
+    try {
+      var s = await ApiClient.get('/api/school/settings');
+      this._renderBillingSettings(s || {});
+    } catch (err) {
+      container.innerHTML = '<div class="card mb-4"><p class="text-sm text-muted">Buchhaltungs-Einstellungen: ' + (err.message || err) + '</p></div>';
+    }
+  },
+
+  _renderBillingSettings: function(s) {
+    var container = document.getElementById('profile-billing-settings-section');
+    if (!container) return;
+    var taxMode = s.tax_mode || 'kleinunternehmer';
+    var taxRate = (s.tax_rate_percent != null) ? s.tax_rate_percent : 19;
+    var esc = App._escapeHtml || function(x){ return x == null ? '' : String(x); };
+    var html = '<div class="card mb-4">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin-bottom:var(--space-3);">' +
+        '<div class="section-title" style="margin:0;">\ud83e\uddfe Rechnungs-Einstellungen</div>' +
+      '</div>' +
+      '<div style="font-size:var(--text-sm);color:var(--text-muted);margin-bottom:var(--space-3);">Diese Angaben erscheinen auf den PDF-Rechnungen.</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">' +
+        '<div class="form-group" style="grid-column:1/-1;"><label class="form-label">USt-Modus</label>' +
+          '<select class="form-select" id="bs-tax-mode" onchange="App._toggleTaxRateField()">' +
+            '<option value="kleinunternehmer"' + (taxMode === 'kleinunternehmer' ? ' selected' : '') + '>Kleinunternehmer (\u00a719 UStG \u2014 keine MwSt)</option>' +
+            '<option value="regelbesteuerung"' + (taxMode === 'regelbesteuerung' ? ' selected' : '') + '>Regelbesteuerung (mit MwSt-Ausweis)</option>' +
+          '</select></div>' +
+        '<div class="form-group" id="bs-tax-rate-wrap" style="' + (taxMode === 'regelbesteuerung' ? '' : 'display:none;') + '"><label class="form-label">MwSt-Satz (%)</label>' +
+          '<input type="number" step="0.01" min="0" max="99" class="form-input" id="bs-tax-rate" value="' + esc(taxRate) + '"></div>' +
+        '<div class="form-group"><label class="form-label">USt-IdNr (optional)</label>' +
+          '<input type="text" class="form-input" id="bs-tax-id" value="' + esc(s.tax_id || '') + '" placeholder="DE123456789"></div>' +
+        '<div class="form-group" style="grid-column:1/-1;"><label class="form-label">Stra\u00dfe + Nr.</label>' +
+          '<input type="text" class="form-input" id="bs-addr1" value="' + esc(s.address_line1 || '') + '" placeholder="Musterstra\u00dfe 12"></div>' +
+        '<div class="form-group"><label class="form-label">PLZ</label>' +
+          '<input type="text" class="form-input" id="bs-plz" value="' + esc(s.postal_code || '') + '" placeholder="10115"></div>' +
+        '<div class="form-group"><label class="form-label">Stadt</label>' +
+          '<input type="text" class="form-input" id="bs-city" value="' + esc(s.city || '') + '" placeholder="Berlin"></div>' +
+        '<div class="form-group"><label class="form-label">Telefon</label>' +
+          '<input type="text" class="form-input" id="bs-phone" value="' + esc(s.phone || '') + '" placeholder="030 12345678"></div>' +
+        '<div class="form-group" style="grid-column:1/-1;"><label class="form-label">Bankverbindung (IBAN/BIC, optional)</label>' +
+          '<textarea class="form-textarea" id="bs-bank" rows="2" placeholder="IBAN: DE89 3704 0044 0532 0130 00\u000ABIC: COBADEFFXXX">' + esc(s.bank_info || '') + '</textarea></div>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end;margin-top:var(--space-3);">' +
+        '<button class="btn btn-primary" id="bs-save-btn" onclick="App._saveBillingSettings()">Speichern</button>' +
+      '</div>' +
+    '</div>';
+    container.innerHTML = html;
+  },
+
+  _toggleTaxRateField: function() {
+    var mode = (document.getElementById('bs-tax-mode') || {}).value;
+    var wrap = document.getElementById('bs-tax-rate-wrap');
+    if (wrap) wrap.style.display = (mode === 'regelbesteuerung') ? '' : 'none';
+  },
+
+  _saveBillingSettings: async function() {
+    var btn = document.getElementById('bs-save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Speichert...'; }
+    try {
+      var body = {
+        tax_mode: (document.getElementById('bs-tax-mode') || {}).value || 'kleinunternehmer',
+        tax_rate_percent: parseFloat((document.getElementById('bs-tax-rate') || {}).value || '0') || 0,
+        tax_id: (document.getElementById('bs-tax-id') || {}).value || null,
+        address_line1: (document.getElementById('bs-addr1') || {}).value || null,
+        postal_code: (document.getElementById('bs-plz') || {}).value || null,
+        city: (document.getElementById('bs-city') || {}).value || null,
+        phone: (document.getElementById('bs-phone') || {}).value || null,
+        bank_info: (document.getElementById('bs-bank') || {}).value || null
+      };
+      await ApiClient.put('/api/school/settings', body);
+      App.showToast('Gespeichert');
+    } catch (err) {
+      App.showToast('Fehler: ' + (err.message || err));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Speichern'; }
+    }
   },
 
   _loadPricingTemplates: async function() {
@@ -4142,6 +4227,7 @@ var App = {
             '<div class="section-title" style="margin:0;">\ud83d\udcb6 Abrechnung</div>' +
             '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">' +
               '<button class="btn btn-sm btn-secondary" onclick="App.openAddChargeDialog(\'' + studentId + '\')">+ Position</button>' +
+              '<button class="btn btn-sm btn-secondary" onclick="App.openCreateInvoiceDialog(\'' + studentId + '\')">\ud83d\udcc4 Rechnung</button>' +
               '<button class="btn btn-sm btn-primary" onclick="App.openAddPaymentDialog(\'' + studentId + '\')">+ Zahlung</button>' +
             '</div>' +
           '</div>' +
@@ -4184,6 +4270,10 @@ var App = {
       var summary = data.summary || { total_charges_cents: 0, total_paid_cents: 0, open_cents: 0 };
       var charges = data.charges || [];
       var payments = data.payments || [];
+      var invoices = data.invoices || [];
+      // Im Soll-Tab Cache fuer offene Charges (zum Rechnungs-Dialog)
+      App._billingCache = App._billingCache || {};
+      App._billingCache[studentId] = { charges: charges, invoices: invoices, payments: payments };
       var openColor = summary.open_cents > 0 ? '#dc2626' : (summary.open_cents < 0 ? '#0d9488' : 'var(--text-muted)');
       var openLabel = summary.open_cents > 0 ? 'Offen' : (summary.open_cents < 0 ? 'Guthaben' : 'Ausgeglichen');
       var openValue = summary.open_cents > 0 ? this._formatEur(summary.open_cents) : (summary.open_cents < 0 ? this._formatEur(-summary.open_cents) : this._formatEur(0));
@@ -4204,10 +4294,11 @@ var App = {
         '</div>' +
       '</div>';
 
-      // Tabs Soll / Ist
-      h += '<div style="display:flex;gap:var(--space-2);margin-bottom:var(--space-3);border-bottom:1px solid var(--border-color);">' +
-        '<button class="billing-tab-btn" data-tab="soll" onclick="App.switchBillingTab(\'' + studentId + '\',\'soll\',this)" style="padding:8px 16px;border:none;background:none;font-weight:600;border-bottom:2px solid var(--color-primary);color:var(--color-primary);cursor:pointer;">Soll-Positionen (' + charges.length + ')</button>' +
-        '<button class="billing-tab-btn" data-tab="ist" onclick="App.switchBillingTab(\'' + studentId + '\',\'ist\',this)" style="padding:8px 16px;border:none;background:none;font-weight:600;border-bottom:2px solid transparent;color:var(--text-muted);cursor:pointer;">Ist-Zahlungen (' + payments.length + ')</button>' +
+      // Tabs Soll / Rechnungen / Ist
+      h += '<div style="display:flex;gap:var(--space-2);margin-bottom:var(--space-3);border-bottom:1px solid var(--border-color);overflow-x:auto;">' +
+        '<button class="billing-tab-btn" data-tab="soll" onclick="App.switchBillingTab(\'' + studentId + '\',\'soll\',this)" style="padding:8px 16px;border:none;background:none;font-weight:600;border-bottom:2px solid var(--color-primary);color:var(--color-primary);cursor:pointer;white-space:nowrap;">Soll-Positionen (' + charges.length + ')</button>' +
+        '<button class="billing-tab-btn" data-tab="inv" onclick="App.switchBillingTab(\'' + studentId + '\',\'inv\',this)" style="padding:8px 16px;border:none;background:none;font-weight:600;border-bottom:2px solid transparent;color:var(--text-muted);cursor:pointer;white-space:nowrap;">Rechnungen (' + invoices.length + ')</button>' +
+        '<button class="billing-tab-btn" data-tab="ist" onclick="App.switchBillingTab(\'' + studentId + '\',\'ist\',this)" style="padding:8px 16px;border:none;background:none;font-weight:600;border-bottom:2px solid transparent;color:var(--text-muted);cursor:pointer;white-space:nowrap;">Ist-Zahlungen (' + payments.length + ')</button>' +
       '</div>';
 
       // Soll-Liste
@@ -4226,13 +4317,50 @@ var App = {
           '</tr></thead><tbody>';
         charges.forEach(function(c){
           var sourceTag = c.source === 'auto' ? '<span class="badge badge-muted" style="font-size:10px;margin-left:6px;">auto</span>' : '';
-          h += '<tr style="border-bottom:1px solid var(--border-color);">' +
+          var invTag = c.invoice_id ? '<span class="badge" style="font-size:10px;margin-left:6px;background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:3px;">in Rechnung</span>' : '';
+          var delBtn = c.invoice_id
+            ? '<span style="font-size:11px;color:var(--text-muted);">\u2014</span>'
+            : '<button class="btn btn-sm" style="padding:4px 8px;background:transparent;color:#dc2626;border:1px solid #dc2626;" onclick="App.deleteCharge(\'' + c.id + '\',\'' + studentId + '\')">\u00d7</button>';
+          h += '<tr style="border-bottom:1px solid var(--border-color);' + (c.invoice_id ? 'background:#f8fafc;' : '') + '">' +
             '<td style="padding:8px 6px;white-space:nowrap;">' + App._formatDateDe(c.charge_date) + '</td>' +
-            '<td style="padding:8px 6px;">' + (c.description || '\u2014') + sourceTag + '</td>' +
+            '<td style="padding:8px 6px;">' + (c.description || '\u2014') + sourceTag + invTag + '</td>' +
             '<td style="padding:8px 6px;text-align:right;">' + App._formatEur(c.unit_price_cents) + '</td>' +
             '<td style="padding:8px 6px;text-align:right;">' + (c.quantity || 1) + '</td>' +
             '<td style="padding:8px 6px;text-align:right;font-weight:600;">' + App._formatEur(c.total_cents) + '</td>' +
-            '<td style="padding:8px 6px;text-align:right;"><button class="btn btn-sm" style="padding:4px 8px;background:transparent;color:#dc2626;border:1px solid #dc2626;" onclick="App.deleteCharge(\'' + c.id + '\',\'' + studentId + '\')">\u00d7</button></td>' +
+            '<td style="padding:8px 6px;text-align:right;">' + delBtn + '</td>' +
+          '</tr>';
+        });
+        h += '</tbody></table></div>';
+      }
+      h += '</div>';
+
+      // Rechnungs-Liste
+      h += '<div id="billing-tab-inv-' + studentId + '" style="display:none;">';
+      if (invoices.length === 0) {
+        h += '<p style="font-size:var(--text-sm);color:var(--text-muted);text-align:center;padding:var(--space-4);">Noch keine Rechnungen. W\u00e4hle offene Positionen aus und klicke oben auf \u201eRechnung\u201c.</p>';
+      } else {
+        h += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:var(--text-sm);">' +
+          '<thead><tr style="text-align:left;border-bottom:1px solid var(--border-color);color:var(--text-muted);font-size:var(--text-xs);text-transform:uppercase;">' +
+            '<th style="padding:8px 6px;">Nr.</th>' +
+            '<th style="padding:8px 6px;">Datum</th>' +
+            '<th style="padding:8px 6px;">Status</th>' +
+            '<th style="padding:8px 6px;text-align:right;">Brutto</th>' +
+            '<th style="padding:8px 6px;text-align:right;">Aktion</th>' +
+          '</tr></thead><tbody>';
+        invoices.forEach(function(inv){
+          var statusColors = { 'offen': '#b45309', 'teilbezahlt': '#1e40af', 'bezahlt': '#0d9488', 'storniert': '#6b7280' };
+          var statusBg = { 'offen': '#fef3c7', 'teilbezahlt': '#dbeafe', 'bezahlt': '#d1fae5', 'storniert': '#e5e7eb' };
+          var col = statusColors[inv.status] || '#374151';
+          var bg = statusBg[inv.status] || '#f3f4f6';
+          var cancelBtn = (inv.status !== 'storniert' && inv.status !== 'bezahlt')
+            ? '<button class="btn btn-sm" style="padding:4px 8px;background:transparent;color:#dc2626;border:1px solid #dc2626;margin-left:4px;" onclick="App.cancelInvoice(\'' + inv.id + '\',\'' + studentId + '\')">Storno</button>'
+            : '';
+          h += '<tr style="border-bottom:1px solid var(--border-color);">' +
+            '<td style="padding:8px 6px;font-weight:600;">' + (inv.invoice_number || '\u2014') + '</td>' +
+            '<td style="padding:8px 6px;white-space:nowrap;">' + App._formatDateDe(inv.invoice_date) + '</td>' +
+            '<td style="padding:8px 6px;"><span style="background:' + bg + ';color:' + col + ';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase;">' + inv.status + '</span></td>' +
+            '<td style="padding:8px 6px;text-align:right;font-weight:600;">' + App._formatEur(inv.total_cents) + '</td>' +
+            '<td style="padding:8px 6px;text-align:right;white-space:nowrap;"><button class="btn btn-sm btn-primary" style="padding:4px 8px;" onclick="App.openInvoicePdf(\'' + inv.id + '\')">PDF</button>' + cancelBtn + '</td>' +
           '</tr>';
         });
         h += '</tbody></table></div>';
@@ -4274,8 +4402,10 @@ var App = {
   switchBillingTab: function(studentId, tab, btn) {
     var sollEl = document.getElementById('billing-tab-soll-' + studentId);
     var istEl = document.getElementById('billing-tab-ist-' + studentId);
+    var invEl = document.getElementById('billing-tab-inv-' + studentId);
     if (sollEl) sollEl.style.display = (tab === 'soll') ? '' : 'none';
     if (istEl) istEl.style.display = (tab === 'ist') ? '' : 'none';
+    if (invEl) invEl.style.display = (tab === 'inv') ? '' : 'none';
     // Tab-Styling
     var cardEl = btn ? btn.closest('.card') : null;
     if (cardEl) {
@@ -4363,7 +4493,20 @@ var App = {
 
   openAddPaymentDialog: async function(studentId) {
     var todayStr = new Date().toISOString().split('T')[0];
+    // Offene Rechnungen aus Cache laden (oder neu fetchen)
+    var cached = (App._billingCache && App._billingCache[studentId]) || null;
+    var invoices = (cached && cached.invoices) || [];
+    var openInvoices = invoices.filter(function(i){ return i.status === 'offen' || i.status === 'teilbezahlt'; });
+    var invOptions = '<option value="">\u2014 keiner Rechnung zuordnen \u2014</option>';
+    openInvoices.forEach(function(inv){
+      invOptions += '<option value="' + inv.id + '" data-total="' + inv.total_cents + '">'
+        + 'Rechnung ' + inv.invoice_number + ' \u00b7 ' + App._formatEur(inv.total_cents) + ' \u00b7 ' + inv.status
+        + '</option>';
+    });
     var html = '<div style="display:flex;flex-direction:column;gap:var(--space-3);">' +
+      '<div class="form-group"><label class="form-label">Rechnung (optional)</label>' +
+        '<select class="form-select" id="pay-invoice" onchange="App._prefillPaymentFromInvoice()">' + invOptions + '</select>' +
+        '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Wenn eine Rechnung gew\u00e4hlt ist, wird der offene Restbetrag vorgeschlagen und die Rechnung automatisch als bezahlt markiert.</div></div>' +
       '<div class="form-group"><label class="form-label">Betrag (\u20ac) *</label>' +
         '<input type="number" step="0.01" min="0" class="form-input" id="pay-amount" placeholder="0.00"></div>' +
       '<div class="form-group"><label class="form-label">Datum</label>' +
@@ -4376,7 +4519,7 @@ var App = {
           '<option value="paypal">PayPal</option>' +
           '<option value="sonstiges">Sonstiges</option>' +
         '</select></div>' +
-      '<div class="form-group"><label class="form-label">Referenz / Rechnungsnr.</label>' +
+      '<div class="form-group"><label class="form-label">Referenz</label>' +
         '<input type="text" class="form-input" id="pay-ref" placeholder="optional"></div>' +
       '<div class="form-group"><label class="form-label">Notiz</label>' +
         '<textarea class="form-textarea" id="pay-notes" rows="2"></textarea></div>' +
@@ -4388,12 +4531,22 @@ var App = {
     App.openModal('Zahlung erfassen', html);
   },
 
+  _prefillPaymentFromInvoice: function() {
+    var sel = document.getElementById('pay-invoice'); if (!sel) return;
+    var amtInput = document.getElementById('pay-amount'); if (!amtInput) return;
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) return;
+    var totalCents = parseInt(opt.getAttribute('data-total') || '0');
+    if (totalCents > 0 && !amtInput.value) amtInput.value = (totalCents / 100).toFixed(2);
+  },
+
   _savePayment: async function(studentId) {
     var amountVal = parseFloat((document.getElementById('pay-amount') || {}).value || '0');
     var date = (document.getElementById('pay-date') || {}).value || null;
     var method = (document.getElementById('pay-method') || {}).value || 'bar';
     var ref = (document.getElementById('pay-ref') || {}).value || null;
     var notes = (document.getElementById('pay-notes') || {}).value || null;
+    var invoiceId = (document.getElementById('pay-invoice') || {}).value || null;
     if (!(amountVal > 0)) return App.showToast('Betrag ung\u00fcltig');
     try {
       await ApiClient.post('/api/students/' + studentId + '/payments', {
@@ -4401,12 +4554,245 @@ var App = {
         payment_date: date,
         payment_method: method,
         reference: ref,
-        notes: notes
+        notes: notes,
+        invoice_id: invoiceId
       });
       App.closeModal();
       App.showToast('Zahlung erfasst');
       App.renderStudentBilling(studentId);
     } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+  },
+
+  // ════════════════════════════════
+  //  BUCHHALTUNG PHASE 2: Rechnungen
+  // ════════════════════════════════
+  openCreateInvoiceDialog: async function(studentId) {
+    // Frische Daten holen damit invoice_id-Status aktuell ist
+    var data;
+    try { data = await ApiClient.get('/api/students/' + studentId + '/billing'); }
+    catch (err) { return App.showToast('Fehler: ' + (err.message || err)); }
+    var allCharges = data.charges || [];
+    var openCharges = allCharges.filter(function(c){ return !c.invoice_id; });
+    if (openCharges.length === 0) {
+      App.openModal('Rechnung erstellen', '<p style="font-size:var(--text-sm);color:var(--text-muted);">Keine offenen Positionen vorhanden. Alle Soll-Positionen sind bereits einer Rechnung zugeordnet.</p>' +
+        '<div style="display:flex;justify-content:flex-end;margin-top:var(--space-4);"><button class="btn btn-secondary" onclick="App.closeModalForce()">OK</button></div>');
+      return;
+    }
+    var todayStr = new Date().toISOString().split('T')[0];
+    // Standard-Faelligkeit: 14 Tage
+    var due = new Date(); due.setDate(due.getDate() + 14);
+    var dueStr = due.toISOString().split('T')[0];
+    var rowsHtml = '';
+    openCharges.forEach(function(c){
+      rowsHtml += '<tr style="border-bottom:1px solid var(--border-color);">' +
+        '<td style="padding:8px 6px;"><input type="checkbox" class="inv-charge-cb" data-id="' + c.id + '" data-total="' + c.total_cents + '" checked onchange="App._updateInvoicePreview()"></td>' +
+        '<td style="padding:8px 6px;white-space:nowrap;">' + App._formatDateDe(c.charge_date) + '</td>' +
+        '<td style="padding:8px 6px;">' + (c.description || '\u2014') + '</td>' +
+        '<td style="padding:8px 6px;text-align:right;font-weight:600;">' + App._formatEur(c.total_cents) + '</td>' +
+      '</tr>';
+    });
+    var html = '<div style="display:flex;flex-direction:column;gap:var(--space-3);max-width:720px;">' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">' +
+        '<div class="form-group"><label class="form-label">Rechnungsdatum</label>' +
+          '<input type="date" class="form-input" id="inv-date" value="' + todayStr + '"></div>' +
+        '<div class="form-group"><label class="form-label">F\u00e4llig am</label>' +
+          '<input type="date" class="form-input" id="inv-due" value="' + dueStr + '"></div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">Notiz / Zahlungshinweis (optional)</label>' +
+        '<textarea class="form-textarea" id="inv-notes" rows="2" placeholder="z.B. Bitte \u00fcberweisen Sie den Betrag innerhalb von 14 Tagen."></textarea></div>' +
+      '<div style="font-size:var(--text-sm);font-weight:600;">Positionen ausw\u00e4hlen</div>' +
+      '<div style="overflow-x:auto;max-height:300px;overflow-y:auto;border:1px solid var(--border-color);border-radius:var(--radius-md);">' +
+        '<table style="width:100%;border-collapse:collapse;font-size:var(--text-sm);">' +
+          '<thead style="position:sticky;top:0;background:var(--bg-elevated);"><tr style="text-align:left;color:var(--text-muted);font-size:var(--text-xs);text-transform:uppercase;">' +
+            '<th style="padding:8px 6px;width:40px;"><input type="checkbox" id="inv-cb-all" checked onchange="App._toggleAllInvoiceCharges(this.checked)"></th>' +
+            '<th style="padding:8px 6px;">Datum</th>' +
+            '<th style="padding:8px 6px;">Beschreibung</th>' +
+            '<th style="padding:8px 6px;text-align:right;">Betrag</th>' +
+          '</tr></thead><tbody>' + rowsHtml + '</tbody></table>' +
+      '</div>' +
+      '<div style="background:var(--bg-elevated);padding:var(--space-3);border-radius:var(--radius-md);">' +
+        '<div style="display:flex;justify-content:space-between;font-size:var(--text-sm);"><span>Ausgew\u00e4hlt:</span><span id="inv-sum" style="font-weight:700;">' + App._formatEur(0) + '</span></div>' +
+        '<div id="inv-tax-note" style="font-size:11px;color:var(--text-muted);margin-top:4px;"></div>' +
+      '</div>' +
+    '</div>';
+    html += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-top:var(--space-4);">' +
+      '<button class="btn btn-secondary" onclick="App.closeModalForce()">Abbrechen</button>' +
+      '<button class="btn btn-primary" id="inv-create-btn" onclick="App._saveInvoice(\'' + studentId + '\')">Rechnung erstellen</button>' +
+    '</div>';
+    App.openModal('Rechnung erstellen', html);
+    // Initial Summe + USt-Hinweis
+    setTimeout(function(){ App._updateInvoicePreview(); }, 50);
+    // USt-Modus laden
+    ApiClient.get('/api/school/settings').then(function(s){
+      var note = document.getElementById('inv-tax-note'); if (!note) return;
+      if (s && s.tax_mode === 'regelbesteuerung') {
+        note.textContent = 'USt-Modus: Regelbesteuerung (' + (s.tax_rate_percent || 19) + '% MwSt wird auf die Summe aufgeschlagen)';
+      } else {
+        note.textContent = 'USt-Modus: Kleinunternehmer (\u00a719 UStG \u2014 kein MwSt-Ausweis)';
+      }
+    }).catch(function(){});
+  },
+
+  _toggleAllInvoiceCharges: function(checked) {
+    var cbs = document.querySelectorAll('.inv-charge-cb');
+    cbs.forEach(function(cb){ cb.checked = !!checked; });
+    App._updateInvoicePreview();
+  },
+
+  _updateInvoicePreview: function() {
+    var cbs = document.querySelectorAll('.inv-charge-cb');
+    var sum = 0;
+    cbs.forEach(function(cb){ if (cb.checked) sum += parseInt(cb.getAttribute('data-total') || '0'); });
+    var el = document.getElementById('inv-sum'); if (el) el.textContent = App._formatEur(sum);
+  },
+
+  _saveInvoice: async function(studentId) {
+    var date = (document.getElementById('inv-date') || {}).value || null;
+    var due = (document.getElementById('inv-due') || {}).value || null;
+    var notes = (document.getElementById('inv-notes') || {}).value || null;
+    var cbs = document.querySelectorAll('.inv-charge-cb');
+    var ids = [];
+    cbs.forEach(function(cb){ if (cb.checked) ids.push(cb.getAttribute('data-id')); });
+    if (ids.length === 0) return App.showToast('Mindestens eine Position ausw\u00e4hlen');
+    var btn = document.getElementById('inv-create-btn'); if (btn) { btn.disabled = true; btn.textContent = 'Wird erstellt...'; }
+    try {
+      var res = await ApiClient.post('/api/invoices', {
+        student_id: studentId,
+        charge_ids: ids,
+        invoice_date: date,
+        due_date: due,
+        notes: notes
+      });
+      App.closeModal();
+      App.showToast('Rechnung ' + (res.invoice && res.invoice.invoice_number || '') + ' erstellt');
+      App.renderStudentBilling(studentId);
+      // PDF gleich oeffnen
+      if (res.invoice && res.invoice.id) setTimeout(function(){ App.openInvoicePdf(res.invoice.id); }, 400);
+    } catch (err) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Rechnung erstellen'; }
+      App.showToast('Fehler: ' + (err.message || err));
+    }
+  },
+
+  cancelInvoice: async function(invoiceId, studentId) {
+    if (!confirm('Rechnung wirklich stornieren? Die Positionen werden wieder freigegeben.')) return;
+    var reason = prompt('Stornierungsgrund (optional):') || null;
+    try {
+      await ApiClient.post('/api/invoices/' + invoiceId + '/cancel', { reason: reason });
+      App.showToast('Rechnung storniert');
+      App.renderStudentBilling(studentId);
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+  },
+
+  openInvoicePdf: async function(invoiceId) {
+    App.showToast('Rechnung wird erzeugt...');
+    var data;
+    try { data = await ApiClient.get('/api/invoices/' + invoiceId); }
+    catch (err) { return App.showToast('Fehler: ' + (err.message || err)); }
+    if (!window.jspdf || !window.jspdf.jsPDF) return App.showToast('PDF-Bibliothek wird geladen, bitte nochmal versuchen...');
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    var inv = data.invoice, items = data.items || [], school = data.school || {}, student = data.student || {};
+    var fmtE = App._formatEur, fmtD = App._formatDateDe;
+    var pageW = 210, pageH = 297, margin = 20, y = margin;
+
+    // Absender-Zeile klein
+    doc.setFontSize(8); doc.setTextColor(120);
+    var senderLine = (school.name || '') + (school.address_line1 ? ' \u00b7 ' + school.address_line1 : '') +
+      ((school.postal_code || school.city) ? ' \u00b7 ' + [school.postal_code, school.city].filter(Boolean).join(' ') : '');
+    if (senderLine.trim()) { doc.text(senderLine, margin, y); doc.line(margin, y + 1, pageW - margin, y + 1); }
+    y += 8;
+
+    // Empfaenger
+    doc.setFontSize(11); doc.setTextColor(0);
+    doc.text('An', margin, y); y += 5;
+    doc.setFontSize(12); doc.text(student.name || inv.student_name_snapshot || '', margin, y); y += 6;
+
+    // Rechnungs-Header rechts
+    doc.setFontSize(20); doc.setFont(undefined, 'bold'); doc.text('Rechnung', pageW - margin, margin + 8, { align: 'right' });
+    doc.setFont(undefined, 'normal'); doc.setFontSize(10);
+    doc.text('Rechnungsnr.: ' + (inv.invoice_number || ''), pageW - margin, margin + 16, { align: 'right' });
+    doc.text('Datum: ' + fmtD(inv.invoice_date), pageW - margin, margin + 22, { align: 'right' });
+    if (inv.due_date) doc.text('F\u00e4llig: ' + fmtD(inv.due_date), pageW - margin, margin + 28, { align: 'right' });
+
+    y = Math.max(y, margin + 38);
+    y += 8;
+
+    // Storno-Banner
+    if (inv.status === 'storniert') {
+      doc.setFillColor(254, 226, 226); doc.rect(margin, y, pageW - 2*margin, 10, 'F');
+      doc.setTextColor(153, 27, 27); doc.setFont(undefined, 'bold'); doc.setFontSize(11);
+      doc.text('STORNIERT' + (inv.cancel_reason ? ' \u00b7 ' + inv.cancel_reason : ''), margin + 3, y + 7);
+      doc.setTextColor(0); doc.setFont(undefined, 'normal'); y += 14;
+    }
+
+    // Tabellenkopf
+    doc.setFontSize(10); doc.setFont(undefined, 'bold');
+    doc.setFillColor(243, 244, 246); doc.rect(margin, y, pageW - 2*margin, 8, 'F');
+    doc.text('Pos', margin + 2, y + 5.5);
+    doc.text('Beschreibung', margin + 14, y + 5.5);
+    doc.text('Menge', pageW - margin - 60, y + 5.5, { align: 'right' });
+    doc.text('Einzel', pageW - margin - 30, y + 5.5, { align: 'right' });
+    doc.text('Gesamt', pageW - margin - 2, y + 5.5, { align: 'right' });
+    y += 10;
+    doc.setFont(undefined, 'normal');
+
+    items.forEach(function(it, i){
+      if (y > pageH - 60) { doc.addPage(); y = margin; }
+      var desc = it.description || '';
+      var lines = doc.splitTextToSize(desc, pageW - 2*margin - 80);
+      var rowH = Math.max(7, lines.length * 5 + 2);
+      doc.text(String(i + 1), margin + 2, y + 5);
+      doc.text(lines, margin + 14, y + 5);
+      doc.text(String(it.quantity || 1), pageW - margin - 60, y + 5, { align: 'right' });
+      doc.text(fmtE(it.unit_price_cents), pageW - margin - 30, y + 5, { align: 'right' });
+      doc.text(fmtE(it.total_cents), pageW - margin - 2, y + 5, { align: 'right' });
+      y += rowH;
+      doc.setDrawColor(229, 231, 235); doc.line(margin, y, pageW - margin, y);
+    });
+
+    // Summen
+    y += 6;
+    var labelX = pageW - margin - 60, valueX = pageW - margin - 2;
+    doc.text('Zwischensumme', labelX, y, { align: 'right' });
+    doc.text(fmtE(inv.subtotal_cents), valueX, y, { align: 'right' }); y += 6;
+    if (inv.tax_mode === 'regelbesteuerung' && inv.tax_cents > 0) {
+      doc.text('zzgl. ' + inv.tax_rate_percent + '% MwSt', labelX, y, { align: 'right' });
+      doc.text(fmtE(inv.tax_cents), valueX, y, { align: 'right' }); y += 6;
+    }
+    doc.setFont(undefined, 'bold'); doc.setFontSize(12);
+    doc.text('Gesamtbetrag', labelX, y + 1, { align: 'right' });
+    doc.text(fmtE(inv.total_cents), valueX, y + 1, { align: 'right' });
+    doc.setFont(undefined, 'normal'); doc.setFontSize(10);
+    y += 12;
+
+    // USt-Hinweis Kleinunternehmer
+    if (inv.tax_mode === 'kleinunternehmer') {
+      var ukLines = doc.splitTextToSize('Gem\u00e4\u00df \u00a7 19 UStG wird keine Umsatzsteuer berechnet.', pageW - 2*margin);
+      doc.setTextColor(80); doc.text(ukLines, margin, y); doc.setTextColor(0);
+      y += ukLines.length * 5;
+    }
+
+    if (inv.notes) {
+      y += 4;
+      var noteLines = doc.splitTextToSize(inv.notes, pageW - 2*margin);
+      doc.text(noteLines, margin, y); y += noteLines.length * 5;
+    }
+
+    // Footer
+    var footerY = pageH - 18;
+    doc.setDrawColor(229, 231, 235); doc.line(margin, footerY - 4, pageW - margin, footerY - 4);
+    doc.setFontSize(8); doc.setTextColor(120);
+    var footerL = [school.name || '', school.address_line1 || '', [school.postal_code, school.city].filter(Boolean).join(' ')].filter(Boolean).join(' \u00b7 ');
+    var footerR = (school.phone ? 'Tel: ' + school.phone : '') + (school.email ? '  \u00b7  ' + school.email : '');
+    doc.text(footerL, margin, footerY);
+    if (school.bank_info) doc.text(String(school.bank_info), margin, footerY + 5);
+    if (school.tax_id) doc.text('USt-IdNr: ' + school.tax_id, pageW - margin, footerY, { align: 'right' });
+    if (footerR) doc.text(footerR, pageW - margin, footerY + 5, { align: 'right' });
+
+    var fileName = 'Rechnung_' + (inv.invoice_number || inv.id) + '_' + (student.name || 'Schueler').replace(/\s+/g, '_') + '.pdf';
+    doc.save(fileName);
+    App.showToast('Rechnung erstellt');
   },
 
   deleteCharge: async function(chargeId, studentId) {

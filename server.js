@@ -4073,19 +4073,22 @@ app.get('/api/students/:id/billing', authMiddleware, async (req, res) => {
   try {
     const allowed = await canAccessStudent(req, req.params.id);
     if (!allowed) return res.status(403).json({ error: 'Keine Berechtigung' });
-    const [chargesRes, paymentsRes, studentRes] = await Promise.all([
+    const [chargesRes, paymentsRes, studentRes, invoicesRes] = await Promise.all([
       supabase.from('student_charges').select('*').eq('student_id', req.params.id).order('charge_date', { ascending: false }).order('created_at', { ascending: false }),
       supabase.from('student_payments').select('*').eq('student_id', req.params.id).order('payment_date', { ascending: false }).order('created_at', { ascending: false }),
-      supabase.from('students').select('id, name, email, license_class').eq('id', req.params.id).maybeSingle()
+      supabase.from('students').select('id, name, email, license_class').eq('id', req.params.id).maybeSingle(),
+      supabase.from('invoices').select('*').eq('student_id', req.params.id).order('invoice_date', { ascending: false }).order('created_at', { ascending: false })
     ]);
     const charges = chargesRes.data || [];
     const payments = paymentsRes.data || [];
+    const invoices = invoicesRes.data || [];
     const totalCharges = charges.reduce(function(s, c){ return s + (c.total_cents || 0); }, 0);
     const totalPaid = payments.reduce(function(s, p){ return s + (p.amount_cents || 0); }, 0);
     res.json({
       student: studentRes.data || null,
       charges: charges,
       payments: payments,
+      invoices: invoices,
       summary: {
         total_charges_cents: totalCharges,
         total_paid_cents: totalPaid,
@@ -4152,7 +4155,7 @@ app.delete('/api/charges/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/students/:id/payments — Zahlung erfassen
+// POST /api/students/:id/payments — Zahlung erfassen (optional an Rechnung)
 app.post('/api/students/:id/payments', authMiddleware, async (req, res) => {
   try {
     const allowed = await canAccessStudent(req, req.params.id);
@@ -4160,6 +4163,13 @@ app.post('/api/students/:id/payments', authMiddleware, async (req, res) => {
     const b = req.body || {};
     if (b.amount_cents == null) return res.status(400).json({ error: 'Betrag erforderlich' });
     const { data: student } = await supabase.from('students').select('school_id').eq('id', req.params.id).single();
+    var invoiceId = b.invoice_id || null;
+    // Wenn eine Rechnung referenziert wird: gehört sie diesem Schüler?
+    if (invoiceId) {
+      const { data: inv } = await supabase.from('invoices').select('id, student_id, total_cents, status').eq('id', invoiceId).maybeSingle();
+      if (!inv || inv.student_id !== req.params.id) return res.status(400).json({ error: 'Ungültige Rechnungs-ID' });
+      if (inv.status === 'storniert') return res.status(400).json({ error: 'Rechnung ist storniert' });
+    }
     const row = {
       id: generateId(),
       school_id: student.school_id,
@@ -4169,12 +4179,17 @@ app.post('/api/students/:id/payments', authMiddleware, async (req, res) => {
       payment_method: b.payment_method || 'bar',
       reference: b.reference || null,
       charge_id: b.charge_id || null,
+      invoice_id: invoiceId,
       created_by_role: req.user.role,
       created_by_id: req.user.id,
       notes: b.notes || null
     };
     const { data, error } = await supabase.from('student_payments').insert(row).select().single();
     if (error) throw error;
+    // Rechnungs-Status nachziehen
+    if (invoiceId) {
+      try { await refreshInvoiceStatus(invoiceId); } catch (e) { console.warn('[Invoice status]', e.message); }
+    }
     res.json({ payment: data });
   } catch (err) {
     console.error('[Payment POST]', err);
@@ -4187,15 +4202,258 @@ app.delete('/api/payments/:id', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule darf Zahlungen löschen' });
     const { data: pay } = await supabase.from('student_payments')
-      .select('id, student_id').eq('id', req.params.id).maybeSingle();
+      .select('id, student_id, invoice_id').eq('id', req.params.id).maybeSingle();
     if (!pay) return res.status(404).json({ error: 'Zahlung nicht gefunden' });
     const allowed = await canAccessStudent(req, pay.student_id);
     if (!allowed) return res.status(403).json({ error: 'Keine Berechtigung' });
     const { error } = await supabase.from('student_payments').delete().eq('id', req.params.id);
     if (error) throw error;
+    if (pay.invoice_id) {
+      try { await refreshInvoiceStatus(pay.invoice_id); } catch (e) { console.warn('[Invoice status]', e.message); }
+    }
     res.json({ success: true });
   } catch (err) {
     console.error('[Payment DELETE]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// BUCHHALTUNG PHASE 2: Schul-Einstellungen (USt, Adresse)
+// ============================================
+app.get('/api/school/settings', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+    const schoolId = schoolIdOf(req.user);
+    const { data, error } = await supabase.from('schools')
+      .select('id, name, email, admin_name, tax_mode, tax_rate_percent, address_line1, address_line2, postal_code, city, phone, tax_id, bank_info')
+      .eq('id', schoolId).maybeSingle();
+    if (error) throw error;
+    res.json(data || {});
+  } catch (err) {
+    console.error('[School Settings GET]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/school/settings', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+    const schoolId = schoolIdOf(req.user);
+    const b = req.body || {};
+    const updates = {};
+    if (b.tax_mode !== undefined) {
+      if (b.tax_mode !== 'kleinunternehmer' && b.tax_mode !== 'regelbesteuerung') {
+        return res.status(400).json({ error: 'Ungültiger USt-Modus' });
+      }
+      updates.tax_mode = b.tax_mode;
+    }
+    if (b.tax_rate_percent !== undefined) updates.tax_rate_percent = parseFloat(b.tax_rate_percent) || 0;
+    if (b.address_line1 !== undefined) updates.address_line1 = b.address_line1 || null;
+    if (b.address_line2 !== undefined) updates.address_line2 = b.address_line2 || null;
+    if (b.postal_code   !== undefined) updates.postal_code   = b.postal_code || null;
+    if (b.city          !== undefined) updates.city          = b.city || null;
+    if (b.phone         !== undefined) updates.phone         = b.phone || null;
+    if (b.tax_id        !== undefined) updates.tax_id        = b.tax_id || null;
+    if (b.bank_info     !== undefined) updates.bank_info     = b.bank_info || null;
+    if (Object.keys(updates).length === 0) return res.json({ success: true, updated: 0 });
+    const { data, error } = await supabase.from('schools').update(updates).eq('id', schoolId).select().single();
+    if (error) throw error;
+    res.json({ success: true, school: data });
+  } catch (err) {
+    console.error('[School Settings PUT]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// BUCHHALTUNG PHASE 2: Rechnungen
+// ============================================
+// Helper: Rechnungsnummer berechnen (nächste fortlaufende pro Schule/Jahr)
+async function nextInvoiceNumber(schoolId, year) {
+  const { data } = await supabase.from('invoices')
+    .select('invoice_seq').eq('school_id', schoolId).eq('invoice_year', year)
+    .order('invoice_seq', { ascending: false }).limit(1);
+  const lastSeq = (data && data[0]) ? (data[0].invoice_seq || 0) : 0;
+  const nextSeq = lastSeq + 1;
+  return { seq: nextSeq, number: year + '-' + String(nextSeq).padStart(4, '0') };
+}
+
+// Helper: Rechnungs-Status aus Zahlungen ableiten
+async function refreshInvoiceStatus(invoiceId) {
+  const { data: inv } = await supabase.from('invoices')
+    .select('id, total_cents, status').eq('id', invoiceId).maybeSingle();
+  if (!inv) return null;
+  if (inv.status === 'storniert') return inv; // Storno nicht überschreiben
+  const { data: pays } = await supabase.from('student_payments')
+    .select('amount_cents').eq('invoice_id', invoiceId);
+  const paid = (pays || []).reduce(function(s, p){ return s + (p.amount_cents || 0); }, 0);
+  var newStatus = 'offen';
+  if (paid >= inv.total_cents && inv.total_cents > 0) newStatus = 'bezahlt';
+  else if (paid > 0) newStatus = 'teilbezahlt';
+  if (newStatus !== inv.status) {
+    await supabase.from('invoices').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', invoiceId);
+  }
+  return Object.assign({}, inv, { status: newStatus, paid_cents: paid });
+}
+
+// GET /api/invoices — alle Rechnungen der Schule (optional Filter ?student_id=)
+app.get('/api/invoices', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+    const schoolId = schoolIdOf(req.user);
+    var q = supabase.from('invoices').select('*').eq('school_id', schoolId);
+    if (req.query.student_id) q = q.eq('student_id', req.query.student_id);
+    if (req.query.status) q = q.eq('status', req.query.status);
+    const { data, error } = await q.order('invoice_date', { ascending: false }).order('invoice_seq', { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    console.error('[Invoices GET]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/invoices/:id — eine Rechnung inkl. Items + Schule + Schüler + Zahlungen (für PDF)
+app.get('/api/invoices/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+    const schoolId = schoolIdOf(req.user);
+    const { data: invoice } = await supabase.from('invoices').select('*').eq('id', req.params.id).maybeSingle();
+    if (!invoice || invoice.school_id !== schoolId) return res.status(404).json({ error: 'Rechnung nicht gefunden' });
+    const [itemsRes, schoolRes, studentRes, paysRes] = await Promise.all([
+      supabase.from('invoice_items').select('*').eq('invoice_id', invoice.id).order('sort_order').order('created_at'),
+      supabase.from('schools').select('id, name, email, admin_name, tax_mode, tax_rate_percent, address_line1, address_line2, postal_code, city, phone, tax_id, bank_info').eq('id', schoolId).maybeSingle(),
+      supabase.from('students').select('id, name, email, license_class').eq('id', invoice.student_id).maybeSingle(),
+      supabase.from('student_payments').select('*').eq('invoice_id', invoice.id).order('payment_date')
+    ]);
+    res.json({
+      invoice: invoice,
+      items: itemsRes.data || [],
+      school: schoolRes.data || null,
+      student: studentRes.data || null,
+      payments: paysRes.data || []
+    });
+  } catch (err) {
+    console.error('[Invoice GET]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/invoices — Rechnung aus offenen Charges erzeugen
+// body: { student_id, charge_ids: [], invoice_date?, due_date?, notes? }
+app.post('/api/invoices', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+    const b = req.body || {};
+    if (!b.student_id) return res.status(400).json({ error: 'student_id erforderlich' });
+    if (!Array.isArray(b.charge_ids) || b.charge_ids.length === 0) return res.status(400).json({ error: 'Mindestens eine Position auswählen' });
+    const schoolId = schoolIdOf(req.user);
+    // Schüler validieren
+    const { data: student } = await supabase.from('students')
+      .select('id, name, school_id').eq('id', b.student_id).maybeSingle();
+    if (!student || student.school_id !== schoolId) return res.status(403).json({ error: 'Schüler nicht in dieser Fahrschule' });
+    // Charges laden + prüfen
+    const { data: charges } = await supabase.from('student_charges')
+      .select('*').in('id', b.charge_ids).eq('student_id', b.student_id).eq('school_id', schoolId);
+    if (!charges || charges.length === 0) return res.status(400).json({ error: 'Keine gültigen Positionen gefunden' });
+    var already = charges.find(function(c){ return c.invoice_id; });
+    if (already) return res.status(400).json({ error: 'Position bereits in einer Rechnung: ' + already.description });
+    // Schul-Snapshot
+    const { data: school } = await supabase.from('schools')
+      .select('name, tax_mode, tax_rate_percent, address_line1, address_line2, postal_code, city').eq('id', schoolId).single();
+    const taxMode = (school && school.tax_mode) || 'kleinunternehmer';
+    const taxRate = parseFloat(school && school.tax_rate_percent) || 0;
+    const subtotal = charges.reduce(function(s, c){ return s + (c.total_cents || 0); }, 0);
+    // Bei Kleinunternehmer: keine Steuer ausgewiesen; bei Regelbesteuerung: total ist BRUTTO (inkl. MwSt)
+    var taxCents = 0, total = subtotal;
+    if (taxMode === 'regelbesteuerung' && taxRate > 0) {
+      // Annahme: bisherige Preise sind NETTO → MwSt drauf
+      taxCents = Math.round(subtotal * (taxRate / 100));
+      total = subtotal + taxCents;
+    }
+    // Adresse zu String
+    var addrLines = [];
+    if (school && school.address_line1) addrLines.push(school.address_line1);
+    if (school && school.address_line2) addrLines.push(school.address_line2);
+    var plzCity = [(school && school.postal_code) || '', (school && school.city) || ''].filter(Boolean).join(' ').trim();
+    if (plzCity) addrLines.push(plzCity);
+    const today = new Date().toISOString().split('T')[0];
+    const year = parseInt((b.invoice_date || today).substring(0, 4)) || new Date().getFullYear();
+    const num = await nextInvoiceNumber(schoolId, year);
+    const invoiceId = generateId();
+    const invoiceRow = {
+      id: invoiceId,
+      school_id: schoolId,
+      student_id: b.student_id,
+      invoice_number: num.number,
+      invoice_year: year,
+      invoice_seq: num.seq,
+      invoice_date: b.invoice_date || today,
+      due_date: b.due_date || null,
+      status: 'offen',
+      tax_mode: taxMode,
+      tax_rate_percent: taxMode === 'regelbesteuerung' ? taxRate : 0,
+      subtotal_cents: subtotal,
+      tax_cents: taxCents,
+      total_cents: total,
+      school_name_snapshot: (school && school.name) || null,
+      school_address_snapshot: addrLines.join('\n') || null,
+      student_name_snapshot: student.name,
+      student_address_snapshot: null,
+      notes: b.notes || null,
+      created_by_role: req.user.role,
+      created_by_id: req.user.id
+    };
+    const { error: insErr } = await supabase.from('invoices').insert(invoiceRow);
+    if (insErr) throw insErr;
+    // Items kopieren
+    const itemRows = charges.map(function(c, idx){
+      return {
+        id: generateId(),
+        invoice_id: invoiceId,
+        charge_id: c.id,
+        description: c.description,
+        category: c.category,
+        unit_price_cents: c.unit_price_cents,
+        quantity: c.quantity,
+        total_cents: c.total_cents,
+        sort_order: (idx + 1) * 10
+      };
+    });
+    if (itemRows.length > 0) {
+      const { error: itErr } = await supabase.from('invoice_items').insert(itemRows);
+      if (itErr) throw itErr;
+    }
+    // Charges mit invoice_id markieren
+    await supabase.from('student_charges').update({ invoice_id: invoiceId, updated_at: new Date().toISOString() }).in('id', b.charge_ids);
+    res.json({ invoice: invoiceRow, items: itemRows });
+  } catch (err) {
+    console.error('[Invoice POST]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/invoices/:id/cancel — Rechnung stornieren (GoBD: kein Löschen)
+app.post('/api/invoices/:id/cancel', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+    const schoolId = schoolIdOf(req.user);
+    const { data: inv } = await supabase.from('invoices').select('id, school_id, status').eq('id', req.params.id).maybeSingle();
+    if (!inv || inv.school_id !== schoolId) return res.status(404).json({ error: 'Rechnung nicht gefunden' });
+    if (inv.status === 'storniert') return res.status(400).json({ error: 'Bereits storniert' });
+    const reason = (req.body && req.body.reason) || null;
+    await supabase.from('invoices').update({
+      status: 'storniert',
+      cancelled_at: new Date().toISOString(),
+      cancel_reason: reason,
+      updated_at: new Date().toISOString()
+    }).eq('id', req.params.id);
+    // Charges wieder freigeben → können in neue Rechnung
+    await supabase.from('student_charges').update({ invoice_id: null, updated_at: new Date().toISOString() }).eq('invoice_id', req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Invoice CANCEL]', err);
     res.status(500).json({ error: err.message });
   }
 });
