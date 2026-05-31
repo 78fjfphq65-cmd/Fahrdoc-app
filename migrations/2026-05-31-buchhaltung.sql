@@ -76,3 +76,13 @@ CREATE TABLE IF NOT EXISTS student_payments (
 
 CREATE INDEX IF NOT EXISTS idx_student_payments_school ON student_payments(school_id);
 CREATE INDEX IF NOT EXISTS idx_student_payments_student ON student_payments(student_id);
+
+-- ============================================================
+-- 4) Row Level Security (Defense-in-Depth)
+-- ============================================================
+-- Backend nutzt service_role (umgeht RLS) → keine Funktionsänderung.
+-- Schutz vor direktem Zugriff mit Anon-Key.
+ALTER TABLE pricing_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_charges   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_payments  ENABLE ROW LEVEL SECURITY;
+-- Keine Policies = deny-all für anon/authenticated. Backend bleibt unbetroffen.

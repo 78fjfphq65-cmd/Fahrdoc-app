@@ -3656,7 +3656,7 @@ var App = {
       '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-top:var(--space-4);">' +
       '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>' +
       '<button class="btn btn-primary" onclick="App._saveTemplate(' + (templateId ? "'" + templateId + "'" : 'null') + ')">Speichern</button></div>';
-    App.showModal(templateId ? 'Preis bearbeiten' : 'Preis anlegen', body);
+    App.openModal(templateId ? 'Preis bearbeiten' : 'Preis anlegen', body);
   },
 
   _saveTemplate: async function(templateId) {
@@ -4303,10 +4303,11 @@ var App = {
       '<div class="form-group"><label class="form-label">Notiz</label>' +
         '<textarea class="form-textarea" id="charge-notes" rows="2"></textarea></div>' +
     '</div>';
-    App.showModal('Soll-Position hinzuf\u00fcgen', html, [
-      { label: 'Abbrechen', class: 'btn-secondary', onClick: function(){ App.closeModal(); } },
-      { label: 'Speichern', class: 'btn-primary', onClick: function(){ App._saveCharge(studentId); } }
-    ]);
+    html += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-top:var(--space-4);">' +
+      '<button class="btn btn-secondary" onclick="App.closeModalForce()">Abbrechen</button>' +
+      '<button class="btn btn-primary" onclick="App._saveCharge(\'' + studentId + '\')">Speichern</button>' +
+    '</div>';
+    App.openModal('Soll-Position hinzuf\u00fcgen', html);
   },
 
   _fillChargeFromTemplate: function(sel) {
@@ -4338,7 +4339,7 @@ var App = {
         notes: notes,
         pricing_template_id: templateId || null
       });
-      App.closeModal();
+      App.closeModalForce();
       App.showToast('Position gespeichert');
       App.renderStudentBilling(studentId);
     } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
@@ -4364,10 +4365,11 @@ var App = {
       '<div class="form-group"><label class="form-label">Notiz</label>' +
         '<textarea class="form-textarea" id="pay-notes" rows="2"></textarea></div>' +
     '</div>';
-    App.showModal('Zahlung erfassen', html, [
-      { label: 'Abbrechen', class: 'btn-secondary', onClick: function(){ App.closeModal(); } },
-      { label: 'Speichern', class: 'btn-primary', onClick: function(){ App._savePayment(studentId); } }
-    ]);
+    html += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-top:var(--space-4);">' +
+      '<button class="btn btn-secondary" onclick="App.closeModalForce()">Abbrechen</button>' +
+      '<button class="btn btn-primary" onclick="App._savePayment(\'' + studentId + '\')">Speichern</button>' +
+    '</div>';
+    App.openModal('Zahlung erfassen', html);
   },
 
   _savePayment: async function(studentId) {
