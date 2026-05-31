@@ -4278,7 +4278,9 @@ var App = {
     var templates = [];
     try {
       var tres = await ApiClient.get('/api/pricing-templates');
-      templates = (tres.templates || []).filter(function(t){ return t.active; });
+      // GET liefert direktes Array
+      var arr = Array.isArray(tres) ? tres : (tres && tres.templates) || [];
+      templates = arr.filter(function(t){ return t.active; });
     } catch (e) { /* templates optional */ }
 
     var todayStr = new Date().toISOString().split('T')[0];
