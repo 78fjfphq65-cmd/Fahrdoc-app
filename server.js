@@ -12,6 +12,58 @@ const { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generate
 const Stripe = require('stripe');
 const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
+// Google Gemini (KI-Briefings)
+let genAI = null;
+try {
+  if (process.env.GEMINI_API_KEY) {
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  }
+} catch (e) {
+  console.warn('[Gemini] Library nicht geladen:', e.message);
+}
+
+// Super-Admin Email (Fallback: admin@fahrschule-weber.de fuer Demo)
+const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'admin@fahrschule-weber.de').toLowerCase();
+
+// Hilfsfunktion: Pruefe Trial/Abo-Status einer Schule
+// Gibt zurueck: { active: bool, status: 'trial'|'active'|'expired'|'free', daysRemaining, plan, lockReason }
+function computeSubscriptionState(sub, schoolCreatedAt) {
+  var now = new Date();
+  // 1) Gratis-Abo vom Super-Admin
+  if (sub && sub.free_subscription) {
+    var until = sub.free_subscription_until ? new Date(sub.free_subscription_until) : null;
+    if (!until || until > now) {
+      return { active: true, status: 'free', plan: sub.plan || 'ki', daysRemaining: until ? Math.ceil((until - now) / 86400000) : 9999, lockReason: null };
+    }
+  }
+  // 2) Aktives Stripe-Abo
+  if (sub && sub.stripe_subscription_id && (sub.status === 'active' || sub.status === 'trialing')) {
+    return { active: true, status: 'active', plan: sub.plan || 'classic', daysRemaining: null, lockReason: null };
+  }
+  // 3) Manuelle Trial-Verlaengerung (Bestandsschutz oder Admin)
+  if (sub && sub.trial_extended_until) {
+    var ext = new Date(sub.trial_extended_until);
+    if (ext > now) {
+      return { active: true, status: 'trial', plan: 'classic', daysRemaining: Math.ceil((ext - now) / 86400000), lockReason: null };
+    }
+  }
+  // 4) 7-Tage-Free-Trial nach Registrierung
+  if (schoolCreatedAt) {
+    var created = new Date(schoolCreatedAt);
+    var trialEnd = new Date(created.getTime() + 7 * 86400000);
+    if (trialEnd > now) {
+      return { active: true, status: 'trial', plan: 'classic', daysRemaining: Math.ceil((trialEnd - now) / 86400000), lockReason: null };
+    }
+  }
+  // 5) Stripe-Abo abgelaufen oder gekuendigt
+  if (sub && sub.status === 'past_due') {
+    return { active: false, status: 'expired', plan: sub.plan || 'classic', daysRemaining: 0, lockReason: 'Zahlung fehlgeschlagen. Bitte Zahlungsmethode aktualisieren.' };
+  }
+  // 6) Trial abgelaufen, kein Abo
+  return { active: false, status: 'expired', plan: null, daysRemaining: 0, lockReason: 'Testphase abgelaufen. Bitte ein Abo abschliessen.' };
+}
+
 const app = express();
 app.set('trust proxy', 1); // Railway runs behind a proxy
 const PORT = process.env.PORT || 5000;
@@ -37,14 +89,18 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
       case 'checkout.session.completed': {
         const session = event.data.object;
         const schoolId = session.metadata?.school_id;
+        const planFromMeta = session.metadata?.plan || 'classic';
         const subscriptionId = session.subscription;
         if (schoolId && subscriptionId) {
           const sub = await stripe.subscriptions.retrieve(subscriptionId);
+          const priceId = sub.items.data[0]?.price?.id;
+          const detectedPlan = priceId === process.env.STRIPE_PRICE_ID_KI ? 'ki' : (priceId === process.env.STRIPE_PRICE_ID_CLASSIC ? 'classic' : planFromMeta);
           await supabase.from('subscriptions').upsert({
             school_id: schoolId,
             stripe_customer_id: session.customer,
             stripe_subscription_id: subscriptionId,
             status: sub.status,
+            plan: detectedPlan,
             current_period_start: new Date(sub.current_period_start * 1000).toISOString(),
             current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
             cancel_at_period_end: sub.cancel_at_period_end,
@@ -61,7 +117,9 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
         const { data: existing } = await supabase.from('subscriptions')
           .select('school_id').eq('stripe_subscription_id', sub.id).single();
         if (existing) {
-          await supabase.from('subscriptions').update({
+          const priceId = sub.items.data[0]?.price?.id;
+          const detectedPlan = priceId === process.env.STRIPE_PRICE_ID_KI ? 'ki' : (priceId === process.env.STRIPE_PRICE_ID_CLASSIC ? 'classic' : null);
+          const updateData = {
             status: sub.status,
             current_period_start: new Date(sub.current_period_start * 1000).toISOString(),
             current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
@@ -69,7 +127,9 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
             instructor_quantity: sub.items.data[0]?.quantity || 1,
             trial_end: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
             updated_at: new Date().toISOString()
-          }).eq('school_id', existing.school_id);
+          };
+          if (detectedPlan) updateData.plan = detectedPlan;
+          await supabase.from('subscriptions').update(updateData).eq('school_id', existing.school_id);
         }
         break;
       }
@@ -1949,7 +2009,10 @@ app.get('/api/feedback', authMiddleware, async (req, res) => {
 app.get('/api/stripe/config', (req, res) => {
   res.json({
     publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
-    priceId: process.env.STRIPE_PRICE_ID || ''
+    plans: {
+      classic: { priceId: process.env.STRIPE_PRICE_ID_CLASSIC || '', name: 'FahrDoc Classic', price: 29.99, currency: 'EUR', features: ['Unbegrenzte Schüler', 'Unbegrenzte Fahrlehrer', 'Kalender & Slot-Buchung', 'Schein-Verwaltung', 'PDF-Bescheinigungen', 'Email-Support'] },
+      ki: { priceId: process.env.STRIPE_PRICE_ID_KI || '', name: 'FahrDoc KI', price: 39.99, currency: 'EUR', features: ['Alles aus Classic', 'KI-Briefing vor jeder Fahrstunde', 'Automatische Lernfortschritt-Analyse', 'Unbegrenzte KI-Anfragen', 'Prioritäts-Support'] }
+    }
   });
 });
 
@@ -1961,8 +2024,10 @@ app.post('/api/stripe/create-checkout', authMiddleware, async (req, res) => {
   if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschulen können Abos verwalten' });
 
   try {
-    const { quantity } = req.body; // number of instructors
-    const instructorCount = Math.max(1, parseInt(quantity) || 1);
+    const { plan } = req.body;
+    var planName = plan === 'ki' ? 'ki' : 'classic';
+    var priceId = planName === 'ki' ? process.env.STRIPE_PRICE_ID_KI : process.env.STRIPE_PRICE_ID_CLASSIC;
+    if (!priceId) return res.status(500).json({ error: 'Tarif nicht konfiguriert. Bitte Admin kontaktieren.' });
 
     // Check if school already has a Stripe customer
     const { data: existingSub } = await supabase.from('subscriptions')
@@ -1982,15 +2047,11 @@ app.post('/api/stripe/create-checkout', authMiddleware, async (req, res) => {
       customer: customerId,
       mode: 'subscription',
       payment_method_types: ['card', 'sepa_debit'],
-      line_items: [{
-        price: process.env.STRIPE_PRICE_ID,
-        quantity: instructorCount
-      }],
+      line_items: [{ price: priceId, quantity: 1 }],
       subscription_data: {
-        trial_period_days: 14,
-        metadata: { school_id: req.user.id }
+        metadata: { school_id: req.user.id, plan: planName }
       },
-      metadata: { school_id: req.user.id },
+      metadata: { school_id: req.user.id, plan: planName },
       success_url: `${req.protocol}://${req.get('host')}/?stripe=success`,
       cancel_url: `${req.protocol}://${req.get('host')}/?stripe=cancel`,
       locale: 'de',
@@ -2028,60 +2089,51 @@ app.post('/api/stripe/portal', authMiddleware, async (req, res) => {
 });
 
 // ============================================
-// STRIPE: Get subscription status
+// SUBSCRIPTION: Einheitlicher Status (Trial + Abo + Free + Lock)
 // ============================================
 app.get('/api/stripe/subscription', authMiddleware, async (req, res) => {
-  if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschulen' });
+  // Erlaubt fuer school + instructor (Mitarbeiter sehen den Status der Schule)
+  if (req.user.role === 'student') return res.status(403).json({ error: 'Nicht verfügbar' });
 
   try {
+    const schoolId = req.user.role === 'school' ? req.user.id : req.user.school_id;
     const { data: sub } = await supabase.from('subscriptions')
-      .select('*').eq('school_id', req.user.id).single();
+      .select('*').eq('school_id', schoolId).maybeSingle();
+    const { data: school } = await supabase.from('schools')
+      .select('created_at, name').eq('id', schoolId).maybeSingle();
 
-    if (!sub) {
-      // Check if within free trial (14 days since school creation)
-      const { data: school } = await supabase.from('schools')
-        .select('created_at').eq('id', req.user.id).single();
-      const created = new Date(school?.created_at || Date.now());
-      const trialEnd = new Date(created.getTime() + 14 * 24 * 60 * 60 * 1000);
-      const now = new Date();
-      return res.json({
-        status: now < trialEnd ? 'trial' : 'expired',
-        trial_end: trialEnd.toISOString(),
-        days_remaining: Math.max(0, Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24))),
-        instructor_quantity: 0
-      });
-    }
-
-    // Sync with Stripe if we have a subscription
-    if (stripe && sub.stripe_subscription_id) {
+    // Stripe-Sync wenn nutzbar
+    if (stripe && sub && sub.stripe_subscription_id) {
       try {
         const stripeSub = await stripe.subscriptions.retrieve(sub.stripe_subscription_id);
+        const priceId = stripeSub.items.data[0]?.price?.id;
+        const detectedPlan = priceId === process.env.STRIPE_PRICE_ID_KI ? 'ki' : (priceId === process.env.STRIPE_PRICE_ID_CLASSIC ? 'classic' : sub.plan);
         const updated = {
           status: stripeSub.status,
+          plan: detectedPlan,
           current_period_start: new Date(stripeSub.current_period_start * 1000).toISOString(),
           current_period_end: new Date(stripeSub.current_period_end * 1000).toISOString(),
           cancel_at_period_end: stripeSub.cancel_at_period_end,
-          instructor_quantity: stripeSub.items.data[0]?.quantity || 1,
-          trial_end: stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000).toISOString() : null,
           updated_at: new Date().toISOString()
         };
-        await supabase.from('subscriptions').update(updated).eq('school_id', req.user.id);
+        await supabase.from('subscriptions').update(updated).eq('school_id', schoolId);
         Object.assign(sub, updated);
-      } catch (e) { /* use cached data */ }
+      } catch (e) { /* offline: cached */ }
     }
 
-    const now = new Date();
-    const isTrialing = sub.status === 'trialing';
-    const trialEnd = sub.trial_end ? new Date(sub.trial_end) : null;
-    const daysRemaining = trialEnd ? Math.max(0, Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24))) : null;
-
+    const state = computeSubscriptionState(sub, school?.created_at);
     res.json({
-      status: sub.status,
-      trial_end: sub.trial_end,
-      days_remaining: isTrialing ? daysRemaining : null,
-      current_period_end: sub.current_period_end,
-      cancel_at_period_end: sub.cancel_at_period_end,
-      instructor_quantity: sub.instructor_quantity || 1
+      active: state.active,
+      status: state.status,
+      plan: state.plan,
+      days_remaining: state.daysRemaining,
+      lock_reason: state.lockReason,
+      has_stripe: !!(sub && sub.stripe_subscription_id),
+      cancel_at_period_end: sub?.cancel_at_period_end || false,
+      current_period_end: sub?.current_period_end || null,
+      trial_extended_until: sub?.trial_extended_until || null,
+      free_subscription: !!(sub && sub.free_subscription),
+      school_name: school?.name || ''
     });
   } catch (err) {
     console.error('[Stripe Sub Error]', err);
@@ -2090,34 +2142,157 @@ app.get('/api/stripe/subscription', authMiddleware, async (req, res) => {
 });
 
 // ============================================
-// STRIPE: Update instructor quantity
+// SUPER-ADMIN: Schule-Liste
 // ============================================
-app.post('/api/stripe/update-quantity', authMiddleware, async (req, res) => {
-  if (!stripe) return res.status(500).json({ error: 'Stripe nicht konfiguriert' });
-  if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschulen' });
+function isSuperAdmin(req) {
+  return req.user && req.user.email && req.user.email.toLowerCase() === SUPER_ADMIN_EMAIL;
+}
 
+app.get('/api/admin/schools', authMiddleware, async (req, res) => {
+  if (!isSuperAdmin(req)) return res.status(403).json({ error: 'Keine Berechtigung' });
   try {
-    const { quantity } = req.body;
-    const newQty = Math.max(1, parseInt(quantity) || 1);
+    const { data: schools } = await supabase.from('schools')
+      .select('id, name, email, admin_name, created_at').order('created_at', { ascending: false });
+    const { data: subs } = await supabase.from('subscriptions').select('*');
+    const subMap = {};
+    (subs || []).forEach(function(s){ subMap[s.school_id] = s; });
+    const result = (schools || []).map(function(s){
+      const sub = subMap[s.id];
+      const state = computeSubscriptionState(sub, s.created_at);
+      return {
+        id: s.id, name: s.name, email: s.email, admin_name: s.admin_name, created_at: s.created_at,
+        plan: state.plan, status: state.status, active: state.active, days_remaining: state.daysRemaining,
+        trial_extended_until: sub?.trial_extended_until || null,
+        free_subscription: !!(sub && sub.free_subscription),
+        free_subscription_until: sub?.free_subscription_until || null,
+        has_stripe: !!(sub && sub.stripe_subscription_id)
+      };
+    });
+    res.json({ schools: result });
+  } catch (err) {
+    console.error('[Admin Schools Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
-    const { data: sub } = await supabase.from('subscriptions')
-      .select('stripe_subscription_id').eq('school_id', req.user.id).single();
-    if (!sub?.stripe_subscription_id) return res.status(404).json({ error: 'Kein Abo gefunden' });
+// SUPER-ADMIN: Trial verlaengern
+app.put('/api/admin/schools/:id/extend-trial', authMiddleware, async (req, res) => {
+  if (!isSuperAdmin(req)) return res.status(403).json({ error: 'Keine Berechtigung' });
+  try {
+    const days = Math.max(1, parseInt(req.body.days) || 14);
+    const schoolId = req.params.id;
+    // Ensure subscription row exists
+    const { data: existing } = await supabase.from('subscriptions').select('id, trial_extended_until').eq('school_id', schoolId).maybeSingle();
+    const base = existing?.trial_extended_until ? new Date(existing.trial_extended_until) : new Date();
+    const newEnd = new Date(Math.max(base.getTime(), Date.now()) + days * 86400000);
+    if (existing) {
+      await supabase.from('subscriptions').update({ trial_extended_until: newEnd.toISOString(), updated_at: new Date().toISOString() }).eq('school_id', schoolId);
+    } else {
+      await supabase.from('subscriptions').insert({ id: generateId(), school_id: schoolId, trial_extended_until: newEnd.toISOString() });
+    }
+    res.json({ success: true, trial_extended_until: newEnd.toISOString() });
+  } catch (err) {
+    console.error('[Admin Extend Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
-    const stripeSub = await stripe.subscriptions.retrieve(sub.stripe_subscription_id);
-    await stripe.subscriptions.update(sub.stripe_subscription_id, {
-      items: [{ id: stripeSub.items.data[0].id, quantity: newQty }],
-      proration_behavior: 'create_prorations'
+// SUPER-ADMIN: Gratis-Abo gewaehren / entziehen
+app.put('/api/admin/schools/:id/free-subscription', authMiddleware, async (req, res) => {
+  if (!isSuperAdmin(req)) return res.status(403).json({ error: 'Keine Berechtigung' });
+  try {
+    const schoolId = req.params.id;
+    const enable = req.body.enable !== false;
+    const days = req.body.days ? parseInt(req.body.days) : null;
+    const plan = req.body.plan === 'classic' ? 'classic' : 'ki';
+    const until = (enable && days) ? new Date(Date.now() + days * 86400000).toISOString() : null;
+    const { data: existing } = await supabase.from('subscriptions').select('id').eq('school_id', schoolId).maybeSingle();
+    const payload = {
+      free_subscription: enable,
+      free_subscription_until: until,
+      plan: enable ? plan : null,
+      updated_at: new Date().toISOString()
+    };
+    if (existing) {
+      await supabase.from('subscriptions').update(payload).eq('school_id', schoolId);
+    } else {
+      payload.id = generateId();
+      payload.school_id = schoolId;
+      await supabase.from('subscriptions').insert(payload);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Admin Free Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// KI-BRIEFING: Generiert Schueler-Briefing fuer naechste Fahrstunde (nur ki-Tarif)
+// ============================================
+app.post('/api/ai/briefing/:studentId', authMiddleware, async (req, res) => {
+  if (!genAI) return res.status(503).json({ error: 'KI-Service nicht konfiguriert' });
+  if (req.user.role !== 'school' && req.user.role !== 'instructor') {
+    return res.status(403).json({ error: 'Nur für Fahrlehrer/Schule' });
+  }
+  try {
+    const schoolId = req.user.role === 'school' ? req.user.id : req.user.school_id;
+
+    // Plan-Check
+    const { data: sub } = await supabase.from('subscriptions').select('*').eq('school_id', schoolId).maybeSingle();
+    const { data: school } = await supabase.from('schools').select('created_at').eq('id', schoolId).maybeSingle();
+    const state = computeSubscriptionState(sub, school?.created_at);
+    if (!state.active) return res.status(402).json({ error: 'Testphase abgelaufen', lock: true });
+    if (state.plan !== 'ki') return res.status(402).json({ error: 'KI-Briefing nur im FahrDoc KI Tarif verfügbar', upgrade: true });
+
+    // Schueler-Daten laden
+    const studentId = req.params.studentId;
+    const { data: student } = await supabase.from('students')
+      .select('id, name, license_class, school_id').eq('id', studentId).maybeSingle();
+    if (!student || student.school_id !== schoolId) return res.status(404).json({ error: 'Schüler nicht gefunden' });
+
+    // Letzte 10 Fahrstunden (abgeschlossen) mit Markierungen + Notizen
+    const { data: lessons } = await supabase.from('lessons')
+      .select('id, date, lesson_type, duration_minutes, notes, markers, status')
+      .eq('student_id', studentId)
+      .in('status', ['completed', 'abgeschlossen'])
+      .order('date', { ascending: false })
+      .limit(10);
+
+    if (!lessons || lessons.length === 0) {
+      return res.json({ briefing: 'Noch keine abgeschlossenen Fahrstunden vorhanden. Beim ersten Termin bitte Grundlagen besprechen: Lenkrad, Pedalerie, Spiegel, erste Fahrt.', empty: true });
+    }
+
+    // Prompt zusammenbauen
+    var ctx = '';
+    lessons.slice().reverse().forEach(function(l, i){
+      ctx += '\nFahrstunde ' + (i+1) + ' (' + (l.date || '') + ', ' + (l.lesson_type || 'Standard') + ', ' + (l.duration_minutes || 45) + ' Min):';
+      if (l.markers) {
+        try { var m = typeof l.markers === 'string' ? JSON.parse(l.markers) : l.markers; if (Array.isArray(m) && m.length) ctx += '\n  Markierungen: ' + m.map(function(x){ return x.text || x.type || x; }).join('; '); } catch(e){}
+      }
+      if (l.notes) ctx += '\n  Notizen: ' + l.notes;
     });
 
-    await supabase.from('subscriptions').update({
-      instructor_quantity: newQty, updated_at: new Date().toISOString()
-    }).eq('school_id', req.user.id);
+    const prompt = 'Du bist Assistent für einen Fahrlehrer in Deutschland. Erstelle ein kurzes Briefing (max. 150 Wörter) für die nächste Fahrstunde mit ' + student.name + ' (Klasse ' + (student.license_class || 'B') + ').\n\nBisheriger Verlauf:' + ctx + '\n\nSchreibe das Briefing auf Deutsch, direkt an den Fahrlehrer gerichtet. Struktur:\n1. Aktueller Stand (1-2 Sätze)\n2. Was funktioniert gut (Bullet-Points)\n3. Was muss noch geübt werden (Bullet-Points)\n4. Empfehlung für heutige Stunde (1-2 Sätze)\n\nSei konkret und praxisnah.';
 
-    res.json({ success: true, quantity: newQty });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    const result = await model.generateContent(prompt);
+    const briefing = result.response.text();
+
+    // Speichern
+    await supabase.from('ai_briefings').insert({
+      id: generateId(),
+      student_id: studentId,
+      school_id: schoolId,
+      instructor_id: req.user.role === 'instructor' ? req.user.id : null,
+      content: briefing,
+      lesson_count: lessons.length
+    });
+
+    res.json({ briefing: briefing, lesson_count: lessons.length });
   } catch (err) {
-    console.error('[Stripe Update Error]', err);
-    res.status(500).json({ error: err.message });
+    console.error('[AI Briefing Error]', err);
+    res.status(500).json({ error: 'KI-Anfrage fehlgeschlagen: ' + err.message });
   }
 });
 

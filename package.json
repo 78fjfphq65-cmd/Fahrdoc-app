@@ -12,6 +12,7 @@
     "seed": "node seed-data.js"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.21.0",
     "@supabase/supabase-js": "^2.99.3",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",

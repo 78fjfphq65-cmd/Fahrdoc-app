@@ -372,10 +372,11 @@ var App = {
       AppState.currentUser = user;
       var dash = { school: 'school-dashboard', instructor: 'instructor-dashboard', student: 'student-dashboard' };
       this.navigate(dash[user.role]);
+      if (user.role === 'school') { setTimeout(function(){ App.checkSubscriptionLock(); }, 500); }
       // Handle Stripe redirect
       var params = new URLSearchParams(window.location.search);
       if (params.get('stripe') === 'success') {
-        setTimeout(function() { App.showToast('Abo erfolgreich gestartet!'); if (user.role === 'school') App.switchSchoolTab('profile'); }, 500);
+        setTimeout(function() { App.showToast('Abo erfolgreich gestartet!'); if (user.role === 'school') App.switchSchoolTab('abo'); }, 500);
         window.history.replaceState({}, '', window.location.pathname);
       } else if (params.get('stripe') === 'cancel') {
         setTimeout(function() { App.showToast('Checkout abgebrochen'); }, 500);
@@ -548,6 +549,7 @@ var App = {
       var dash = { school: 'school-dashboard', instructor: 'instructor-dashboard', student: 'student-dashboard' };
       this.navigate(dash[result.user.role]);
       this.showToast(t('willkommen') + ', ' + (result.user.admin_name || result.user.name) + '!');
+      if (result.user.role === 'school') { setTimeout(function(){ App.checkSubscriptionLock(); }, 500); }
     } catch (err) { errorEl.textContent = err.message; errorEl.classList.remove('hidden'); }
     finally { this.showLoading(false); }
   },
@@ -1548,7 +1550,8 @@ var App = {
     else if (tab === 'instructors') { this.dashboardViewMode = 'instructors'; this.renderSchoolDashboardTab(); }
     else if (tab === 'theory') this.showTheoryView();
     else if (tab === 'vehicles') this.renderSchoolVehiclesTab();
-    else if (tab === 'abo') { this.switchSchoolTab('profile'); return; }
+    else if (tab === 'abo') this.renderSchoolAboTab();
+    else if (tab === 'admin') this.renderSuperAdminTab();
     else if (tab === 'profile') this.renderSchoolProfileTab();
   },
 
@@ -3180,77 +3183,94 @@ var App = {
     var main = document.getElementById('school-main');
     try {
       var sub = await ApiClient.get('/api/stripe/subscription');
-      var statusLabels = { trial: 'Testphase', trialing: 'Testphase', active: 'Aktiv', past_due: 'Zahlung ausstehend', canceled: 'Gekündigt', expired: 'Abgelaufen', incomplete: 'Unvollständig' };
-      var statusColors = { trial: 'warning', trialing: 'warning', active: 'success', past_due: 'error', canceled: 'error', expired: 'error', incomplete: 'warning' };
+      App._lastSubState = sub;
+      var statusLabels = { trial: 'Testphase', active: 'Aktiv', free: 'Gratis-Abo', expired: 'Abgelaufen' };
+      var statusColors = { trial: 'warning', active: 'success', free: 'success', expired: 'error' };
       var statusLabel = statusLabels[sub.status] || sub.status;
       var statusColor = statusColors[sub.status] || 'muted';
-      var hasActiveSub = sub.status === 'active' || sub.status === 'trialing';
-      var isExpired = sub.status === 'expired' || sub.status === 'canceled';
+      var currentPlan = sub.plan || null;
+      var hasStripe = !!sub.has_stripe;
 
-      // Count current instructors
-      var instructors = [];
-      try { instructors = await ApiClient.get('/api/school/instructors'); } catch(e) {}
-      var instructorCount = Array.isArray(instructors) ? instructors.length : 0;
+      var html = '<div class="page-padding" style="max-width:1100px;margin:0 auto;">';
 
-      var html = '<div class="page-padding">';
+      // Status-Header
+      html += '<div class="card mb-4" style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap;">' +
+        '<div><div style="font-size:var(--text-lg);font-weight:700;">Dein Abo</div>' +
+        '<div style="font-size:var(--text-sm);color:var(--text-muted);margin-top:4px;">' + (currentPlan === 'ki' ? 'FahrDoc KI' : (currentPlan === 'classic' ? 'FahrDoc Classic' : 'Noch kein Tarif gew\u00e4hlt')) + '</div></div>' +
+        '<span class="badge badge-' + statusColor + '" style="font-size:var(--text-sm);padding:6px 12px;">' + statusLabel + '</span>' +
+      '</div>';
 
-      // Status Card
-      html += '<div class="card mb-4">' +
-        '<div class="abo-plan-header"><span class="abo-plan-name">FahrDoc Pro</span>' +
-        '<span class="badge badge-' + statusColor + '">' + statusLabel + '</span></div>';
-
-      // Trial info
-      if ((sub.status === 'trial' || sub.status === 'trialing') && sub.days_remaining !== null) {
-        html += '<div class="abo-trial-info" style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-3);background:var(--warning-bg,#fff8e1);border-radius:var(--radius-md);margin:var(--space-3) 0;font-size:var(--text-sm);">' +
-          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>' +
-          'Testphase: noch <strong style="margin:0 4px;">' + sub.days_remaining + '</strong> Tage</div>';
+      // Trial-Info / Lock-Banner
+      if (sub.status === 'trial' && sub.days_remaining !== null) {
+        var urgent = sub.days_remaining <= 3;
+        html += '<div style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:' + (urgent ? '#ffeaea' : '#fff8e1') + ';border-radius:var(--radius-md);margin-bottom:var(--space-4);font-size:var(--text-sm);border-left:4px solid ' + (urgent ? '#c62828' : '#f9a825') + ';">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>' +
+          '<div><strong>Testphase: noch ' + sub.days_remaining + ' Tag' + (sub.days_remaining === 1 ? '' : 'e') + '</strong><br><span style="color:var(--text-muted);">W\u00e4hle unten einen Tarif, um nahtlos weiterzunutzen.</span></div>' +
+        '</div>';
+      }
+      if (!sub.active && sub.lock_reason) {
+        html += '<div style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:#ffeaea;border-radius:var(--radius-md);margin-bottom:var(--space-4);font-size:var(--text-sm);border-left:4px solid #c62828;">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="#c62828" stroke-width="2" style="width:20px;height:20px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+          '<div><strong style="color:#c62828;">App gesperrt</strong><br>' + sub.lock_reason + '</div>' +
+        '</div>';
+      }
+      if (sub.cancel_at_period_end && sub.current_period_end) {
+        html += '<div style="padding:var(--space-3) var(--space-4);background:#fff8e1;border-radius:var(--radius-md);margin-bottom:var(--space-4);font-size:var(--text-sm);">Abo wird zum ' + new Date(sub.current_period_end).toLocaleDateString('de-DE') + ' beendet. Du kannst jederzeit re-aktivieren.</div>';
       }
 
-      // Pricing
-      html += '<div class="abo-price" style="text-align:center;padding:var(--space-4) 0;">' +
-        '<span class="abo-price-value" style="font-size:var(--text-2xl);font-weight:700;">29,90 \u20ac</span>' +
-        '<span class="abo-price-label" style="font-size:var(--text-sm);color:var(--text-muted);display:block;">pro Fahrlehrer / Monat</span></div>';
+      // Tarif-Karten
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:var(--space-4);margin-bottom:var(--space-5);">';
 
-      // Instructor seats
-      if (hasActiveSub && sub.instructor_quantity) {
-        html += '<div style="display:flex;justify-content:space-between;font-size:var(--text-sm);padding:var(--space-2) 0;border-top:1px solid var(--border-color);margin-top:var(--space-3);">' +
-          '<span>Gebuchte Fahrlehrer-Lizenzen</span><span class="font-semibold">' + sub.instructor_quantity + '</span></div>';
-        html += '<div style="display:flex;justify-content:space-between;font-size:var(--text-sm);padding:var(--space-2) 0;">' +
-          '<span>Aktive Fahrlehrer</span><span class="font-semibold">' + instructorCount + '</span></div>';
-      }
+      // Classic-Karte
+      var classicActive = currentPlan === 'classic' && sub.active;
+      html += '<div class="card" style="display:flex;flex-direction:column;border:2px solid ' + (classicActive ? '#2e7d32' : 'var(--border-color)') + ';position:relative;">' +
+        (classicActive ? '<div style="position:absolute;top:-12px;right:16px;background:#2e7d32;color:#fff;padding:4px 12px;border-radius:12px;font-size:var(--text-xs);font-weight:600;">Aktiver Tarif</div>' : '') +
+        '<div style="font-size:var(--text-xl);font-weight:700;margin-bottom:8px;">FahrDoc Classic</div>' +
+        '<div style="margin-bottom:var(--space-3);"><span style="font-size:var(--text-3xl,32px);font-weight:800;">29,99 \u20ac</span><span style="color:var(--text-muted);font-size:var(--text-sm);"> / Monat</span></div>' +
+        '<ul style="list-style:none;padding:0;margin:0 0 var(--space-4) 0;font-size:var(--text-sm);flex:1;">' +
+        '<li style="padding:6px 0;">\u2713 Unbegrenzte Sch\u00fcler</li>' +
+        '<li style="padding:6px 0;">\u2713 Unbegrenzte Fahrlehrer</li>' +
+        '<li style="padding:6px 0;">\u2713 Kalender & Slot-Buchung</li>' +
+        '<li style="padding:6px 0;">\u2713 Schein-Verwaltung</li>' +
+        '<li style="padding:6px 0;">\u2713 PDF-Bescheinigungen</li>' +
+        '<li style="padding:6px 0;">\u2713 Email-Support</li>' +
+        '</ul>' +
+        (classicActive ? '<button class="btn btn-secondary btn-full" disabled>Aktueller Tarif</button>' :
+         '<button class="btn ' + (currentPlan === 'ki' ? 'btn-secondary' : 'btn-primary') + ' btn-full" onclick="App.stripeCheckout(\'classic\')">' + (hasStripe ? 'Zu Classic wechseln' : 'Classic w\u00e4hlen') + '</button>') +
+      '</div>';
 
-      // Cancel notice
-      if (sub.cancel_at_period_end) {
-        var endDate = sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString('de-DE') : '';
-        html += '<div style="padding:var(--space-3);background:var(--error-bg,#ffeaea);border-radius:var(--radius-md);margin-top:var(--space-3);font-size:var(--text-sm);color:var(--error-color,#c62828);">' +
-          'Abo wird zum ' + endDate + ' beendet.</div>';
-      }
+      // KI-Karte (highlighted)
+      var kiActive = currentPlan === 'ki' && sub.active;
+      html += '<div class="card" style="display:flex;flex-direction:column;border:2px solid ' + (kiActive ? '#2e7d32' : '#1565c0') + ';position:relative;background:linear-gradient(180deg, #f3f8ff 0%, #ffffff 100%);">' +
+        (kiActive ? '<div style="position:absolute;top:-12px;right:16px;background:#2e7d32;color:#fff;padding:4px 12px;border-radius:12px;font-size:var(--text-xs);font-weight:600;">Aktiver Tarif</div>' :
+          '<div style="position:absolute;top:-12px;right:16px;background:#1565c0;color:#fff;padding:4px 12px;border-radius:12px;font-size:var(--text-xs);font-weight:600;">Empfohlen</div>') +
+        '<div style="font-size:var(--text-xl);font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px;">FahrDoc KI <span style="font-size:18px;">\u2728</span></div>' +
+        '<div style="margin-bottom:var(--space-3);"><span style="font-size:var(--text-3xl,32px);font-weight:800;">39,99 \u20ac</span><span style="color:var(--text-muted);font-size:var(--text-sm);"> / Monat</span></div>' +
+        '<ul style="list-style:none;padding:0;margin:0 0 var(--space-4) 0;font-size:var(--text-sm);flex:1;">' +
+        '<li style="padding:6px 0;"><strong>Alles aus Classic</strong></li>' +
+        '<li style="padding:6px 0;color:#1565c0;">\u2728 <strong>KI-Briefing</strong> vor jeder Fahrstunde</li>' +
+        '<li style="padding:6px 0;color:#1565c0;">\u2728 Automatische Lernfortschritt-Analyse</li>' +
+        '<li style="padding:6px 0;color:#1565c0;">\u2728 Unbegrenzte KI-Anfragen</li>' +
+        '<li style="padding:6px 0;">\u2713 Priorit\u00e4ts-Support</li>' +
+        '</ul>' +
+        (kiActive ? '<button class="btn btn-secondary btn-full" disabled>Aktueller Tarif</button>' :
+         '<button class="btn btn-primary btn-full" onclick="App.stripeCheckout(\'ki\')">' + (hasStripe ? 'Zu KI upgraden' : 'KI w\u00e4hlen') + '</button>') +
+      '</div>';
 
       html += '</div>';
 
-      // Actions
-      if (!hasActiveSub || isExpired || sub.status === 'trial') {
-        // No Stripe sub yet — show checkout button
-        var defaultQty = Math.max(1, instructorCount);
-        html += '<div class="card mb-4">' +
-          '<div class="section-title mb-3">Abo starten</div>' +
-          '<p style="font-size:var(--text-sm);color:var(--text-muted);margin-bottom:var(--space-3);">W\u00e4hle die Anzahl der Fahrlehrer-Lizenzen. Du kannst jederzeit \u00e4ndern.</p>' +
-          '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);">' +
-            '<label style="font-size:var(--text-sm);font-weight:600;">Fahrlehrer:</label>' +
-            '<div style="display:flex;align-items:center;gap:var(--space-2);">' +
-              '<button class="btn btn-sm" onclick="var i=document.getElementById(\'abo-qty\');i.value=Math.max(1,parseInt(i.value)-1);document.getElementById(\'abo-total\').textContent=((parseInt(i.value)*29.90).toFixed(2).replace(\'.\',\',\'))+\' \u20ac/Monat\'">−</button>' +
-              '<input type="number" id="abo-qty" value="' + defaultQty + '" min="1" max="99" style="width:60px;text-align:center;" class="form-input" onchange="document.getElementById(\'abo-total\').textContent=((parseInt(this.value)*29.90).toFixed(2).replace(\'.\',\',\'))+\' \u20ac/Monat\'">' +
-              '<button class="btn btn-sm" onclick="var i=document.getElementById(\'abo-qty\');i.value=Math.min(99,parseInt(i.value)+1);document.getElementById(\'abo-total\').textContent=((parseInt(i.value)*29.90).toFixed(2).replace(\'.\',\',\'))+\' \u20ac/Monat\'">+</button>' +
-            '</div>' +
-          '</div>' +
-          '<div style="text-align:center;font-size:var(--text-lg);font-weight:700;margin-bottom:var(--space-4);" id="abo-total">' + (defaultQty * 29.90).toFixed(2).replace('.', ',') + ' \u20ac/Monat</div>' +
-          '<button class="btn btn-primary btn-full btn-lg" onclick="App.stripeCheckout()">Jetzt starten — 14 Tage kostenlos</button>' +
-          '<p style="font-size:var(--text-xs);color:var(--text-muted);text-align:center;margin-top:var(--space-2);">Erste Zahlung erst nach der Testphase. Jederzeit k\u00fcndbar.</p>' +
+      // Abo verwalten (nur wenn Stripe-Abo existiert)
+      if (hasStripe) {
+        html += '<div class="card mb-4" style="text-align:center;">' +
+          '<div style="font-weight:600;margin-bottom:8px;">Abo verwalten</div>' +
+          '<p style="font-size:var(--text-sm);color:var(--text-muted);margin-bottom:var(--space-3);">Rechnungen, Zahlungsmethode oder K\u00fcndigung</p>' +
+          '<button class="btn btn-secondary" onclick="App.stripePortal()">Zum Stripe-Kundenportal</button>' +
         '</div>';
-      } else {
-        // Has active sub — show manage buttons
-        html += '<button class="btn btn-primary btn-full btn-lg mb-3" onclick="App.stripePortal()">Abo verwalten</button>';
-        html += '<p style="font-size:var(--text-xs);color:var(--text-muted);text-align:center;">Rechnung, Zahlungsmethode \u00e4ndern oder k\u00fcndigen</p>';
+      }
+
+      // Hinweis bei Trial-Status auf Testphase ohne Karte
+      if (!hasStripe) {
+        html += '<p style="font-size:var(--text-xs);color:var(--text-muted);text-align:center;margin-top:var(--space-2);">Erste Zahlung erst nach Tarif-Auswahl. Jederzeit k\u00fcndbar.</p>';
       }
 
       html += '</div>';
@@ -3260,11 +3280,94 @@ var App = {
     }
   },
 
-  stripeCheckout: async function() {
+  // ============================================================
+  // SUPER-ADMIN TAB
+  // ============================================================
+  renderSuperAdminTab: async function() {
+    var main = document.getElementById('school-main');
+    main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
     try {
-      var qty = parseInt(document.getElementById('abo-qty').value) || 1;
+      var data = await ApiClient.get('/api/admin/schools');
+      var schools = data.schools || [];
+      var h = '<div class="page-padding" style="max-width:1400px;margin:0 auto;">';
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-3);margin-bottom:var(--space-4);">' +
+        '<h2 style="font-size:var(--text-xl);font-weight:700;margin:0;">Super-Admin: Fahrschulen-Verwaltung</h2>' +
+        '<span class="badge badge-muted">' + schools.length + ' Fahrschulen</span>' +
+      '</div>';
+
+      h += '<div class="card" style="padding:0;overflow:auto;">';
+      h += '<table style="width:100%;border-collapse:collapse;font-size:var(--text-sm);">' +
+        '<thead><tr style="background:var(--bg-elevated);text-align:left;border-bottom:2px solid var(--border-color);">' +
+          '<th style="padding:12px;">Fahrschule</th>' +
+          '<th style="padding:12px;">Email</th>' +
+          '<th style="padding:12px;">Status</th>' +
+          '<th style="padding:12px;">Tarif</th>' +
+          '<th style="padding:12px;">Tage</th>' +
+          '<th style="padding:12px;text-align:right;">Aktionen</th>' +
+        '</tr></thead><tbody>';
+
+      schools.forEach(function(s){
+        var statusBadge = s.active ? '<span class="badge badge-success">Aktiv</span>' : '<span class="badge badge-error">Gesperrt</span>';
+        var planLabel = s.plan === 'ki' ? 'KI \u2728' : (s.plan === 'classic' ? 'Classic' : (s.status === 'trial' ? 'Trial' : '\u2014'));
+        var daysLabel = s.days_remaining !== null ? s.days_remaining + ' Tage' : '\u221E';
+        if (s.free_subscription) planLabel = '\ud83c\udf81 Gratis (' + (s.plan || 'ki') + ')';
+        h += '<tr style="border-bottom:1px solid var(--border-color);">' +
+          '<td style="padding:12px;"><strong>' + (s.name || '\u2014') + '</strong><br><span style="font-size:var(--text-xs);color:var(--text-muted);">' + (s.admin_name || '') + '</span></td>' +
+          '<td style="padding:12px;font-size:var(--text-xs);color:var(--text-muted);">' + s.email + '</td>' +
+          '<td style="padding:12px;">' + statusBadge + '</td>' +
+          '<td style="padding:12px;">' + planLabel + '</td>' +
+          '<td style="padding:12px;">' + daysLabel + '</td>' +
+          '<td style="padding:12px;text-align:right;white-space:nowrap;">' +
+            '<button class="btn btn-sm" onclick="App.adminExtendTrial(\'' + s.id + '\', \'' + (s.name || '').replace(/\x27/g, "\\\x27") + '\')">+Trial</button> ' +
+            '<button class="btn btn-sm btn-secondary" onclick="App.adminToggleFree(\'' + s.id + '\', \'' + (s.name || '').replace(/\x27/g, "\\\x27") + '\', ' + (s.free_subscription ? 'true' : 'false') + ')">' + (s.free_subscription ? 'Gratis-Abo entziehen' : 'Gratis-Abo geben') + '</button>' +
+          '</td>' +
+        '</tr>';
+      });
+      h += '</tbody></table></div></div>';
+      main.innerHTML = h;
+    } catch (err) {
+      main.innerHTML = '<div class="page-padding"><div class="card"><p>' + t('fehler') + ': ' + (err.message || err) + '</p></div></div>';
+    }
+  },
+
+  adminExtendTrial: async function(schoolId, schoolName) {
+    var daysStr = prompt('Trial f\u00fcr "' + schoolName + '" um wie viele Tage verl\u00e4ngern?', '14');
+    if (!daysStr) return;
+    var days = parseInt(daysStr);
+    if (!days || days < 1) return App.showToast('Ung\u00fcltige Anzahl');
+    try {
+      await ApiClient.put('/api/admin/schools/' + schoolId + '/extend-trial', { days: days });
+      App.showToast('Trial um ' + days + ' Tage verl\u00e4ngert');
+      App.renderSuperAdminTab();
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+  },
+
+  adminToggleFree: async function(schoolId, schoolName, currentlyFree) {
+    if (currentlyFree) {
+      if (!confirm('Gratis-Abo f\u00fcr "' + schoolName + '" entziehen?')) return;
+      try {
+        await ApiClient.put('/api/admin/schools/' + schoolId + '/free-subscription', { enable: false });
+        App.showToast('Gratis-Abo entzogen');
+        App.renderSuperAdminTab();
+      } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+      return;
+    }
+    var plan = prompt('Welcher Tarif gratis? (classic / ki)', 'ki');
+    if (!plan || (plan !== 'classic' && plan !== 'ki')) return App.showToast('Ung\u00fcltiger Tarif');
+    var daysStr = prompt('Wie viele Tage gratis? (leer = unbegrenzt)', '90');
+    var days = daysStr ? parseInt(daysStr) : null;
+    try {
+      await ApiClient.put('/api/admin/schools/' + schoolId + '/free-subscription', { enable: true, plan: plan, days: days });
+      App.showToast('Gratis-Abo gew\u00e4hrt' + (days ? ' (' + days + ' Tage)' : ' (unbegrenzt)'));
+      App.renderSuperAdminTab();
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+  },
+
+  stripeCheckout: async function(plan) {
+    try {
+      var planName = plan === 'ki' ? 'ki' : 'classic';
       App.showToast('Weiterleitung zu Stripe...');
-      var result = await ApiClient.post('/api/stripe/create-checkout', { quantity: qty });
+      var result = await ApiClient.post('/api/stripe/create-checkout', { plan: planName });
       if (result.url) window.location.href = result.url;
       else App.showToast('Fehler: Keine Checkout-URL erhalten');
     } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
@@ -3277,6 +3380,57 @@ var App = {
       if (result.url) window.location.href = result.url;
       else App.showToast('Fehler: Keine Portal-URL erhalten');
     } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+  },
+
+  // ============================================================
+  // LOCK-OVERLAY: zeigt sich wenn Testphase/Abo abgelaufen
+  // ============================================================
+  checkSubscriptionLock: async function() {
+    if (!AppState.currentUser || AppState.currentUser.role !== 'school') return;
+    try {
+      var sub = await ApiClient.get('/api/stripe/subscription');
+      App._lastSubState = sub;
+      var overlay = document.getElementById('subscription-lock-overlay');
+      if (!sub.active) {
+        if (!overlay) {
+          overlay = document.createElement('div');
+          overlay.id = 'subscription-lock-overlay';
+          overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px);';
+          document.body.appendChild(overlay);
+        }
+        overlay.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:560px;width:100%;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,0.3);text-align:center;">' +
+          '<div style="font-size:48px;margin-bottom:12px;">\ud83d\udd12</div>' +
+          '<h2 style="font-size:24px;font-weight:700;margin:0 0 8px;">Testphase abgelaufen</h2>' +
+          '<p style="color:#666;margin:0 0 24px;font-size:15px;">' + (sub.lock_reason || 'Bitte ein Abo abschliessen, um FahrDoc weiter zu nutzen.') + '</p>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">' +
+            '<button class="btn btn-secondary" onclick="App.stripeCheckout(\'classic\')" style="padding:14px;"><strong>Classic</strong><br><span style="font-size:13px;">29,99\u20ac / Monat</span></button>' +
+            '<button class="btn btn-primary" onclick="App.stripeCheckout(\'ki\')" style="padding:14px;"><strong>KI \u2728</strong><br><span style="font-size:13px;">39,99\u20ac / Monat</span></button>' +
+          '</div>' +
+          '<button class="btn btn-link" onclick="App.stripePortal()" style="font-size:13px;color:#666;">Bestehendes Abo verwalten</button>' +
+        '</div>';
+        overlay.style.display = 'flex';
+      } else if (overlay) {
+        overlay.style.display = 'none';
+      }
+      // Banner bei wenigen Tagen Trial
+      if (sub.status === 'trial' && sub.days_remaining !== null && sub.days_remaining <= 3) {
+        App.showTrialBanner(sub.days_remaining);
+      }
+    } catch(e) { /* nicht blockieren */ }
+  },
+
+  showTrialBanner: function(days) {
+    var banner = document.getElementById('global-trial-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'global-trial-banner';
+      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#fff8e1;border-bottom:2px solid #f9a825;padding:10px 16px;text-align:center;font-size:14px;z-index:1500;display:flex;align-items:center;justify-content:center;gap:12px;';
+      document.body.appendChild(banner);
+      document.body.style.paddingTop = '44px';
+    }
+    banner.innerHTML = '<span><strong>Testphase: noch ' + days + ' Tag' + (days === 1 ? '' : 'e') + '</strong></span>' +
+      '<button class="btn btn-sm btn-primary" onclick="App.switchTab(\'school-abo\')">Tarif w\u00e4hlen</button>' +
+      '<button onclick="this.parentElement.remove();document.body.style.paddingTop=\'\'" style="background:transparent;border:none;font-size:18px;cursor:pointer;padding:0 8px;color:#666;">\u00d7</button>';
   },
 
   changePasswordHtml: function() {
@@ -3316,8 +3470,17 @@ var App = {
   renderSchoolProfileTab: async function() {
     var u = AppState.currentUser;
     var main = document.getElementById('school-main');
+    // Super-Admin Hinweis (nur fuer Super-Admin-Email)
+    var isAdmin = (u.email || '').toLowerCase() === 'admin@fahrschule-weber.de' || (window['__SUPER_ADMIN_EMAIL__'] && (u.email || '').toLowerCase() === window['__SUPER_ADMIN_EMAIL__']);
+    var adminBox = isAdmin ? ('<div class="card mb-4" style="background:linear-gradient(135deg,#1565c0,#1976d2);color:#fff;">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap;">' +
+        '<div><div style="font-weight:700;font-size:var(--text-lg);">\ud83d\udd11 Super-Admin</div>' +
+        '<div style="font-size:var(--text-sm);opacity:0.9;">Fahrschulen verwalten, Trial verl\u00e4ngern, Gratis-Abos gew\u00e4hren</div></div>' +
+        '<button class="btn btn-secondary" style="background:#fff;color:#1565c0;" onclick="App.switchSchoolTab(\'admin\')">\u00d6ffnen</button>' +
+      '</div></div>') : '';
     var html = '<div class="page-padding"><div class="profile-header">' + this.avatarHtml(u.admin_name || u.name, 'lg') +
       '<h3>' + (u.admin_name || u.name) + '</h3><p class="text-xs text-muted">' + u.name + '</p></div>' +
+      adminBox +
       '<div class="profile-section">' +
         '<div class="profile-row"><span class="profile-row-label">' + t('email') + '</span><span class="profile-row-value">' + u.email + '</span></div>' +
         '<div class="profile-row"><span class="profile-row-label">' + t('telefon') + '</span><span class="profile-row-value">' + (u.phone || '—') + '</span></div>' +
@@ -3347,44 +3510,33 @@ var App = {
     if (!container) return;
     try {
       var sub = await ApiClient.get('/api/stripe/subscription');
-      var statusLabels = { trial: 'Testphase', trialing: 'Testphase', active: 'Aktiv', past_due: 'Zahlung ausstehend', canceled: 'Gek\u00fcndigt', expired: 'Abgelaufen', incomplete: 'Unvollst\u00e4ndig' };
-      var statusColors = { trial: 'warning', trialing: 'warning', active: 'success', past_due: 'error', canceled: 'error', expired: 'error', incomplete: 'warning' };
+      var statusLabels = { trial: 'Testphase', active: 'Aktiv', free: 'Gratis-Abo', expired: 'Abgelaufen' };
+      var statusColors = { trial: 'warning', active: 'success', free: 'success', expired: 'error' };
       var statusLabel = statusLabels[sub.status] || sub.status;
       var statusColor = statusColors[sub.status] || 'muted';
-      var hasActiveSub = sub.status === 'active' || sub.status === 'trialing';
-      var isExpired = sub.status === 'expired' || sub.status === 'canceled';
-      var instructors = [];
-      try { instructors = await ApiClient.get('/api/school/instructors'); } catch(e) {}
-      var instructorCount = Array.isArray(instructors) ? instructors.length : 0;
-      var h = '<div class="card mb-4"><div class="abo-plan-header"><span class="abo-plan-name">FahrDoc Pro</span><span class="badge badge-' + statusColor + '">' + statusLabel + '</span></div>';
-      if ((sub.status === 'trial' || sub.status === 'trialing') && sub.days_remaining !== null) {
-        h += '<div class="abo-trial-info" style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-3);background:var(--warning-bg,#fff8e1);border-radius:var(--radius-md);margin:var(--space-3) 0;font-size:var(--text-sm);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>Testphase: noch <strong style="margin:0 4px;">' + sub.days_remaining + '</strong> Tage</div>';
+      var planLabel = sub.plan === 'ki' ? 'FahrDoc KI \u2728' : (sub.plan === 'classic' ? 'FahrDoc Classic' : 'Kein Tarif');
+
+      var h = '<div class="card mb-4">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-2);">' +
+          '<div><div style="font-size:var(--text-lg);font-weight:700;">' + planLabel + '</div>' +
+          (sub.days_remaining !== null && sub.status === 'trial' ? '<div style="font-size:var(--text-sm);color:var(--text-muted);">Testphase: noch ' + sub.days_remaining + ' Tag' + (sub.days_remaining === 1 ? '' : 'e') + '</div>' : '') +
+          (sub.current_period_end && sub.status === 'active' ? '<div style="font-size:var(--text-sm);color:var(--text-muted);">N\u00e4chste Abbuchung: ' + new Date(sub.current_period_end).toLocaleDateString('de-DE') + '</div>' : '') +
+          '</div>' +
+          '<span class="badge badge-' + statusColor + '">' + statusLabel + '</span>' +
+        '</div>';
+
+      if (sub.cancel_at_period_end && sub.current_period_end) {
+        h += '<div style="padding:var(--space-3);background:#fff8e1;border-radius:var(--radius-md);margin-top:var(--space-3);font-size:var(--text-sm);">Abo wird zum ' + new Date(sub.current_period_end).toLocaleDateString('de-DE') + ' beendet.</div>';
       }
-      h += '<div style="text-align:center;padding:var(--space-4) 0;"><span style="font-size:var(--text-2xl);font-weight:700;">29,90 \u20ac</span><span style="font-size:var(--text-sm);color:var(--text-muted);display:block;">pro Fahrlehrer / Monat</span></div>';
-      if (hasActiveSub && sub.instructor_quantity) {
-        h += '<div style="display:flex;justify-content:space-between;font-size:var(--text-sm);padding:var(--space-2) 0;border-top:1px solid var(--border-color);margin-top:var(--space-3);"><span>Gebuchte Lizenzen</span><span class="font-semibold">' + sub.instructor_quantity + '</span></div>';
-        h += '<div style="display:flex;justify-content:space-between;font-size:var(--text-sm);padding:var(--space-2) 0;"><span>Aktive Fahrlehrer</span><span class="font-semibold">' + instructorCount + '</span></div>';
+      if (!sub.active && sub.lock_reason) {
+        h += '<div style="padding:var(--space-3);background:#ffeaea;border-radius:var(--radius-md);margin-top:var(--space-3);font-size:var(--text-sm);color:#c62828;"><strong>App gesperrt:</strong> ' + sub.lock_reason + '</div>';
       }
-      if (sub.cancel_at_period_end) {
-        var endDate = sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString('de-DE') : '';
-        h += '<div style="padding:var(--space-3);background:var(--error-bg,#ffeaea);border-radius:var(--radius-md);margin-top:var(--space-3);font-size:var(--text-sm);color:var(--error-color,#c62828);">Abo wird zum ' + endDate + ' beendet.</div>';
-      }
+
+      h += '<div style="display:flex;gap:var(--space-2);margin-top:var(--space-3);flex-wrap:wrap;">' +
+        '<button class="btn btn-primary" onclick="App.switchSchoolTab(\'abo\')">' + (sub.active ? 'Tarif \u00e4ndern' : 'Tarif w\u00e4hlen') + '</button>' +
+        (sub.has_stripe ? '<button class="btn btn-secondary" onclick="App.stripePortal()">Stripe-Portal</button>' : '') +
+      '</div>';
       h += '</div>';
-      if (!hasActiveSub || isExpired || sub.status === 'trial') {
-        var dq = Math.max(1, instructorCount);
-        h += '<div class="card mb-4"><div class="section-title mb-3">Abo starten</div>' +
-          '<p style="font-size:var(--text-sm);color:var(--text-muted);margin-bottom:var(--space-3);">W\u00e4hle die Anzahl der Fahrlehrer-Lizenzen.</p>' +
-          '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);"><label style="font-size:var(--text-sm);font-weight:600;">Fahrlehrer:</label><div style="display:flex;align-items:center;gap:var(--space-2);">' +
-            '<button class="btn btn-sm" onclick="var i=document.getElementById(\x27abo-qty\x27);i.value=Math.max(1,parseInt(i.value)-1);document.getElementById(\x27abo-total\x27).textContent=((parseInt(i.value)*29.90).toFixed(2).replace(\x27.\x27,\x27,\x27))+\x27 \u20ac/Monat\x27">\u2212</button>' +
-            '<input type="number" id="abo-qty" value="' + dq + '" min="1" max="99" style="width:60px;text-align:center;" class="form-input" onchange="document.getElementById(\x27abo-total\x27).textContent=((parseInt(this.value)*29.90).toFixed(2).replace(\x27.\x27,\x27,\x27))+\x27 \u20ac/Monat\x27">' +
-            '<button class="btn btn-sm" onclick="var i=document.getElementById(\x27abo-qty\x27);i.value=Math.min(99,parseInt(i.value)+1);document.getElementById(\x27abo-total\x27).textContent=((parseInt(i.value)*29.90).toFixed(2).replace(\x27.\x27,\x27,\x27))+\x27 \u20ac/Monat\x27">+</button></div></div>' +
-          '<div style="text-align:center;font-size:var(--text-lg);font-weight:700;margin-bottom:var(--space-4);" id="abo-total">' + (dq * 29.90).toFixed(2).replace('.', ',') + ' \u20ac/Monat</div>' +
-          '<button class="btn btn-primary btn-full btn-lg" onclick="App.stripeCheckout()">Jetzt starten \u2014 14 Tage kostenlos</button>' +
-          '<p style="font-size:var(--text-xs);color:var(--text-muted);text-align:center;margin-top:var(--space-2);">Erste Zahlung erst nach der Testphase.</p></div>';
-      } else {
-        h += '<button class="btn btn-primary btn-full btn-lg mb-3" onclick="App.stripePortal()">Abo verwalten</button>';
-        h += '<p style="font-size:var(--text-xs);color:var(--text-muted);text-align:center;">Rechnung, Zahlungsmethode \u00e4ndern oder k\u00fcndigen</p>';
-      }
       container.innerHTML = h;
     } catch (err) {
       container.innerHTML = '<div class="card mb-4"><p class="text-sm text-muted">' + t('fehler') + ': ' + (err.message || err) + '</p></div>';
@@ -3751,6 +3903,19 @@ var App = {
       html += '<div class="card mb-4 theory-progress-section"><div class="section-title mb-3">' + t('theorieFortschritt') + '</div>' +
         '<div id="theory-progress-container"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div></div>';
 
+      // ── KI-Briefing (nur fuer school + instructor wenn KI-Tarif) ──
+      if (AppState.currentUser && (AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor')) {
+        html += '<div class="card mb-4" id="ai-briefing-card-' + studentId + '" style="background:linear-gradient(135deg,#f3f8ff 0%,#e8f0fe 100%);border:1px solid #c5dafa;">' +
+          '<div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);">' +
+            '<span style="font-size:22px;">\u2728</span>' +
+            '<div style="font-weight:700;color:#1565c0;">KI-Briefing f\u00fcr n\u00e4chste Stunde</div>' +
+          '</div>' +
+          '<p style="font-size:var(--text-sm);color:var(--text-muted);margin-bottom:var(--space-3);">Lass Dir vor der n\u00e4chsten Fahrstunde automatisch ein Briefing aus den letzten Stunden zusammenfassen.</p>' +
+          '<button class="btn btn-primary" id="ai-briefing-btn-' + studentId + '" onclick="App.generateAiBriefing(\'' + studentId + '\')">Briefing generieren</button>' +
+          '<div id="ai-briefing-output-' + studentId + '" style="margin-top:var(--space-3);display:none;"></div>' +
+        '</div>';
+      }
+
       // ── Bescheinigungen (only for school/admin) ──
       if (AppState.currentUser && AppState.currentUser.role === 'school') {
         var docIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;flex-shrink:0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/></svg>';
@@ -3796,6 +3961,37 @@ var App = {
   // ══════════════════════════════════════════
   //  AUSBILDUNGSNACHWEIS (Anlage 3) PDF GENERATION
   // ══════════════════════════════════════════
+  generateAiBriefing: async function(studentId) {
+    var btn = document.getElementById('ai-briefing-btn-' + studentId);
+    var out = document.getElementById('ai-briefing-output-' + studentId);
+    if (!btn || !out) return;
+    var oldText = btn.textContent;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading-spinner" style="width:16px;height:16px;display:inline-block;vertical-align:middle;margin-right:8px;"></span>KI denkt nach...';
+    out.style.display = 'none';
+    try {
+      var result = await ApiClient.post('/api/ai/briefing/' + studentId, {});
+      var briefingHtml = (result.briefing || '').replace(/\n/g, '<br>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      out.innerHTML = '<div style="background:#fff;border-radius:var(--radius-md);padding:var(--space-3);font-size:var(--text-sm);line-height:1.6;border-left:4px solid #1565c0;">' +
+        briefingHtml +
+        '<div style="margin-top:var(--space-2);font-size:var(--text-xs);color:var(--text-muted);">Basierend auf ' + (result.lesson_count || 0) + ' Fahrstunden \u00b7 KI: Google Gemini</div>' +
+      '</div>';
+      out.style.display = 'block';
+    } catch (err) {
+      var msg = err && err.message ? err.message : String(err);
+      var html = '<div style="background:#ffeaea;border-radius:var(--radius-md);padding:var(--space-3);font-size:var(--text-sm);color:#c62828;border-left:4px solid #c62828;">' + msg;
+      if (msg.toLowerCase().indexOf('ki-tarif') >= 0 || msg.toLowerCase().indexOf('ki-briefing nur') >= 0) {
+        html += '<br><br><button class="btn btn-primary btn-sm" onclick="App.switchSchoolTab(\'abo\')">Jetzt auf KI-Tarif upgraden</button>';
+      }
+      html += '</div>';
+      out.innerHTML = html;
+      out.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = oldText;
+    }
+  },
+
   generateAusbildungsnachweis: async function(studentId) {
     this.showToast(t('ausbildungsnachweisErstellt'));
     try {
