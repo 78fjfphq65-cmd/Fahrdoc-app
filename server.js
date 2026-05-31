@@ -2006,14 +2006,6 @@ app.get('/api/feedback', authMiddleware, async (req, res) => {
 // ============================================
 // STRIPE: Config (publishable key for frontend)
 // ============================================
-// Diagnose-Endpoint: zeigt welche ENVs der Server sieht (nur Existenz, keine Werte)
-app.get('/api/diag/envs', (req, res) => {
-  var envKeys = Object.keys(process.env).filter(function(k) { return k.indexOf('STRIPE') === 0 || k.indexOf('GEMINI') === 0 || k.indexOf('SUPABASE') === 0 || k.indexOf('SUPER') === 0; });
-  var out = {};
-  envKeys.forEach(function(k) { var v = process.env[k]; out[k] = v ? (v.substring(0, 8) + '...' + v.length) : 'EMPTY'; });
-  res.json({ count: envKeys.length, vars: out, nodeVersion: process.version, pid: process.pid, uptime: Math.floor(process.uptime()) });
-});
-
 app.get('/api/stripe/config', (req, res) => {
   res.json({
     publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
