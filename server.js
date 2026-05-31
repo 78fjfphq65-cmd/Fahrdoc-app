@@ -1238,6 +1238,20 @@ app.post('/api/lessons', authMiddleware, async (req, res) => {
       });
     }
 
+    // ── BUCHHALTUNG: Auto-Soll-Position erzeugen wenn passendes Template existiert ──
+    if (studentId) {
+      try {
+        await autoCreateChargeFromLesson({
+          schoolId: schoolId, studentId: studentId, lessonId: id,
+          lessonType: type, lessonDate: lessonDate,
+          createdByRole: 'instructor', createdById: req.user.id
+        });
+      } catch (chargeErr) {
+        // Buchhaltungs-Fehler darf Fahrstunden-Speicherung nicht blockieren
+        console.warn('[Auto-Charge] Konnte Soll-Position nicht erzeugen:', chargeErr.message);
+      }
+    }
+
     res.json({ id, success: true });
   } catch (err) {
     console.error('Create lesson error:', err);
@@ -3910,6 +3924,287 @@ app.get('/api/student/lessons', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('[Student Lessons] Error:', err.message);
     res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// ============================================
+// BUCHHALTUNG: Helper für Auto-Soll-Position
+// ============================================
+async function autoCreateChargeFromLesson(opts) {
+  // opts: { schoolId, studentId, lessonId, lessonType, lessonDate, createdByRole, createdById }
+  if (!opts.schoolId || !opts.studentId || !opts.lessonId || !opts.lessonType) return null;
+  // Suche passendes Template (case-insensitive Vergleich lesson_type_match == lessonType)
+  const { data: templates } = await supabase.from('pricing_templates')
+    .select('*').eq('school_id', opts.schoolId).eq('active', true).eq('auto_apply', true);
+  if (!templates || templates.length === 0) return null;
+  const lt = (opts.lessonType || '').toLowerCase().trim();
+  const match = templates.find(function(t){ return (t.lesson_type_match || '').toLowerCase().trim() === lt; });
+  if (!match) return null;
+  // Duplikat-Check (UNIQUE-Constraint deckt's auch ab, aber so vermeiden wir Fehlermeldungen)
+  const { data: existing } = await supabase.from('student_charges')
+    .select('id').eq('lesson_id', opts.lessonId).eq('source', 'auto').maybeSingle();
+  if (existing) return existing;
+  const total = Math.round(match.price_cents * 1);
+  const row = {
+    id: generateId(),
+    school_id: opts.schoolId,
+    student_id: opts.studentId,
+    pricing_template_id: match.id,
+    description: match.name + ' (' + (opts.lessonDate || '') + ')',
+    category: match.category,
+    unit_price_cents: match.price_cents,
+    quantity: 1,
+    total_cents: total,
+    charge_date: opts.lessonDate || new Date().toISOString().split('T')[0],
+    lesson_id: opts.lessonId,
+    created_by_role: opts.createdByRole || 'instructor',
+    created_by_id: opts.createdById || null,
+    source: 'auto'
+  };
+  const { data: inserted, error } = await supabase.from('student_charges').insert(row).select().single();
+  if (error) throw error;
+  return inserted;
+}
+
+// Helper: Berechtigung prüfen (Schule darf alles, Fahrlehrer nur eigene Schüler)
+async function canAccessStudent(req, studentId) {
+  if (!studentId) return false;
+  const { data: s } = await supabase.from('students')
+    .select('school_id').eq('id', studentId).maybeSingle();
+  if (!s) return false;
+  if (s.school_id !== req.user.school_id) return false;
+  if (req.user.role === 'school') return true;
+  if (req.user.role === 'instructor') {
+    const { data: link } = await supabase.from('student_instructors')
+      .select('student_id').eq('student_id', studentId).eq('instructor_id', req.user.id).maybeSingle();
+    return !!link;
+  }
+  return false;
+}
+
+// ============================================
+// BUCHHALTUNG: Preisliste (pricing_templates)
+// ============================================
+// GET /api/pricing-templates — alle Templates der Schule
+app.get('/api/pricing-templates', authMiddleware, async (req, res) => {
+  try {
+    if (!['school', 'instructor'].includes(req.user.role)) return res.status(403).json({ error: 'Keine Berechtigung' });
+    const { data, error } = await supabase.from('pricing_templates')
+      .select('*').eq('school_id', req.user.school_id).order('sort_order').order('name');
+    if (error) throw error;
+    res.json({ templates: data || [] });
+  } catch (err) {
+    console.error('[Pricing GET]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/pricing-templates — neues Template anlegen (nur Schule)
+app.post('/api/pricing-templates', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Schule darf Preise anlegen' });
+    const b = req.body || {};
+    if (!b.name || b.price_cents == null) return res.status(400).json({ error: 'Name und Preis erforderlich' });
+    const row = {
+      id: generateId(),
+      school_id: req.user.school_id,
+      name: String(b.name).trim(),
+      category: b.category || 'sonstiges',
+      price_cents: Math.max(0, parseInt(b.price_cents) || 0),
+      active: b.active !== false,
+      auto_apply: b.auto_apply !== false,
+      lesson_type_match: b.lesson_type_match ? String(b.lesson_type_match).trim() : null,
+      sort_order: b.sort_order != null ? parseInt(b.sort_order) : 100
+    };
+    const { data, error } = await supabase.from('pricing_templates').insert(row).select().single();
+    if (error) throw error;
+    res.json({ template: data });
+  } catch (err) {
+    console.error('[Pricing POST]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/pricing-templates/:id
+app.put('/api/pricing-templates/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Schule darf Preise ändern' });
+    const { data: existing } = await supabase.from('pricing_templates')
+      .select('id').eq('id', req.params.id).eq('school_id', req.user.school_id).maybeSingle();
+    if (!existing) return res.status(404).json({ error: 'Template nicht gefunden' });
+    const b = req.body || {};
+    const updates = { updated_at: new Date().toISOString() };
+    if (b.name != null) updates.name = String(b.name).trim();
+    if (b.category != null) updates.category = b.category;
+    if (b.price_cents != null) updates.price_cents = Math.max(0, parseInt(b.price_cents) || 0);
+    if (b.active != null) updates.active = !!b.active;
+    if (b.auto_apply != null) updates.auto_apply = !!b.auto_apply;
+    if (b.lesson_type_match !== undefined) updates.lesson_type_match = b.lesson_type_match ? String(b.lesson_type_match).trim() : null;
+    if (b.sort_order != null) updates.sort_order = parseInt(b.sort_order);
+    const { data, error } = await supabase.from('pricing_templates').update(updates).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ template: data });
+  } catch (err) {
+    console.error('[Pricing PUT]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/pricing-templates/:id
+app.delete('/api/pricing-templates/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Schule darf Preise löschen' });
+    const { error } = await supabase.from('pricing_templates')
+      .delete().eq('id', req.params.id).eq('school_id', req.user.school_id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Pricing DELETE]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// BUCHHALTUNG: Schüler-Abrechnung (Soll + Ist + Summen)
+// ============================================
+// GET /api/students/:id/billing — alles für die Abrechnungs-Ansicht
+app.get('/api/students/:id/billing', authMiddleware, async (req, res) => {
+  try {
+    const allowed = await canAccessStudent(req, req.params.id);
+    if (!allowed) return res.status(403).json({ error: 'Keine Berechtigung' });
+    const [chargesRes, paymentsRes, studentRes] = await Promise.all([
+      supabase.from('student_charges').select('*').eq('student_id', req.params.id).order('charge_date', { ascending: false }).order('created_at', { ascending: false }),
+      supabase.from('student_payments').select('*').eq('student_id', req.params.id).order('payment_date', { ascending: false }).order('created_at', { ascending: false }),
+      supabase.from('students').select('id, name, email, license_class').eq('id', req.params.id).maybeSingle()
+    ]);
+    const charges = chargesRes.data || [];
+    const payments = paymentsRes.data || [];
+    const totalCharges = charges.reduce(function(s, c){ return s + (c.total_cents || 0); }, 0);
+    const totalPaid = payments.reduce(function(s, p){ return s + (p.amount_cents || 0); }, 0);
+    res.json({
+      student: studentRes.data || null,
+      charges: charges,
+      payments: payments,
+      summary: {
+        total_charges_cents: totalCharges,
+        total_paid_cents: totalPaid,
+        open_cents: totalCharges - totalPaid
+      }
+    });
+  } catch (err) {
+    console.error('[Billing GET]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/students/:id/charges — manuelle Soll-Position anlegen
+app.post('/api/students/:id/charges', authMiddleware, async (req, res) => {
+  try {
+    const allowed = await canAccessStudent(req, req.params.id);
+    if (!allowed) return res.status(403).json({ error: 'Keine Berechtigung' });
+    const b = req.body || {};
+    if (!b.description || b.unit_price_cents == null) return res.status(400).json({ error: 'Beschreibung und Preis erforderlich' });
+    const qty = b.quantity != null ? parseFloat(b.quantity) : 1;
+    const unit = Math.max(0, parseInt(b.unit_price_cents) || 0);
+    const total = Math.round(unit * qty);
+    const { data: student } = await supabase.from('students').select('school_id').eq('id', req.params.id).single();
+    const row = {
+      id: generateId(),
+      school_id: student.school_id,
+      student_id: req.params.id,
+      pricing_template_id: b.pricing_template_id || null,
+      description: String(b.description).trim(),
+      category: b.category || 'sonstiges',
+      unit_price_cents: unit,
+      quantity: qty,
+      total_cents: total,
+      charge_date: b.charge_date || new Date().toISOString().split('T')[0],
+      created_by_role: req.user.role,
+      created_by_id: req.user.id,
+      source: 'manual',
+      notes: b.notes || null
+    };
+    const { data, error } = await supabase.from('student_charges').insert(row).select().single();
+    if (error) throw error;
+    res.json({ charge: data });
+  } catch (err) {
+    console.error('[Charge POST]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/charges/:id — Position löschen
+app.delete('/api/charges/:id', authMiddleware, async (req, res) => {
+  try {
+    const { data: charge } = await supabase.from('student_charges')
+      .select('id, student_id, created_by_id, created_at').eq('id', req.params.id).maybeSingle();
+    if (!charge) return res.status(404).json({ error: 'Position nicht gefunden' });
+    const allowed = await canAccessStudent(req, charge.student_id);
+    if (!allowed) return res.status(403).json({ error: 'Keine Berechtigung' });
+    // Fahrlehrer dürfen nur eigene Positionen innerhalb 24h löschen
+    if (req.user.role === 'instructor') {
+      if (charge.created_by_id !== req.user.id) return res.status(403).json({ error: 'Nur eigene Positionen löschbar' });
+      const ageMs = Date.now() - new Date(charge.created_at).getTime();
+      if (ageMs > 24 * 3600 * 1000) return res.status(403).json({ error: 'Löschfrist (24h) überschritten' });
+    }
+    const { error } = await supabase.from('student_charges').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Charge DELETE]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/students/:id/payments — Zahlung erfassen
+app.post('/api/students/:id/payments', authMiddleware, async (req, res) => {
+  try {
+    const allowed = await canAccessStudent(req, req.params.id);
+    if (!allowed) return res.status(403).json({ error: 'Keine Berechtigung' });
+    const b = req.body || {};
+    if (b.amount_cents == null) return res.status(400).json({ error: 'Betrag erforderlich' });
+    const { data: student } = await supabase.from('students').select('school_id').eq('id', req.params.id).single();
+    const row = {
+      id: generateId(),
+      school_id: student.school_id,
+      student_id: req.params.id,
+      amount_cents: Math.max(0, parseInt(b.amount_cents) || 0),
+      payment_date: b.payment_date || new Date().toISOString().split('T')[0],
+      payment_method: b.payment_method || 'bar',
+      reference: b.reference || null,
+      charge_id: b.charge_id || null,
+      created_by_role: req.user.role,
+      created_by_id: req.user.id,
+      notes: b.notes || null
+    };
+    const { data, error } = await supabase.from('student_payments').insert(row).select().single();
+    if (error) throw error;
+    res.json({ payment: data });
+  } catch (err) {
+    console.error('[Payment POST]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/payments/:id
+app.delete('/api/payments/:id', authMiddleware, async (req, res) => {
+  try {
+    const { data: pay } = await supabase.from('student_payments')
+      .select('id, student_id, created_by_id, created_at').eq('id', req.params.id).maybeSingle();
+    if (!pay) return res.status(404).json({ error: 'Zahlung nicht gefunden' });
+    const allowed = await canAccessStudent(req, pay.student_id);
+    if (!allowed) return res.status(403).json({ error: 'Keine Berechtigung' });
+    if (req.user.role === 'instructor') {
+      if (pay.created_by_id !== req.user.id) return res.status(403).json({ error: 'Nur eigene Zahlungen löschbar' });
+      const ageMs = Date.now() - new Date(pay.created_at).getTime();
+      if (ageMs > 24 * 3600 * 1000) return res.status(403).json({ error: 'Löschfrist (24h) überschritten' });
+    }
+    const { error } = await supabase.from('student_payments').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Payment DELETE]', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

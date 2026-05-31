@@ -3548,6 +3548,7 @@ var App = {
         '<div class="profile-row"><span class="profile-row-label">' + t('adresse') + '</span><span class="profile-row-value">' + (u.address || '—') + '</span></div>' +
       '</div>' +
       '<div id="profile-abo-section"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>' +
+      '<div id="profile-pricing-section"></div>' +
       '<div class="card mb-4"><div class="section-title mb-3">' + t('supportFeedback') + '</div>' +
         '<div class="form-group mb-3"><label class="form-label">' + t('feedbackKategorie') + '</label>' +
           '<select class="form-select" id="feedback-category">' +
@@ -3564,6 +3565,136 @@ var App = {
     main.innerHTML = html;
     // Load abo data async
     this._loadProfileAbo();
+    // Load pricing templates (nur Fahrschule sieht/aendert)
+    this._loadPricingTemplates();
+  },
+
+  _loadPricingTemplates: async function() {
+    var container = document.getElementById('profile-pricing-section');
+    if (!container) return;
+    var u = AppState.currentUser;
+    if (u.role !== 'school') { container.innerHTML = ''; return; }
+    container.innerHTML = '<div class="card mb-4"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>';
+    try {
+      var list = await ApiClient.get('/api/pricing-templates');
+      this._renderPricingTemplates(list || []);
+    } catch (err) {
+      container.innerHTML = '<div class="card mb-4"><p class="text-sm text-muted">Preise: ' + (err.message || err) + '</p></div>';
+    }
+  },
+
+  _renderPricingTemplates: function(list) {
+    var container = document.getElementById('profile-pricing-section');
+    if (!container) return;
+    var rowsHtml = '';
+    if (!list.length) {
+      rowsHtml = '<div style="padding:var(--space-3);color:var(--text-muted);font-size:var(--text-sm);text-align:center;">Noch keine Preise angelegt. Lege z.\u202fB. \u201eFahrstunde\u201c, \u201eTheorie\u201c oder \u201eGrundgeb\u00fchr\u201c an.</div>';
+    } else {
+      var i;
+      for (i = 0; i < list.length; i++) {
+        var p = list[i];
+        var price = this._formatEur(p.price_cents);
+        var matchBadge = p.lesson_type_match ? '<span class="badge badge-info" style="margin-left:var(--space-2);">Auto: ' + p.lesson_type_match + '</span>' : '';
+        var autoBadge = p.auto_apply ? '<span class="badge badge-success" style="margin-left:var(--space-2);">Auto</span>' : '';
+        var inactiveBadge = !p.active ? '<span class="badge badge-muted" style="margin-left:var(--space-2);">inaktiv</span>' : '';
+        rowsHtml += '<div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-3);border-bottom:1px solid var(--border-light);flex-wrap:wrap;">' +
+          '<div style="flex:1;min-width:200px;"><div style="font-weight:600;">' + this._escapeHtml(p.name) + matchBadge + autoBadge + inactiveBadge + '</div>' +
+          '<div style="font-size:var(--text-sm);color:var(--text-muted);">' + price + ' \u00b7 ' + (p.lesson_type_match ? 'wird automatisch f\u00fcr Fahrstunden vom Typ \u201e' + this._escapeHtml(p.lesson_type_match) + '\u201c erfasst' : 'manuell verwendbar') + '</div></div>' +
+          '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">' +
+            '<button class="btn btn-secondary btn-sm" onclick="App.openTemplateDialog(\'' + p.id + '\')">Bearbeiten</button>' +
+            '<button class="btn btn-secondary btn-sm" onclick="App.toggleTemplateActive(\'' + p.id + '\',' + (p.active ? 'false' : 'true') + ')">' + (p.active ? 'Deaktivieren' : 'Aktivieren') + '</button>' +
+            '<button class="btn btn-secondary btn-sm" style="color:#c62828;" onclick="App.deleteTemplate(\'' + p.id + '\')">L\u00f6schen</button>' +
+          '</div></div>';
+      }
+    }
+    var html = '<div class="card mb-4">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin-bottom:var(--space-3);flex-wrap:wrap;">' +
+        '<div><div class="section-title" style="margin:0;">Preise verwalten</div>' +
+        '<div style="font-size:var(--text-sm);color:var(--text-muted);">Diese Preise erscheinen in der Sch\u00fcler-Abrechnung. Mit \u201eAuto\u201c werden Fahrstunden eines Typs automatisch erfasst.</div></div>' +
+        '<button class="btn btn-primary btn-sm" onclick="App.openTemplateDialog(null)">+ Preis anlegen</button>' +
+      '</div>' +
+      '<div style="border:1px solid var(--border-light);border-radius:var(--radius-md);overflow:hidden;">' + rowsHtml + '</div>' +
+    '</div>';
+    container.innerHTML = html;
+  },
+
+  _escapeHtml: function(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  },
+
+  openTemplateDialog: async function(templateId) {
+    var existing = null;
+    if (templateId) {
+      try {
+        var list = await ApiClient.get('/api/pricing-templates');
+        var i;
+        for (i = 0; i < list.length; i++) { if (list[i].id === templateId) { existing = list[i]; break; } }
+      } catch (err) { App.showToast('Fehler: ' + (err.message || err), 'error'); return; }
+    }
+    var name = existing ? existing.name : '';
+    var price = existing ? (existing.price_cents / 100).toFixed(2).replace('.', ',') : '';
+    var matchVal = existing ? (existing.lesson_type_match || '') : '';
+    var autoApply = existing ? !!existing.auto_apply : true;
+    var typeOptions = ['', 'Grundfahrstunde', 'Sonderfahrt \u00dcberland', 'Sonderfahrt Autobahn', 'Sonderfahrt Nacht', 'Theorie', 'Pr\u00fcfungsfahrt'];
+    var typeOptsHtml = '';
+    var j;
+    for (j = 0; j < typeOptions.length; j++) {
+      var v = typeOptions[j];
+      var sel = (v === matchVal) ? ' selected' : '';
+      typeOptsHtml += '<option value="' + this._escapeHtml(v) + '"' + sel + '>' + (v ? this._escapeHtml(v) : '\u2014 kein Auto-Match \u2014') + '</option>';
+    }
+    var body = '<div class="form-group"><label class="form-label">Bezeichnung *</label>' +
+      '<input type="text" id="tpl-name" class="form-input" value="' + this._escapeHtml(name) + '" placeholder="z.B. Grundfahrstunde"></div>' +
+      '<div class="form-group"><label class="form-label">Preis (EUR) *</label>' +
+      '<input type="text" id="tpl-price" class="form-input" value="' + price + '" placeholder="55,00" inputmode="decimal"></div>' +
+      '<div class="form-group"><label class="form-label">Fahrstunden-Typ (Auto-Match)</label>' +
+      '<select id="tpl-match" class="form-select">' + typeOptsHtml + '</select>' +
+      '<div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-1);">Wenn eine Fahrstunde mit diesem Typ erfasst wird, wird der Preis automatisch dem Sch\u00fcler berechnet.</div></div>' +
+      '<div class="form-group"><label style="display:flex;align-items:center;gap:var(--space-2);cursor:pointer;">' +
+      '<input type="checkbox" id="tpl-auto"' + (autoApply ? ' checked' : '') + '> <span>Automatisch erfassen (nur mit Typ-Match)</span></label></div>' +
+      '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-top:var(--space-4);">' +
+      '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>' +
+      '<button class="btn btn-primary" onclick="App._saveTemplate(' + (templateId ? "'" + templateId + "'" : 'null') + ')">Speichern</button></div>';
+    App.showModal(templateId ? 'Preis bearbeiten' : 'Preis anlegen', body);
+  },
+
+  _saveTemplate: async function(templateId) {
+    var name = (document.getElementById('tpl-name').value || '').trim();
+    var priceRaw = (document.getElementById('tpl-price').value || '').trim().replace(',', '.');
+    var match = (document.getElementById('tpl-match').value || '').trim();
+    var auto = document.getElementById('tpl-auto').checked;
+    if (!name) { App.showToast('Bezeichnung fehlt', 'error'); return; }
+    var priceNum = parseFloat(priceRaw);
+    if (isNaN(priceNum) || priceNum < 0) { App.showToast('Ung\u00fcltiger Preis', 'error'); return; }
+    var cents = Math.round(priceNum * 100);
+    var payload = { name: name, price_cents: cents, lesson_type_match: match || null, auto_apply: auto };
+    try {
+      if (templateId) {
+        await ApiClient.put('/api/pricing-templates/' + templateId, payload);
+      } else {
+        await ApiClient.post('/api/pricing-templates', payload);
+      }
+      App.closeModal();
+      App.showToast('Gespeichert', 'success');
+      this._loadPricingTemplates();
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err), 'error'); }
+  },
+
+  toggleTemplateActive: async function(templateId, makeActive) {
+    try {
+      await ApiClient.put('/api/pricing-templates/' + templateId, { active: makeActive });
+      this._loadPricingTemplates();
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err), 'error'); }
+  },
+
+  deleteTemplate: async function(templateId) {
+    if (!confirm('Diesen Preis wirklich l\u00f6schen? Bereits erfasste Positionen bleiben erhalten.')) return;
+    try {
+      await ApiClient.del('/api/pricing-templates/' + templateId);
+      App.showToast('Gel\u00f6scht', 'success');
+      this._loadPricingTemplates();
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err), 'error'); }
   },
 
   _loadProfileAbo: async function() {
@@ -3990,10 +4121,292 @@ var App = {
         '</div>';
       }
 
+      // ── Buchhaltung (nur für Schule + Fahrlehrer) ──
+      if (AppState.currentUser && (AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor')) {
+        html += '<div class="card mb-4" id="billing-card-' + studentId + '">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-2);margin-bottom:var(--space-3);">' +
+            '<div class="section-title" style="margin:0;">\ud83d\udcb6 Abrechnung</div>' +
+            '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">' +
+              '<button class="btn btn-sm btn-secondary" onclick="App.openAddChargeDialog(\'' + studentId + '\')">+ Position</button>' +
+              '<button class="btn btn-sm btn-primary" onclick="App.openAddPaymentDialog(\'' + studentId + '\')">+ Zahlung</button>' +
+            '</div>' +
+          '</div>' +
+          '<div id="billing-content-' + studentId + '"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>' +
+        '</div>';
+      }
+
       html += '</div>'; content.innerHTML = html;
       // Load theory progress asynchronously
       this.renderTheoryProgress(studentId);
+      // Load billing asynchronously
+      if (AppState.currentUser && (AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor')) {
+        this.renderStudentBilling(studentId);
+      }
     } catch (err) { content.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
+  },
+
+  // ════════════════════════════════
+  //  BUCHHALTUNG: Schüler-Abrechnung
+  // ════════════════════════════════
+  _formatEur: function(cents) {
+    var eur = (cents || 0) / 100;
+    return eur.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' \u20ac';
+  },
+  _formatDateDe: function(s) {
+    if (!s) return '\u2014';
+    var d = new Date(s); if (isNaN(d.getTime())) return s;
+    return d.toLocaleDateString('de-DE');
+  },
+  _paymentMethodLabel: function(m) {
+    var map = { 'bar': 'Bar', '\u00fcberweisung': '\u00dcberweisung', 'ueberweisung': '\u00dcberweisung', 'ec': 'EC/Karte', 'paypal': 'PayPal', 'sonstiges': 'Sonstiges' };
+    return map[m] || m || '\u2014';
+  },
+
+  renderStudentBilling: async function(studentId) {
+  var container = document.getElementById('billing-content-' + studentId);
+  if (!container) return;
+    try {
+      var data = await ApiClient.get('/api/students/' + studentId + '/billing');
+      var summary = data.summary || { total_charges_cents: 0, total_paid_cents: 0, open_cents: 0 };
+      var charges = data.charges || [];
+      var payments = data.payments || [];
+      var openColor = summary.open_cents > 0 ? '#dc2626' : (summary.open_cents < 0 ? '#0d9488' : 'var(--text-muted)');
+      var openLabel = summary.open_cents > 0 ? 'Offen' : (summary.open_cents < 0 ? 'Guthaben' : 'Ausgeglichen');
+      var openValue = summary.open_cents > 0 ? this._formatEur(summary.open_cents) : (summary.open_cents < 0 ? this._formatEur(-summary.open_cents) : this._formatEur(0));
+
+      // Summary-Karten
+      var h = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--space-2);margin-bottom:var(--space-4);">' +
+        '<div style="background:var(--bg-elevated);padding:var(--space-3);border-radius:var(--radius-md);">' +
+          '<div style="font-size:var(--text-xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Soll</div>' +
+          '<div style="font-size:18px;font-weight:700;margin-top:4px;">' + this._formatEur(summary.total_charges_cents) + '</div>' +
+        '</div>' +
+        '<div style="background:var(--bg-elevated);padding:var(--space-3);border-radius:var(--radius-md);">' +
+          '<div style="font-size:var(--text-xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Bezahlt</div>' +
+          '<div style="font-size:18px;font-weight:700;margin-top:4px;color:#0d9488;">' + this._formatEur(summary.total_paid_cents) + '</div>' +
+        '</div>' +
+        '<div style="background:var(--bg-elevated);padding:var(--space-3);border-radius:var(--radius-md);border:2px solid ' + openColor + ';">' +
+          '<div style="font-size:var(--text-xs);color:' + openColor + ';text-transform:uppercase;letter-spacing:.5px;font-weight:600;">' + openLabel + '</div>' +
+          '<div style="font-size:20px;font-weight:700;margin-top:4px;color:' + openColor + ';">' + openValue + '</div>' +
+        '</div>' +
+      '</div>';
+
+      // Tabs Soll / Ist
+      h += '<div style="display:flex;gap:var(--space-2);margin-bottom:var(--space-3);border-bottom:1px solid var(--border-color);">' +
+        '<button class="billing-tab-btn" data-tab="soll" onclick="App.switchBillingTab(\'' + studentId + '\',\'soll\',this)" style="padding:8px 16px;border:none;background:none;font-weight:600;border-bottom:2px solid var(--color-primary);color:var(--color-primary);cursor:pointer;">Soll-Positionen (' + charges.length + ')</button>' +
+        '<button class="billing-tab-btn" data-tab="ist" onclick="App.switchBillingTab(\'' + studentId + '\',\'ist\',this)" style="padding:8px 16px;border:none;background:none;font-weight:600;border-bottom:2px solid transparent;color:var(--text-muted);cursor:pointer;">Ist-Zahlungen (' + payments.length + ')</button>' +
+      '</div>';
+
+      // Soll-Liste
+      h += '<div id="billing-tab-soll-' + studentId + '">';
+      if (charges.length === 0) {
+        h += '<p style="font-size:var(--text-sm);color:var(--text-muted);text-align:center;padding:var(--space-4);">Keine Soll-Positionen. Klicke auf "+ Position" oder lege Preise an, damit Fahrstunden automatisch verrechnet werden.</p>';
+      } else {
+        h += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:var(--text-sm);">' +
+          '<thead><tr style="text-align:left;border-bottom:1px solid var(--border-color);color:var(--text-muted);font-size:var(--text-xs);text-transform:uppercase;">' +
+            '<th style="padding:8px 6px;">Datum</th>' +
+            '<th style="padding:8px 6px;">Position</th>' +
+            '<th style="padding:8px 6px;text-align:right;">Einzel</th>' +
+            '<th style="padding:8px 6px;text-align:right;">Anz.</th>' +
+            '<th style="padding:8px 6px;text-align:right;">Gesamt</th>' +
+            '<th style="padding:8px 6px;"></th>' +
+          '</tr></thead><tbody>';
+        charges.forEach(function(c){
+          var sourceTag = c.source === 'auto' ? '<span class="badge badge-muted" style="font-size:10px;margin-left:6px;">auto</span>' : '';
+          h += '<tr style="border-bottom:1px solid var(--border-color);">' +
+            '<td style="padding:8px 6px;white-space:nowrap;">' + App._formatDateDe(c.charge_date) + '</td>' +
+            '<td style="padding:8px 6px;">' + (c.description || '\u2014') + sourceTag + '</td>' +
+            '<td style="padding:8px 6px;text-align:right;">' + App._formatEur(c.unit_price_cents) + '</td>' +
+            '<td style="padding:8px 6px;text-align:right;">' + (c.quantity || 1) + '</td>' +
+            '<td style="padding:8px 6px;text-align:right;font-weight:600;">' + App._formatEur(c.total_cents) + '</td>' +
+            '<td style="padding:8px 6px;text-align:right;"><button class="btn btn-sm" style="padding:4px 8px;background:transparent;color:#dc2626;border:1px solid #dc2626;" onclick="App.deleteCharge(\'' + c.id + '\',\'' + studentId + '\')">\u00d7</button></td>' +
+          '</tr>';
+        });
+        h += '</tbody></table></div>';
+      }
+      h += '</div>';
+
+      // Ist-Liste
+      h += '<div id="billing-tab-ist-' + studentId + '" style="display:none;">';
+      if (payments.length === 0) {
+        h += '<p style="font-size:var(--text-sm);color:var(--text-muted);text-align:center;padding:var(--space-4);">Noch keine Zahlungen erfasst.</p>';
+      } else {
+        h += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:var(--text-sm);">' +
+          '<thead><tr style="text-align:left;border-bottom:1px solid var(--border-color);color:var(--text-muted);font-size:var(--text-xs);text-transform:uppercase;">' +
+            '<th style="padding:8px 6px;">Datum</th>' +
+            '<th style="padding:8px 6px;">Zahlart</th>' +
+            '<th style="padding:8px 6px;">Referenz</th>' +
+            '<th style="padding:8px 6px;text-align:right;">Betrag</th>' +
+            '<th style="padding:8px 6px;"></th>' +
+          '</tr></thead><tbody>';
+        payments.forEach(function(p){
+          h += '<tr style="border-bottom:1px solid var(--border-color);">' +
+            '<td style="padding:8px 6px;white-space:nowrap;">' + App._formatDateDe(p.payment_date) + '</td>' +
+            '<td style="padding:8px 6px;">' + App._paymentMethodLabel(p.payment_method) + '</td>' +
+            '<td style="padding:8px 6px;color:var(--text-muted);font-size:var(--text-xs);">' + (p.reference || '\u2014') + '</td>' +
+            '<td style="padding:8px 6px;text-align:right;font-weight:600;color:#0d9488;">' + App._formatEur(p.amount_cents) + '</td>' +
+            '<td style="padding:8px 6px;text-align:right;"><button class="btn btn-sm" style="padding:4px 8px;background:transparent;color:#dc2626;border:1px solid #dc2626;" onclick="App.deletePayment(\'' + p.id + '\',\'' + studentId + '\')">\u00d7</button></td>' +
+          '</tr>';
+        });
+        h += '</tbody></table></div>';
+      }
+      h += '</div>';
+
+      container.innerHTML = h;
+    } catch (err) {
+      container.innerHTML = '<p style="font-size:var(--text-sm);color:#c62828;">' + t('fehler') + ': ' + (err.message || err) + '</p>';
+    }
+  },
+
+  switchBillingTab: function(studentId, tab, btn) {
+    var sollEl = document.getElementById('billing-tab-soll-' + studentId);
+    var istEl = document.getElementById('billing-tab-ist-' + studentId);
+    if (sollEl) sollEl.style.display = (tab === 'soll') ? '' : 'none';
+    if (istEl) istEl.style.display = (tab === 'ist') ? '' : 'none';
+    // Tab-Styling
+    var cardEl = btn ? btn.closest('.card') : null;
+    if (cardEl) {
+      cardEl.querySelectorAll('.billing-tab-btn').forEach(function(b){
+        var active = b.getAttribute('data-tab') === tab;
+        b.style.borderBottomColor = active ? 'var(--color-primary)' : 'transparent';
+        b.style.color = active ? 'var(--color-primary)' : 'var(--text-muted)';
+      });
+    }
+  },
+
+  openAddChargeDialog: async function(studentId) {
+    // Templates laden für Schnellauswahl
+    var templates = [];
+    try {
+      var tres = await ApiClient.get('/api/pricing-templates');
+      templates = (tres.templates || []).filter(function(t){ return t.active; });
+    } catch (e) { /* templates optional */ }
+
+    var todayStr = new Date().toISOString().split('T')[0];
+    var optionsHtml = '<option value="">\u2014 Frei eingeben \u2014</option>';
+    templates.forEach(function(t){
+      optionsHtml += '<option value="' + t.id + '" data-name="' + (t.name || '').replace(/"/g, '&quot;') + '" data-price="' + t.price_cents + '" data-category="' + (t.category || '') + '">' + (t.name || '') + ' \u2014 ' + App._formatEur(t.price_cents) + '</option>';
+    });
+
+    var html = '<div style="display:flex;flex-direction:column;gap:var(--space-3);">' +
+      '<div class="form-group"><label class="form-label">Aus Vorlage</label>' +
+        '<select class="form-select" id="charge-template" onchange="App._fillChargeFromTemplate(this)">' + optionsHtml + '</select></div>' +
+      '<div class="form-group"><label class="form-label">Beschreibung *</label>' +
+        '<input type="text" class="form-input" id="charge-desc" placeholder="z.B. Grundbetrag Klasse B"></div>' +
+      '<div style="display:grid;grid-template-columns:2fr 1fr;gap:var(--space-3);">' +
+        '<div class="form-group"><label class="form-label">Einzelpreis (\u20ac) *</label>' +
+          '<input type="number" step="0.01" min="0" class="form-input" id="charge-price" placeholder="0.00"></div>' +
+        '<div class="form-group"><label class="form-label">Anzahl</label>' +
+          '<input type="number" step="1" min="1" class="form-input" id="charge-qty" value="1"></div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">Datum</label>' +
+        '<input type="date" class="form-input" id="charge-date" value="' + todayStr + '"></div>' +
+      '<div class="form-group"><label class="form-label">Notiz</label>' +
+        '<textarea class="form-textarea" id="charge-notes" rows="2"></textarea></div>' +
+    '</div>';
+    App.showModal('Soll-Position hinzuf\u00fcgen', html, [
+      { label: 'Abbrechen', class: 'btn-secondary', onClick: function(){ App.closeModal(); } },
+      { label: 'Speichern', class: 'btn-primary', onClick: function(){ App._saveCharge(studentId); } }
+    ]);
+  },
+
+  _fillChargeFromTemplate: function(sel) {
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) return;
+    var name = opt.getAttribute('data-name') || '';
+    var price = parseInt(opt.getAttribute('data-price') || '0');
+    var descEl = document.getElementById('charge-desc');
+    var priceEl = document.getElementById('charge-price');
+    if (descEl) descEl.value = name;
+    if (priceEl) priceEl.value = (price / 100).toFixed(2);
+  },
+
+  _saveCharge: async function(studentId) {
+    var desc = (document.getElementById('charge-desc') || {}).value || '';
+    var priceVal = parseFloat((document.getElementById('charge-price') || {}).value || '0');
+    var qty = parseFloat((document.getElementById('charge-qty') || {}).value || '1');
+    var date = (document.getElementById('charge-date') || {}).value || null;
+    var notes = (document.getElementById('charge-notes') || {}).value || null;
+    var templateId = (document.getElementById('charge-template') || {}).value || null;
+    if (!desc.trim()) return App.showToast('Beschreibung fehlt');
+    if (!(priceVal >= 0)) return App.showToast('Preis ung\u00fcltig');
+    try {
+      await ApiClient.post('/api/students/' + studentId + '/charges', {
+        description: desc.trim(),
+        unit_price_cents: Math.round(priceVal * 100),
+        quantity: qty,
+        charge_date: date,
+        notes: notes,
+        pricing_template_id: templateId || null
+      });
+      App.closeModal();
+      App.showToast('Position gespeichert');
+      App.renderStudentBilling(studentId);
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+  },
+
+  openAddPaymentDialog: async function(studentId) {
+    var todayStr = new Date().toISOString().split('T')[0];
+    var html = '<div style="display:flex;flex-direction:column;gap:var(--space-3);">' +
+      '<div class="form-group"><label class="form-label">Betrag (\u20ac) *</label>' +
+        '<input type="number" step="0.01" min="0" class="form-input" id="pay-amount" placeholder="0.00"></div>' +
+      '<div class="form-group"><label class="form-label">Datum</label>' +
+        '<input type="date" class="form-input" id="pay-date" value="' + todayStr + '"></div>' +
+      '<div class="form-group"><label class="form-label">Zahlart</label>' +
+        '<select class="form-select" id="pay-method">' +
+          '<option value="bar">Bar</option>' +
+          '<option value="\u00fcberweisung">\u00dcberweisung</option>' +
+          '<option value="ec">EC/Karte</option>' +
+          '<option value="paypal">PayPal</option>' +
+          '<option value="sonstiges">Sonstiges</option>' +
+        '</select></div>' +
+      '<div class="form-group"><label class="form-label">Referenz / Rechnungsnr.</label>' +
+        '<input type="text" class="form-input" id="pay-ref" placeholder="optional"></div>' +
+      '<div class="form-group"><label class="form-label">Notiz</label>' +
+        '<textarea class="form-textarea" id="pay-notes" rows="2"></textarea></div>' +
+    '</div>';
+    App.showModal('Zahlung erfassen', html, [
+      { label: 'Abbrechen', class: 'btn-secondary', onClick: function(){ App.closeModal(); } },
+      { label: 'Speichern', class: 'btn-primary', onClick: function(){ App._savePayment(studentId); } }
+    ]);
+  },
+
+  _savePayment: async function(studentId) {
+    var amountVal = parseFloat((document.getElementById('pay-amount') || {}).value || '0');
+    var date = (document.getElementById('pay-date') || {}).value || null;
+    var method = (document.getElementById('pay-method') || {}).value || 'bar';
+    var ref = (document.getElementById('pay-ref') || {}).value || null;
+    var notes = (document.getElementById('pay-notes') || {}).value || null;
+    if (!(amountVal > 0)) return App.showToast('Betrag ung\u00fcltig');
+    try {
+      await ApiClient.post('/api/students/' + studentId + '/payments', {
+        amount_cents: Math.round(amountVal * 100),
+        payment_date: date,
+        payment_method: method,
+        reference: ref,
+        notes: notes
+      });
+      App.closeModal();
+      App.showToast('Zahlung erfasst');
+      App.renderStudentBilling(studentId);
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+  },
+
+  deleteCharge: async function(chargeId, studentId) {
+    if (!confirm('Position l\u00f6schen?')) return;
+    try {
+      await ApiClient.del('/api/charges/' + chargeId);
+      App.showToast('Gel\u00f6scht');
+      App.renderStudentBilling(studentId);
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+  },
+
+  deletePayment: async function(paymentId, studentId) {
+    if (!confirm('Zahlung l\u00f6schen?')) return;
+    try {
+      await ApiClient.del('/api/payments/' + paymentId);
+      App.showToast('Gel\u00f6scht');
+      App.renderStudentBilling(studentId);
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
   },
 
   shareStudent: async function(studentId) {
