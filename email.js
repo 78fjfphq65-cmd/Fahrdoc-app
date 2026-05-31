@@ -162,4 +162,84 @@ async function sendInviteEmail({ to, code, type, schoolName, senderName, senderR
   }
 }
 
-module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode };
+// ============================================
+// Subscription Emails (Abo-Bestaetigung, Kuendigung, Zahlung fehlgeschlagen)
+// ============================================
+function emailLayout(title, bodyHtml) {
+  return `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #ffffff;">
+      <div style="text-align: center; margin-bottom: 32px;">
+        <h1 style="font-size: 24px; color: #1a1a1a; margin: 0;">\ud83d\ude97 FahrDoc</h1>
+      </div>
+      ${bodyHtml}
+      <hr style="border: none; border-top: 1px solid #eee; margin: 28px 0;">
+      <p style="font-size: 12px; color: #999; text-align: center;">FahrDoc \u2014 Digitale Fahrstunden-Dokumentation<br><a href="https://www.fahrdoc.app" style="color:#0d9488;text-decoration:none;">www.fahrdoc.app</a></p>
+    </div>
+  `;
+}
+
+async function sendSubscriptionWelcomeEmail(to, schoolName, plan, amount) {
+  try {
+    const planName = plan === 'ki' ? 'FahrDoc KI' : 'FahrDoc Classic';
+    const priceText = amount ? (Number(amount).toFixed(2) + ' \u20ac / Monat') : (plan === 'ki' ? '39,99 \u20ac / Monat' : '29,99 \u20ac / Monat');
+    const html = emailLayout('Abo aktiviert', `
+      <p style="font-size: 16px; color: #333; line-height: 1.5;">Hallo ${schoolName || 'Fahrschule'},</p>
+      <p style="font-size: 16px; color: #333; line-height: 1.5;">vielen Dank f\u00fcr deinen Abschluss! Dein <strong>${planName}</strong>-Abo ist jetzt aktiv.</p>
+      <div style="background:#f0f9ff;border-left:4px solid #0d9488;padding:16px 20px;margin:24px 0;border-radius:6px;">
+        <div style="font-size:14px;color:#666;margin-bottom:4px;">Dein Tarif</div>
+        <div style="font-size:18px;font-weight:600;color:#0d9488;">${planName}</div>
+        <div style="font-size:14px;color:#666;margin-top:8px;">${priceText}</div>
+      </div>
+      ${plan === 'ki' ? '<p style="font-size: 15px; color: #333; line-height: 1.5;">\u2728 Mit FahrDoc KI kannst du ab sofort <strong>KI-Briefings</strong> f\u00fcr jeden Sch\u00fcler generieren \u2014 perfekt vor jeder Fahrstunde.</p>' : '<p style="font-size: 15px; color: #333; line-height: 1.5;">Falls du sp\u00e4ter auf FahrDoc KI upgraden m\u00f6chtest \u2014 du kannst jederzeit in der App wechseln.</p>'}
+      <div style="text-align:center;margin:28px 0;"><a href="https://www.fahrdoc.app" style="display:inline-block;background:#0d9488;color:#fff;font-size:16px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;">Zur App</a></div>
+      <p style="font-size:14px;color:#666;line-height:1.5;">Du kannst dein Abo jederzeit in den Einstellungen verwalten oder k\u00fcndigen.</p>
+    `);
+    const { data, error } = await resend.emails.send({ from: FROM_EMAIL, to: [to], subject: 'FahrDoc \u2014 Abo aktiviert: ' + planName, html });
+    if (error) { console.error('[EMAIL] Welcome send error:', error); return false; }
+    console.log('[EMAIL] Welcome sent to ' + to + ' (id: ' + (data && data.id) + ')');
+    return true;
+  } catch (err) { console.error('[EMAIL] Welcome send failed:', err.message); return false; }
+}
+
+async function sendSubscriptionCancelledEmail(to, schoolName, endDate) {
+  try {
+    const endText = endDate ? new Date(endDate).toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' }) : '';
+    const html = emailLayout('Abo gek\u00fcndigt', `
+      <p style="font-size: 16px; color: #333; line-height: 1.5;">Hallo ${schoolName || 'Fahrschule'},</p>
+      <p style="font-size: 16px; color: #333; line-height: 1.5;">dein FahrDoc-Abo wurde gek\u00fcndigt. ${endText ? 'Du kannst FahrDoc noch bis zum <strong>' + endText + '</strong> nutzen.' : 'Dein Zugang endet zum n\u00e4chsten Abrechnungstermin.'}</p>
+      <p style="font-size: 15px; color: #333; line-height: 1.5;">Schade, dass du gehst! Falls du Feedback hast, antworte einfach auf diese E-Mail \u2014 wir freuen uns \u00fcber jede R\u00fcckmeldung.</p>
+      <div style="text-align:center;margin:28px 0;"><a href="https://www.fahrdoc.app" style="display:inline-block;background:#0d9488;color:#fff;font-size:16px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;">Wieder abonnieren</a></div>
+      <p style="font-size:14px;color:#666;line-height:1.5;">Deine Daten bleiben gespeichert. Du kannst jederzeit zur\u00fcckkommen \u2014 alles ist noch da.</p>
+    `);
+    const { data, error } = await resend.emails.send({ from: FROM_EMAIL, to: [to], subject: 'FahrDoc \u2014 Abo gek\u00fcndigt', html });
+    if (error) { console.error('[EMAIL] Cancel send error:', error); return false; }
+    console.log('[EMAIL] Cancel sent to ' + to);
+    return true;
+  } catch (err) { console.error('[EMAIL] Cancel send failed:', err.message); return false; }
+}
+
+async function sendPaymentFailedEmail(to, schoolName, amount) {
+  try {
+    const priceText = amount ? (Number(amount).toFixed(2) + ' \u20ac') : '';
+    const html = emailLayout('Zahlung fehlgeschlagen', `
+      <p style="font-size: 16px; color: #333; line-height: 1.5;">Hallo ${schoolName || 'Fahrschule'},</p>
+      <p style="font-size: 16px; color: #333; line-height: 1.5;">leider konnte deine Zahlung ${priceText ? '\u00fcber <strong>' + priceText + '</strong> ' : ''}nicht abgebucht werden.</p>
+      <div style="background:#fef2f2;border-left:4px solid #ef4444;padding:16px 20px;margin:24px 0;border-radius:6px;">
+        <div style="font-size:14px;color:#991b1b;font-weight:600;margin-bottom:8px;">\u26a0\ufe0f Was du jetzt tun solltest:</div>
+        <ul style="margin:0;padding-left:18px;color:#333;line-height:1.6;font-size:14px;">
+          <li>Pr\u00fcfe deine Zahlungsmethode (Karte abgelaufen? Deckung?)</li>
+          <li>Aktualisiere deine Zahlungsdaten in den Einstellungen</li>
+          <li>Stripe versucht es in den n\u00e4chsten Tagen erneut</li>
+        </ul>
+      </div>
+      <p style="font-size: 15px; color: #333; line-height: 1.5;">Solange die Zahlung offen ist, bleibt dein Zugang aktiv. Wenn nach mehreren Versuchen keine Zahlung gelingt, wird dein Abo automatisch pausiert.</p>
+      <div style="text-align:center;margin:28px 0;"><a href="https://www.fahrdoc.app" style="display:inline-block;background:#0d9488;color:#fff;font-size:16px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;">Zahlungsdaten aktualisieren</a></div>
+    `);
+    const { data, error } = await resend.emails.send({ from: FROM_EMAIL, to: [to], subject: 'FahrDoc \u2014 Zahlung fehlgeschlagen', html });
+    if (error) { console.error('[EMAIL] Payment-failed send error:', error); return false; }
+    console.log('[EMAIL] Payment-failed sent to ' + to);
+    return true;
+  } catch (err) { console.error('[EMAIL] Payment-failed send failed:', err.message); return false; }
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail };

@@ -8,7 +8,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const { supabase, generateToken, generateId, hashPassword, verifyPassword } = require('./db');
-const { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode } = require('./email');
+const { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail } = require('./email');
 const Stripe = require('stripe');
 const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -108,12 +108,21 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
             trial_end: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
             updated_at: new Date().toISOString()
           }, { onConflict: 'school_id' });
+          // Welcome-Email senden
+          try {
+            const { data: school } = await supabase.from('schools').select('email, name').eq('id', schoolId).single();
+            if (school && school.email) {
+              const amount = sub.items.data[0]?.price?.unit_amount ? (sub.items.data[0].price.unit_amount / 100) : null;
+              await sendSubscriptionWelcomeEmail(school.email, school.name, detectedPlan, amount);
+            }
+          } catch (e) { console.error('[Webhook] Welcome email error:', e.message); }
         }
         break;
       }
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
         const sub = event.data.object;
+        const wasCancelled = event.type === 'customer.subscription.deleted' || sub.status === 'canceled';
         const { data: existing } = await supabase.from('subscriptions')
           .select('school_id').eq('stripe_subscription_id', sub.id).single();
         if (existing) {
@@ -130,6 +139,16 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
           };
           if (detectedPlan) updateData.plan = detectedPlan;
           await supabase.from('subscriptions').update(updateData).eq('school_id', existing.school_id);
+          // Kuendigungs-Email senden bei Cancel oder cancel_at_period_end=true (erstmaliges Kuendigen)
+          if (wasCancelled || sub.cancel_at_period_end) {
+            try {
+              const { data: school } = await supabase.from('schools').select('email, name').eq('id', existing.school_id).single();
+              if (school && school.email) {
+                const endDate = sub.current_period_end ? new Date(sub.current_period_end * 1000) : null;
+                await sendSubscriptionCancelledEmail(school.email, school.name, endDate);
+              }
+            } catch (e) { console.error('[Webhook] Cancel email error:', e.message); }
+          }
         }
         break;
       }
@@ -141,6 +160,14 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
           await supabase.from('subscriptions').update({
             status: 'past_due', updated_at: new Date().toISOString()
           }).eq('school_id', existing.school_id);
+          // Payment-Failed Email senden
+          try {
+            const { data: school } = await supabase.from('schools').select('email, name').eq('id', existing.school_id).single();
+            if (school && school.email) {
+              const amount = invoice.amount_due ? (invoice.amount_due / 100) : null;
+              await sendPaymentFailedEmail(school.email, school.name, amount);
+            }
+          } catch (e) { console.error('[Webhook] Payment-failed email error:', e.message); }
         }
         break;
       }
@@ -2147,6 +2174,88 @@ app.get('/api/stripe/subscription', authMiddleware, async (req, res) => {
 function isSuperAdmin(req) {
   return req.user && req.user.email && req.user.email.toLowerCase() === SUPER_ADMIN_EMAIL;
 }
+
+// SUPER-ADMIN: Statistik-Dashboard
+app.get('/api/admin/stats', authMiddleware, async (req, res) => {
+  if (!isSuperAdmin(req)) return res.status(403).json({ error: 'Keine Berechtigung' });
+  try {
+    const { data: schools } = await supabase.from('schools').select('id, created_at');
+    const { data: subs } = await supabase.from('subscriptions').select('*');
+    const subMap = {};
+    (subs || []).forEach(function(s) { subMap[s.school_id] = s; });
+
+    let mrr = 0;
+    let activeStripe = 0;
+    let activeClassic = 0;
+    let activeKi = 0;
+    let trialing = 0;
+    let trialEndingSoon = 0; // <= 3 Tage
+    let freeSubs = 0;
+    let expired = 0;
+    let cancellationsPending = 0;
+
+    (schools || []).forEach(function(s) {
+      const sub = subMap[s.id];
+      const state = computeSubscriptionState(sub, s.created_at);
+      if (state.status === 'active') {
+        activeStripe++;
+        if (state.plan === 'ki') { activeKi++; mrr += 39.99; }
+        else { activeClassic++; mrr += 29.99; }
+        if (sub && sub.cancel_at_period_end) cancellationsPending++;
+      } else if (state.status === 'free') {
+        freeSubs++;
+      } else if (state.status === 'trial') {
+        trialing++;
+        if (state.daysRemaining !== null && state.daysRemaining <= 3) trialEndingSoon++;
+      } else if (state.status === 'expired') {
+        expired++;
+      }
+    });
+
+    // KI-Briefings
+    let aiTotal = 0;
+    let aiToday = 0;
+    let aiThisMonth = 0;
+    try {
+      const { count: total } = await supabase.from('ai_briefings').select('id', { count: 'exact', head: true });
+      aiTotal = total || 0;
+      const startToday = new Date(); startToday.setHours(0, 0, 0, 0);
+      const { count: today } = await supabase.from('ai_briefings').select('id', { count: 'exact', head: true }).gte('created_at', startToday.toISOString());
+      aiToday = today || 0;
+      const startMonth = new Date(); startMonth.setDate(1); startMonth.setHours(0, 0, 0, 0);
+      const { count: month } = await supabase.from('ai_briefings').select('id', { count: 'exact', head: true }).gte('created_at', startMonth.toISOString());
+      aiThisMonth = month || 0;
+    } catch (e) { console.warn('[Admin Stats] AI count failed:', e.message); }
+
+    // Neue Schulen (letzte 30 Tage)
+    let newSchools30d = 0;
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+    (schools || []).forEach(function(s) {
+      if (s.created_at && new Date(s.created_at) >= cutoff) newSchools30d++;
+    });
+
+    res.json({
+      schools_total: (schools || []).length,
+      schools_new_30d: newSchools30d,
+      mrr: Math.round(mrr * 100) / 100,
+      arr: Math.round(mrr * 12 * 100) / 100,
+      active_stripe: activeStripe,
+      active_classic: activeClassic,
+      active_ki: activeKi,
+      cancellations_pending: cancellationsPending,
+      trialing: trialing,
+      trial_ending_soon: trialEndingSoon,
+      free_subscriptions: freeSubs,
+      expired: expired,
+      ai_briefings_total: aiTotal,
+      ai_briefings_today: aiToday,
+      ai_briefings_this_month: aiThisMonth
+    });
+  } catch (err) {
+    console.error('[Admin Stats Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.get('/api/admin/schools', authMiddleware, async (req, res) => {
   if (!isSuperAdmin(req)) return res.status(403).json({ error: 'Keine Berechtigung' });

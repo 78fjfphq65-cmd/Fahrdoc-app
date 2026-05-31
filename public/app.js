@@ -3287,14 +3287,75 @@ var App = {
     var main = document.getElementById('school-main');
     main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
     try {
-      var data = await ApiClient.get('/api/admin/schools');
+      var results = await Promise.all([ ApiClient.get('/api/admin/schools'), ApiClient.get('/api/admin/stats').catch(function(){ return null; }) ]);
+      var data = results[0];
+      var stats = results[1];
       var schools = data.schools || [];
       var h = '<div class="page-padding" style="max-width:1400px;margin:0 auto;">';
       h += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-3);margin-bottom:var(--space-4);">' +
-        '<h2 style="font-size:var(--text-xl);font-weight:700;margin:0;">Super-Admin: Fahrschulen-Verwaltung</h2>' +
+        '<h2 style="font-size:var(--text-xl);font-weight:700;margin:0;">Super-Admin Dashboard</h2>' +
         '<span class="badge badge-muted">' + schools.length + ' Fahrschulen</span>' +
       '</div>';
 
+      // ── Statistik-Karten ──
+      if (stats) {
+        var fmtEur = function(n) { return (Number(n) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' \u20ac'; };
+        h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--space-3);margin-bottom:var(--space-5);">';
+        // MRR Karte (Hero)
+        h += '<div class="card" style="background:linear-gradient(135deg,#0d9488 0%,#0f766e 100%);color:white;border:none;">' +
+          '<div style="font-size:var(--text-xs);text-transform:uppercase;opacity:.85;letter-spacing:.5px;margin-bottom:6px;">MRR (Monatsumsatz)</div>' +
+          '<div style="font-size:28px;font-weight:700;line-height:1.1;">' + fmtEur(stats.mrr) + '</div>' +
+          '<div style="font-size:var(--text-xs);opacity:.85;margin-top:4px;">ARR: ' + fmtEur(stats.arr) + '</div>' +
+        '</div>';
+        // Aktive Abos
+        h += '<div class="card">' +
+          '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-bottom:6px;">Aktive Abos</div>' +
+          '<div style="font-size:28px;font-weight:700;line-height:1.1;color:#0d9488;">' + stats.active_stripe + '</div>' +
+          '<div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:4px;">' + stats.active_classic + '\u00d7 Classic \u00b7 ' + stats.active_ki + '\u00d7 KI</div>' +
+        '</div>';
+        // Trial-Schulen
+        h += '<div class="card">' +
+          '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-bottom:6px;">Im Trial</div>' +
+          '<div style="font-size:28px;font-weight:700;line-height:1.1;color:#d97706;">' + stats.trialing + '</div>' +
+          '<div style="font-size:var(--text-xs);color:' + (stats.trial_ending_soon > 0 ? '#dc2626' : 'var(--text-muted)') + ';margin-top:4px;font-weight:' + (stats.trial_ending_soon > 0 ? '600' : '400') + ';">' +
+            (stats.trial_ending_soon > 0 ? '\u26a0\ufe0f ' + stats.trial_ending_soon + ' laufen in \u2264 3 Tagen ab' : 'Alle haben noch Zeit') +
+          '</div>' +
+        '</div>';
+        // Schulen gesamt + neu
+        h += '<div class="card">' +
+          '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-bottom:6px;">Fahrschulen Gesamt</div>' +
+          '<div style="font-size:28px;font-weight:700;line-height:1.1;">' + stats.schools_total + '</div>' +
+          '<div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:4px;">+' + stats.schools_new_30d + ' in den letzten 30 Tagen</div>' +
+        '</div>';
+        h += '</div>';
+
+        // ── Sekundär-Stats ──
+        h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--space-3);margin-bottom:var(--space-5);">';
+        // KI-Briefings
+        h += '<div class="card" style="background:linear-gradient(135deg,#f3f8ff 0%,#e8f0fe 100%);border:1px solid #c5dafa;">' +
+          '<div style="font-size:var(--text-xs);text-transform:uppercase;color:#1565c0;letter-spacing:.5px;margin-bottom:6px;">\u2728 KI-Briefings</div>' +
+          '<div style="font-size:22px;font-weight:700;line-height:1.1;color:#1565c0;">' + stats.ai_briefings_total + '</div>' +
+          '<div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:4px;">Heute: ' + stats.ai_briefings_today + ' \u00b7 Monat: ' + stats.ai_briefings_this_month + '</div>' +
+        '</div>';
+        // Gratis-Abos
+        h += '<div class="card">' +
+          '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-bottom:6px;">\ud83c\udf81 Gratis-Abos</div>' +
+          '<div style="font-size:22px;font-weight:700;line-height:1.1;">' + stats.free_subscriptions + '</div>' +
+        '</div>';
+        // Kuendigungen ausstehend
+        h += '<div class="card">' +
+          '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-bottom:6px;">Gek\u00fcndigt (l\u00e4uft aus)</div>' +
+          '<div style="font-size:22px;font-weight:700;line-height:1.1;color:' + (stats.cancellations_pending > 0 ? '#dc2626' : 'inherit') + ';">' + stats.cancellations_pending + '</div>' +
+        '</div>';
+        // Abgelaufene Schulen
+        h += '<div class="card">' +
+          '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-bottom:6px;">Abgelaufen / Gesperrt</div>' +
+          '<div style="font-size:22px;font-weight:700;line-height:1.1;color:#71717a;">' + stats.expired + '</div>' +
+        '</div>';
+        h += '</div>';
+      }
+
+      h += '<h3 style="font-size:var(--text-lg);font-weight:600;margin:0 0 var(--space-3);">Fahrschulen verwalten</h3>';
       h += '<div class="card" style="padding:0;overflow:auto;">';
       h += '<table style="width:100%;border-collapse:collapse;font-size:var(--text-sm);">' +
         '<thead><tr style="background:var(--bg-elevated);text-align:left;border-bottom:2px solid var(--border-color);">' +
