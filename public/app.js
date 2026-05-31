@@ -4121,8 +4121,8 @@ var App = {
         '</div>';
       }
 
-      // ── Buchhaltung (nur für Schule + Fahrlehrer) ──
-      if (AppState.currentUser && (AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor')) {
+      // ── Buchhaltung (nur Fahrschule) ──
+      if (AppState.currentUser && AppState.currentUser.role === 'school') {
         html += '<div class="card mb-4" id="billing-card-' + studentId + '">' +
           '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-2);margin-bottom:var(--space-3);">' +
             '<div class="section-title" style="margin:0;">\ud83d\udcb6 Abrechnung</div>' +
@@ -4138,8 +4138,8 @@ var App = {
       html += '</div>'; content.innerHTML = html;
       // Load theory progress asynchronously
       this.renderTheoryProgress(studentId);
-      // Load billing asynchronously
-      if (AppState.currentUser && (AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor')) {
+      // Load billing asynchronously (nur Fahrschule)
+      if (AppState.currentUser && AppState.currentUser.role === 'school') {
         this.renderStudentBilling(studentId);
       }
     } catch (err) { content.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }

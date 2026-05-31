@@ -3972,20 +3972,14 @@ function schoolIdOf(user) {
   return user.role === 'school' ? user.id : user.school_id;
 }
 
-// Helper: Berechtigung prüfen (Schule darf alles, Fahrlehrer nur eigene Schüler)
+// Helper: Berechtigung prüfen (NUR Fahrschule darf Buchhaltungs-Endpoints nutzen)
 async function canAccessStudent(req, studentId) {
   if (!studentId) return false;
+  if (req.user.role !== 'school') return false;
   const { data: s } = await supabase.from('students')
     .select('school_id').eq('id', studentId).maybeSingle();
   if (!s) return false;
-  if (s.school_id !== schoolIdOf(req.user)) return false;
-  if (req.user.role === 'school') return true;
-  if (req.user.role === 'instructor') {
-    const { data: link } = await supabase.from('student_instructors')
-      .select('student_id').eq('student_id', studentId).eq('instructor_id', req.user.id).maybeSingle();
-    return !!link;
-  }
-  return false;
+  return s.school_id === schoolIdOf(req.user);
 }
 
 // ============================================
@@ -3994,7 +3988,7 @@ async function canAccessStudent(req, studentId) {
 // GET /api/pricing-templates — alle Templates der Schule
 app.get('/api/pricing-templates', authMiddleware, async (req, res) => {
   try {
-    if (!['school', 'instructor'].includes(req.user.role)) return res.status(403).json({ error: 'Keine Berechtigung' });
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule darf Preise sehen' });
     const schoolId = schoolIdOf(req.user);
     const { data, error } = await supabase.from('pricing_templates')
       .select('*').eq('school_id', schoolId).order('sort_order').order('name');
@@ -4140,20 +4134,15 @@ app.post('/api/students/:id/charges', authMiddleware, async (req, res) => {
   }
 });
 
-// DELETE /api/charges/:id — Position löschen
+// DELETE /api/charges/:id — Position löschen (nur Fahrschule)
 app.delete('/api/charges/:id', authMiddleware, async (req, res) => {
   try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule darf Positionen löschen' });
     const { data: charge } = await supabase.from('student_charges')
-      .select('id, student_id, created_by_id, created_at').eq('id', req.params.id).maybeSingle();
+      .select('id, student_id').eq('id', req.params.id).maybeSingle();
     if (!charge) return res.status(404).json({ error: 'Position nicht gefunden' });
     const allowed = await canAccessStudent(req, charge.student_id);
     if (!allowed) return res.status(403).json({ error: 'Keine Berechtigung' });
-    // Fahrlehrer dürfen nur eigene Positionen innerhalb 24h löschen
-    if (req.user.role === 'instructor') {
-      if (charge.created_by_id !== req.user.id) return res.status(403).json({ error: 'Nur eigene Positionen löschbar' });
-      const ageMs = Date.now() - new Date(charge.created_at).getTime();
-      if (ageMs > 24 * 3600 * 1000) return res.status(403).json({ error: 'Löschfrist (24h) überschritten' });
-    }
     const { error } = await supabase.from('student_charges').delete().eq('id', req.params.id);
     if (error) throw error;
     res.json({ success: true });
@@ -4193,19 +4182,15 @@ app.post('/api/students/:id/payments', authMiddleware, async (req, res) => {
   }
 });
 
-// DELETE /api/payments/:id
+// DELETE /api/payments/:id (nur Fahrschule)
 app.delete('/api/payments/:id', authMiddleware, async (req, res) => {
   try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule darf Zahlungen löschen' });
     const { data: pay } = await supabase.from('student_payments')
-      .select('id, student_id, created_by_id, created_at').eq('id', req.params.id).maybeSingle();
+      .select('id, student_id').eq('id', req.params.id).maybeSingle();
     if (!pay) return res.status(404).json({ error: 'Zahlung nicht gefunden' });
     const allowed = await canAccessStudent(req, pay.student_id);
     if (!allowed) return res.status(403).json({ error: 'Keine Berechtigung' });
-    if (req.user.role === 'instructor') {
-      if (pay.created_by_id !== req.user.id) return res.status(403).json({ error: 'Nur eigene Zahlungen löschbar' });
-      const ageMs = Date.now() - new Date(pay.created_at).getTime();
-      if (ageMs > 24 * 3600 * 1000) return res.status(403).json({ error: 'Löschfrist (24h) überschritten' });
-    }
     const { error } = await supabase.from('student_payments').delete().eq('id', req.params.id);
     if (error) throw error;
     res.json({ success: true });
