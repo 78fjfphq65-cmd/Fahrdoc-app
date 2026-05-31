@@ -3966,13 +3966,19 @@ async function autoCreateChargeFromLesson(opts) {
   return inserted;
 }
 
+// Helper: SchoolId aus User-Objekt holen (school: user.id, instructor/student: user.school_id)
+function schoolIdOf(user) {
+  if (!user) return null;
+  return user.role === 'school' ? user.id : user.school_id;
+}
+
 // Helper: Berechtigung prüfen (Schule darf alles, Fahrlehrer nur eigene Schüler)
 async function canAccessStudent(req, studentId) {
   if (!studentId) return false;
   const { data: s } = await supabase.from('students')
     .select('school_id').eq('id', studentId).maybeSingle();
   if (!s) return false;
-  if (s.school_id !== req.user.school_id) return false;
+  if (s.school_id !== schoolIdOf(req.user)) return false;
   if (req.user.role === 'school') return true;
   if (req.user.role === 'instructor') {
     const { data: link } = await supabase.from('student_instructors')
@@ -3989,10 +3995,11 @@ async function canAccessStudent(req, studentId) {
 app.get('/api/pricing-templates', authMiddleware, async (req, res) => {
   try {
     if (!['school', 'instructor'].includes(req.user.role)) return res.status(403).json({ error: 'Keine Berechtigung' });
+    const schoolId = schoolIdOf(req.user);
     const { data, error } = await supabase.from('pricing_templates')
-      .select('*').eq('school_id', req.user.school_id).order('sort_order').order('name');
+      .select('*').eq('school_id', schoolId).order('sort_order').order('name');
     if (error) throw error;
-    res.json({ templates: data || [] });
+    res.json(data || []);
   } catch (err) {
     console.error('[Pricing GET]', err);
     res.status(500).json({ error: err.message });
@@ -4007,7 +4014,7 @@ app.post('/api/pricing-templates', authMiddleware, async (req, res) => {
     if (!b.name || b.price_cents == null) return res.status(400).json({ error: 'Name und Preis erforderlich' });
     const row = {
       id: generateId(),
-      school_id: req.user.school_id,
+      school_id: schoolIdOf(req.user),
       name: String(b.name).trim(),
       category: b.category || 'sonstiges',
       price_cents: Math.max(0, parseInt(b.price_cents) || 0),
@@ -4030,7 +4037,7 @@ app.put('/api/pricing-templates/:id', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Schule darf Preise ändern' });
     const { data: existing } = await supabase.from('pricing_templates')
-      .select('id').eq('id', req.params.id).eq('school_id', req.user.school_id).maybeSingle();
+      .select('id').eq('id', req.params.id).eq('school_id', schoolIdOf(req.user)).maybeSingle();
     if (!existing) return res.status(404).json({ error: 'Template nicht gefunden' });
     const b = req.body || {};
     const updates = { updated_at: new Date().toISOString() };
@@ -4055,7 +4062,7 @@ app.delete('/api/pricing-templates/:id', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Schule darf Preise löschen' });
     const { error } = await supabase.from('pricing_templates')
-      .delete().eq('id', req.params.id).eq('school_id', req.user.school_id);
+      .delete().eq('id', req.params.id).eq('school_id', schoolIdOf(req.user));
     if (error) throw error;
     res.json({ success: true });
   } catch (err) {
