@@ -4233,15 +4233,8 @@ var App = {
     doc.text(bestLines, ml, y);
     y += bestLines.length * 3.8 + 4;
 
-    // Hinweis
-    doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5);
-    var hinweisText = isTheorie
-      ? 'Hinweis: Die Wiederholung der theoretischen Pr\u00fcfung ist fr\u00fchestens nach 3 Tagen zul\u00e4ssig, sofern keine schwerwiegenden M\u00e4ngel vorliegen (max. 14 Fehlerpunkte bei Klassen C/D bzw. 9 bei \u00fcbrigen Klassen). Geb\u00fchr: 29,16 EUR (Nr. 499 GebOSt).'
-      : 'Hinweis: Die Wiederholung der praktischen Pr\u00fcfung ist fr\u00fchestens nach 7 Tagen zul\u00e4ssig, sofern keine schwerwiegenden M\u00e4ngel festgestellt wurden. Geb\u00fchr: 29,16 EUR (Nr. 499 GebOSt).';
-    var hinweisLines = doc.splitTextToSize(hinweisText, cw);
-    doc.text(hinweisLines, ml, y);
-    y += hinweisLines.length * 3.3 + 8;
     doc.setFont('helvetica', 'normal');
+    y += 4;
 
     // Unterschriften (Antragsteller + Fahrschule)
     var sigW = (cw - 8) / 2;
