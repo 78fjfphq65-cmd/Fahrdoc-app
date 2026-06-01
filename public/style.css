@@ -3204,3 +3204,27 @@ html[dir="rtl"] .notif-panel {
 .lesson-card-date{font-weight:600;font-size:var(--text-sm)}
 .lesson-card-detail{font-size:var(--text-xs);color:var(--color-text-muted)}
 .lesson-card-action{flex-shrink:0}
+
+/* ════════════════════════════════════════════
+   TAGESÜBERSICHT — Print-Layout & Helpers
+   ════════════════════════════════════════════ */
+.daily-row-done { opacity: .5; text-decoration: line-through; }
+.daily-row-done td { background: #f3f4f6 !important; }
+.print-only { display: none !important; }
+
+@media print {
+  body { background: #fff !important; color: #000 !important; }
+  /* Alles ausblenden außer Tagesübersicht */
+  .bottom-nav, .top-header, #school-trial-banner, #notification-bell-wrap,
+  .no-print, button, input, select { display: none !important; }
+  #daily-summary-view input, #daily-summary-view select { display: none !important; }
+  #school-main { padding: 0 !important; margin: 0 !important; }
+  #daily-summary-view { max-width: none !important; padding: 0 !important; margin: 0 !important; }
+  .print-only { display: block !important; }
+  .daily-table { font-size: 11px !important; width: 100% !important; }
+  .daily-table th { background: #f0f0f0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .daily-table td, .daily-table th { padding: 4px 6px !important; border-bottom: 1px solid #ccc !important; }
+  .daily-row-done { opacity: 1; text-decoration: none; }
+  .daily-row-done td { background: #fff !important; }
+  @page { size: A4 landscape; margin: 1cm; }
+}

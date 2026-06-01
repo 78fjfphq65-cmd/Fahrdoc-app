@@ -4459,6 +4459,119 @@ app.post('/api/invoices/:id/cancel', authMiddleware, async (req, res) => {
 });
 
 // ============================================
+// TAGESÜBERSICHT — Soll-Positionen nach Datumsbereich
+// GET /api/accounting/daily-summary?from=YYYY-MM-DD&to=YYYY-MM-DD&instructor_id=&student_id=
+// Liefert alle Soll-Positionen (student_charges) der Schule im Bereich,
+// inkl. Schüler-Name + optional Fahrlehrer-Name (über lesson_id) + Steueraufteilung.
+// Default ohne from/to = heute.
+// ============================================
+app.get('/api/accounting/daily-summary', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+    const schoolId = schoolIdOf(req.user);
+    const today = new Date().toISOString().split('T')[0];
+    const from = (req.query.from && /^\d{4}-\d{2}-\d{2}$/.test(req.query.from)) ? req.query.from : today;
+    const to = (req.query.to && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to)) ? req.query.to : from;
+    const instructorFilter = req.query.instructor_id || null;
+    const studentFilter = req.query.student_id || null;
+
+    // Schul-Steuerinfo für Netto/USt-Aufteilung
+    const { data: school } = await supabase.from('schools')
+      .select('name, tax_mode, tax_rate_percent').eq('id', schoolId).single();
+    const taxMode = (school && school.tax_mode) || 'kleinunternehmer';
+    const taxRate = parseFloat(school && school.tax_rate_percent) || 0;
+
+    // Charges holen
+    let q = supabase.from('student_charges')
+      .select('id, student_id, charge_date, description, category, unit_price_cents, quantity, total_cents, lesson_id, invoice_id, source, created_at')
+      .eq('school_id', schoolId)
+      .gte('charge_date', from)
+      .lte('charge_date', to)
+      .order('charge_date', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (studentFilter) q = q.eq('student_id', studentFilter);
+    const { data: charges, error: chErr } = await q;
+    if (chErr) throw chErr;
+    const list = charges || [];
+
+    // Schüler- und Lesson-Daten in Bulk laden
+    const studentIds = Array.from(new Set(list.map(function(c){ return c.student_id; }).filter(Boolean)));
+    const lessonIds = Array.from(new Set(list.map(function(c){ return c.lesson_id; }).filter(Boolean)));
+    const [studRes, lessRes] = await Promise.all([
+      studentIds.length > 0
+        ? supabase.from('students').select('id, name').in('id', studentIds)
+        : Promise.resolve({ data: [] }),
+      lessonIds.length > 0
+        ? supabase.from('lessons').select('id, instructor_id, instructors(id, name)').in('id', lessonIds)
+        : Promise.resolve({ data: [] })
+    ]);
+    const studMap = {};
+    (studRes.data || []).forEach(function(s){ studMap[s.id] = s.name; });
+    const lessMap = {};
+    (lessRes.data || []).forEach(function(l){
+      lessMap[l.id] = {
+        instructor_id: l.instructor_id || null,
+        instructor_name: (l.instructors && l.instructors.name) || null
+      };
+    });
+
+    // Aufbereitung + optionaler Instructor-Filter
+    const items = [];
+    list.forEach(function(c){
+      const less = c.lesson_id ? lessMap[c.lesson_id] : null;
+      const instructor_id = less ? less.instructor_id : null;
+      if (instructorFilter && instructor_id !== instructorFilter) return;
+      items.push({
+        id: c.id,
+        charge_date: c.charge_date,
+        student_id: c.student_id,
+        student_name: studMap[c.student_id] || '—',
+        description: c.description,
+        category: c.category || 'sonstiges',
+        unit_price_cents: c.unit_price_cents,
+        quantity: c.quantity,
+        total_cents: c.total_cents,
+        lesson_id: c.lesson_id,
+        instructor_id: instructor_id,
+        instructor_name: less ? less.instructor_name : null,
+        invoice_id: c.invoice_id,
+        source: c.source
+      });
+    });
+
+    // Summen — total_cents ist NETTO (analog zu Rechnungserstellung)
+    const netto = items.reduce(function(s, c){ return s + (c.total_cents || 0); }, 0);
+    let ust = 0, brutto = netto;
+    if (taxMode === 'regelbesteuerung' && taxRate > 0) {
+      ust = Math.round(netto * (taxRate / 100));
+      brutto = netto + ust;
+    }
+
+    // Instructor- und Student-Filterlisten (für UI-Dropdown)
+    // Nur Aktive aus dieser Schule
+    const [allInstrRes, allStudRes] = await Promise.all([
+      supabase.from('instructors').select('id, name').eq('school_id', schoolId).order('name'),
+      supabase.from('students').select('id, name').eq('school_id', schoolId).order('name')
+    ]);
+
+    res.json({
+      from: from,
+      to: to,
+      school: { name: (school && school.name) || '', tax_mode: taxMode, tax_rate_percent: taxRate },
+      items: items,
+      totals: { netto_cents: netto, ust_cents: ust, brutto_cents: brutto },
+      filters: {
+        instructors: allInstrRes.data || [],
+        students: allStudRes.data || []
+      }
+    });
+  } catch (err) {
+    console.error('[Daily Summary]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
 // FALLBACK: SPA
 // ============================================
 app.get('*', (req, res) => {

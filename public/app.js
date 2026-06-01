@@ -1628,6 +1628,16 @@ var App = {
       }
       html += '</div>';
 
+      // ──── TAGESÜBERSICHT-BUTTON (Buchhaltung) ────
+      html += '<button onclick="App.openDailySummary()" class="daily-summary-cta" style="width:100%;display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#fff;border:none;border-radius:var(--radius-md);margin-bottom:var(--space-4);cursor:pointer;text-align:left;box-shadow:0 2px 8px rgba(59,130,246,0.25);">' +
+        '<div style="font-size:28px;line-height:1;">📋</div>' +
+        '<div style="flex:1;">' +
+          '<div style="font-size:15px;font-weight:700;">Tagesübersicht öffnen</div>' +
+          '<div style="font-size:12px;opacity:.9;margin-top:2px;">Soll-Positionen drucken, exportieren oder abhaken</div>' +
+        '</div>' +
+        '<div style="font-size:20px;opacity:.7;">→</div>' +
+      '</button>';
+
       // ──── CLICKABLE STAT CARDS ────
       html += '<div class="stat-grid mb-4">' +
           '<div class="stat-card stat-card-clickable' + (mode === 'instructors' ? ' stat-card-active' : '') + '" onclick="App.dashboardViewMode=\'instructors\';App.renderDashboardContent();">' +
@@ -6720,6 +6730,376 @@ var App = {
     } finally {
       this.showLoading(false);
     }
+  },
+
+  // ════════════════════════════════════════════════
+  //  TAGESÜBERSICHT — Soll-Positionen zum Abhaken
+  //  Für Fahrschulen, die ihre Buchhaltung extern führen.
+  //  Liste mit Schüler/Position/Betrag + leere Spalten für
+  //  handschriftliche Notizen (Bezahlt am, Betrag €).
+  // ════════════════════════════════════════════════
+  _daily: {
+    from: null, to: null, mode: 'day', // day | week | month
+    instructorId: '', studentId: '',
+    data: null, checked: {} // checked[chargeId] = true
+  },
+
+  openDailySummary: function() {
+    var today = new Date().toISOString().split('T')[0];
+    App._daily.mode = 'day';
+    App._daily.from = today;
+    App._daily.to = today;
+    App._daily.instructorId = '';
+    App._daily.studentId = '';
+    App._daily.checked = {};
+    App._renderDailySummary();
+  },
+
+  _dailyShift: function(direction) {
+    // direction: -1 = zurück, +1 = vor
+    var d = App._daily;
+    var from = new Date(d.from + 'T00:00:00');
+    if (d.mode === 'day') {
+      from.setDate(from.getDate() + direction);
+      d.from = from.toISOString().split('T')[0];
+      d.to = d.from;
+    } else if (d.mode === 'week') {
+      from.setDate(from.getDate() + 7 * direction);
+      d.from = from.toISOString().split('T')[0];
+      var to = new Date(d.from + 'T00:00:00'); to.setDate(to.getDate() + 6);
+      d.to = to.toISOString().split('T')[0];
+    } else if (d.mode === 'month') {
+      from.setMonth(from.getMonth() + direction);
+      from.setDate(1);
+      d.from = from.toISOString().split('T')[0];
+      var lastDay = new Date(from.getFullYear(), from.getMonth() + 1, 0);
+      d.to = lastDay.toISOString().split('T')[0];
+    }
+    App._renderDailySummary();
+  },
+
+  _dailySetMode: function(mode) {
+    var d = App._daily;
+    d.mode = mode;
+    var ref = new Date((d.from || new Date().toISOString().split('T')[0]) + 'T00:00:00');
+    if (mode === 'day') {
+      d.from = ref.toISOString().split('T')[0]; d.to = d.from;
+    } else if (mode === 'week') {
+      // Montag der Woche
+      var dow = ref.getDay(); var diff = dow === 0 ? -6 : 1 - dow;
+      ref.setDate(ref.getDate() + diff);
+      d.from = ref.toISOString().split('T')[0];
+      var to = new Date(d.from + 'T00:00:00'); to.setDate(to.getDate() + 6);
+      d.to = to.toISOString().split('T')[0];
+    } else if (mode === 'month') {
+      ref.setDate(1);
+      d.from = ref.toISOString().split('T')[0];
+      var lastDay = new Date(ref.getFullYear(), ref.getMonth() + 1, 0);
+      d.to = lastDay.toISOString().split('T')[0];
+    }
+    App._renderDailySummary();
+  },
+
+  _dailyDateInput: function(which, value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+    var d = App._daily;
+    if (which === 'from') {
+      d.from = value;
+      if (d.mode === 'day') d.to = value;
+      else if (new Date(d.to) < new Date(value)) d.to = value;
+    } else {
+      d.to = value;
+      if (new Date(d.from) > new Date(value)) d.from = value;
+    }
+    App._renderDailySummary();
+  },
+
+  _dailySetFilter: function(which, value) {
+    App._daily[which === 'instructor' ? 'instructorId' : 'studentId'] = value || '';
+    App._renderDailySummary();
+  },
+
+  _dailyToggleChecked: function(chargeId) {
+    App._daily.checked[chargeId] = !App._daily.checked[chargeId];
+    var row = document.getElementById('daily-row-' + chargeId);
+    if (row) {
+      if (App._daily.checked[chargeId]) row.classList.add('daily-row-done');
+      else row.classList.remove('daily-row-done');
+    }
+  },
+
+  _renderDailySummary: async function() {
+    var main = document.getElementById('school-main');
+    if (!main) return;
+    var d = App._daily;
+    main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
+    var qs = 'from=' + d.from + '&to=' + d.to;
+    if (d.instructorId) qs += '&instructor_id=' + encodeURIComponent(d.instructorId);
+    if (d.studentId) qs += '&student_id=' + encodeURIComponent(d.studentId);
+    var data;
+    try { data = await ApiClient.get('/api/accounting/daily-summary?' + qs); }
+    catch (err) {
+      main.innerHTML = '<div class="page-padding"><button class="btn btn-secondary" onclick="App.switchSchoolTab(\'dashboard\')">← Zurück</button><p style="font-size:var(--text-sm);color:var(--text-muted);margin-top:var(--space-3);">Fehler: ' + (err.message || err) + '</p></div>';
+      return;
+    }
+    App._daily.data = data;
+    var fmtE = App._formatEur, fmtD = App._formatDateDe;
+    var items = data.items || [];
+    var totals = data.totals || { netto_cents: 0, ust_cents: 0, brutto_cents: 0 };
+    var school = data.school || {};
+    var isKlein = (school.tax_mode || 'kleinunternehmer') === 'kleinunternehmer';
+    var filters = data.filters || { instructors: [], students: [] };
+
+    // Range-Label
+    var rangeLabel = '';
+    if (d.mode === 'day') rangeLabel = fmtD(d.from);
+    else if (d.mode === 'week') rangeLabel = fmtD(d.from) + ' – ' + fmtD(d.to);
+    else if (d.mode === 'month') {
+      var dt = new Date(d.from + 'T00:00:00');
+      var monatsnamen = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+      rangeLabel = monatsnamen[dt.getMonth()] + ' ' + dt.getFullYear();
+    }
+
+    // ── KOPF: Zurück + Modus-Switch + Datums-Navigation ──
+    var h = '<div id="daily-summary-view" class="page-padding" style="max-width:1100px;margin:0 auto;">';
+    h += '<div class="no-print" style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin-bottom:var(--space-3);flex-wrap:wrap;">' +
+      '<button class="btn btn-sm btn-secondary" onclick="App.switchSchoolTab(\'dashboard\')">← Zurück</button>' +
+      '<div style="display:flex;gap:6px;">' +
+        '<button class="daily-mode-btn" data-mode="day" onclick="App._dailySetMode(\'day\')" style="padding:6px 12px;border:1px solid var(--border-color);background:' + (d.mode === 'day' ? 'var(--color-primary)' : 'var(--bg-card)') + ';color:' + (d.mode === 'day' ? '#fff' : 'var(--text-default)') + ';border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Tag</button>' +
+        '<button class="daily-mode-btn" data-mode="week" onclick="App._dailySetMode(\'week\')" style="padding:6px 12px;border:1px solid var(--border-color);background:' + (d.mode === 'week' ? 'var(--color-primary)' : 'var(--bg-card)') + ';color:' + (d.mode === 'week' ? '#fff' : 'var(--text-default)') + ';border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Woche</button>' +
+        '<button class="daily-mode-btn" data-mode="month" onclick="App._dailySetMode(\'month\')" style="padding:6px 12px;border:1px solid var(--border-color);background:' + (d.mode === 'month' ? 'var(--color-primary)' : 'var(--bg-card)') + ';color:' + (d.mode === 'month' ? '#fff' : 'var(--text-default)') + ';border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Monat</button>' +
+      '</div>' +
+    '</div>';
+
+    h += '<div class="no-print" style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin-bottom:var(--space-3);flex-wrap:wrap;">' +
+      '<button class="btn btn-sm btn-secondary" onclick="App._dailyShift(-1)" aria-label="Vorheriger Zeitraum">←</button>' +
+      '<div style="flex:1;text-align:center;font-size:18px;font-weight:700;">' + rangeLabel + '</div>' +
+      '<button class="btn btn-sm btn-secondary" onclick="App._dailyShift(1)" aria-label="Nächster Zeitraum">→</button>' +
+    '</div>';
+
+    // ── Filter-Zeile + Date-Inputs ──
+    var instOptions = '<option value="">Alle Fahrlehrer</option>';
+    filters.instructors.forEach(function(i){ instOptions += '<option value="' + i.id + '"' + (d.instructorId === i.id ? ' selected' : '') + '>' + (i.name || '—') + '</option>'; });
+    var studOptions = '<option value="">Alle Schüler</option>';
+    filters.students.forEach(function(s){ studOptions += '<option value="' + s.id + '"' + (d.studentId === s.id ? ' selected' : '') + '>' + (s.name || '—') + '</option>'; });
+
+    h += '<div class="no-print" style="display:flex;gap:var(--space-2);flex-wrap:wrap;margin-bottom:var(--space-4);align-items:flex-end;">' +
+      '<div style="flex:1;min-width:140px;"><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Von</label>' +
+        '<input type="date" class="form-input" value="' + d.from + '" onchange="App._dailyDateInput(\'from\', this.value)" style="padding:6px 8px;font-size:13px;"></div>' +
+      '<div style="flex:1;min-width:140px;"><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Bis</label>' +
+        '<input type="date" class="form-input" value="' + d.to + '" onchange="App._dailyDateInput(\'to\', this.value)" style="padding:6px 8px;font-size:13px;"></div>' +
+      '<div style="flex:1;min-width:160px;"><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Fahrlehrer</label>' +
+        '<select class="form-input" onchange="App._dailySetFilter(\'instructor\', this.value)" style="padding:6px 8px;font-size:13px;">' + instOptions + '</select></div>' +
+      '<div style="flex:1;min-width:160px;"><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Schüler</label>' +
+        '<select class="form-input" onchange="App._dailySetFilter(\'student\', this.value)" style="padding:6px 8px;font-size:13px;">' + studOptions + '</select></div>' +
+      '<div style="display:flex;gap:6px;">' +
+        '<button class="btn btn-sm btn-secondary" onclick="window.print()" title="Drucken">🖨️ Drucken</button>' +
+        '<button class="btn btn-sm btn-secondary" onclick="App._dailyExportPdf()" title="Als PDF speichern">📄 PDF</button>' +
+        '<button class="btn btn-sm btn-secondary" onclick="App._dailyExportCsv()" title="Als CSV/Excel exportieren">📊 CSV</button>' +
+      '</div>' +
+    '</div>';
+
+    // ── Druck-Kopf (nur sichtbar im Print) ──
+    h += '<div class="daily-print-header print-only" style="display:none;text-align:left;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:12px;">' +
+      '<div style="font-size:20px;font-weight:700;">' + (school.name || 'Fahrschule') + '</div>' +
+      '<div style="font-size:14px;margin-top:4px;">Tagesübersicht Soll-Positionen — ' + rangeLabel + '</div>' +
+      (d.instructorId ? '<div style="font-size:12px;color:#555;">Fahrlehrer-Filter aktiv</div>' : '') +
+      (d.studentId ? '<div style="font-size:12px;color:#555;">Schüler-Filter aktiv</div>' : '') +
+    '</div>';
+
+    // ── Tabelle ──
+    if (items.length === 0) {
+      h += '<div style="background:var(--bg-elevated);padding:var(--space-6);text-align:center;border-radius:var(--radius-md);color:var(--text-muted);">' +
+        '<div style="font-size:32px;margin-bottom:8px;">📋</div>' +
+        '<div style="font-size:14px;">Keine Soll-Positionen im gewählten Zeitraum.</div>' +
+      '</div>';
+    } else {
+      h += '<div style="overflow-x:auto;background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);">' +
+        '<table class="daily-table" style="width:100%;border-collapse:collapse;font-size:13px;">' +
+        '<thead><tr style="background:var(--bg-elevated);text-align:left;border-bottom:2px solid var(--border-color);">' +
+          '<th class="no-print" style="padding:10px 8px;width:36px;"></th>' +
+          '<th style="padding:10px 8px;white-space:nowrap;">Datum</th>' +
+          '<th style="padding:10px 8px;">Schüler</th>' +
+          '<th style="padding:10px 8px;">Position</th>' +
+          '<th style="padding:10px 8px;">Fahrlehrer</th>' +
+          '<th style="padding:10px 8px;text-align:right;">Anz.</th>' +
+          '<th style="padding:10px 8px;text-align:right;">Betrag</th>' +
+          '<th style="padding:10px 8px;border-left:1px dashed #999;">Bezahlt am</th>' +
+          '<th style="padding:10px 8px;">Betrag €</th>' +
+        '</tr></thead><tbody>';
+      items.forEach(function(it){
+        var isChecked = !!App._daily.checked[it.id];
+        var catBadge = it.source === 'auto' ? '<span style="font-size:10px;color:#666;background:#eee;padding:1px 6px;border-radius:3px;margin-left:6px;">auto</span>' : '';
+        h += '<tr id="daily-row-' + it.id + '" class="' + (isChecked ? 'daily-row-done' : '') + '" style="border-bottom:1px solid var(--border-color);">' +
+          '<td class="no-print" style="padding:8px;text-align:center;"><input type="checkbox" ' + (isChecked ? 'checked' : '') + ' onchange="App._dailyToggleChecked(\'' + it.id + '\')" style="width:18px;height:18px;cursor:pointer;"></td>' +
+          '<td style="padding:8px;white-space:nowrap;">' + fmtD(it.charge_date) + '</td>' +
+          '<td style="padding:8px;font-weight:600;">' + (it.student_name || '—') + '</td>' +
+          '<td style="padding:8px;">' + (it.description || '—') + catBadge + '</td>' +
+          '<td style="padding:8px;color:var(--text-muted);">' + (it.instructor_name || '—') + '</td>' +
+          '<td style="padding:8px;text-align:right;">' + (it.quantity || 1) + '</td>' +
+          '<td style="padding:8px;text-align:right;font-weight:600;white-space:nowrap;">' + fmtE(it.total_cents) + '</td>' +
+          '<td style="padding:8px;border-left:1px dashed #bbb;min-width:90px;">&nbsp;</td>' +
+          '<td style="padding:8px;min-width:90px;">&nbsp;</td>' +
+        '</tr>';
+      });
+      h += '</tbody></table></div>';
+    }
+
+    // ── Summen ──
+    h += '<div style="margin-top:var(--space-4);display:flex;justify-content:flex-end;">' +
+      '<div style="background:var(--bg-elevated);padding:var(--space-4);border-radius:var(--radius-md);min-width:260px;border:1px solid var(--border-color);">';
+    if (isKlein) {
+      h += '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px;">' +
+        '<span>Positionen:</span><span style="font-weight:600;">' + items.length + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;padding-top:8px;border-top:1px solid var(--border-color);margin-top:8px;">' +
+        '<span>Gesamt:</span><span>' + fmtE(totals.brutto_cents) + '</span></div>' +
+        '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">Kleinunternehmer · keine USt ausgewiesen</div>';
+    } else {
+      h += '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px;"><span>Positionen:</span><span style="font-weight:600;">' + items.length + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:14px;"><span>Netto:</span><span style="font-weight:600;">' + fmtE(totals.netto_cents) + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:14px;"><span>+ USt (' + (school.tax_rate_percent || 19) + ' %):</span><span style="font-weight:600;">' + fmtE(totals.ust_cents) + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;padding-top:8px;border-top:1px solid var(--border-color);margin-top:8px;"><span>Brutto:</span><span>' + fmtE(totals.brutto_cents) + '</span></div>';
+    }
+    h += '</div></div>';
+
+    // Hinweis-Footer
+    h += '<div class="no-print" style="margin-top:var(--space-4);padding:var(--space-3);background:#f0f9ff;border:1px solid #bae6fd;border-radius:var(--radius-md);font-size:12px;color:#075985;">' +
+      '💡 <strong>Hinweis:</strong> Diese Liste zeigt alle Soll-Positionen aus FahrDoc. Die Spalten <em>Bezahlt am</em> und <em>Betrag €</em> sind bewusst leer — zum handschriftlichen Eintragen nach dem Druck.' +
+    '</div>';
+
+    h += '</div>'; // /daily-summary-view
+    main.innerHTML = h;
+  },
+
+  _dailyExportCsv: function() {
+    var data = App._daily.data;
+    if (!data || !data.items) return App.showToast('Keine Daten zum Exportieren');
+    var fmt = function(v){ if (v == null) return ''; var s = String(v).replace(/"/g, '""'); return /[";\n]/.test(s) ? '"' + s + '"' : s; };
+    var rows = [];
+    rows.push(['Datum','Schueler','Position','Kategorie','Fahrlehrer','Anzahl','Einzelpreis_EUR','Gesamt_EUR','Quelle','Auf_Rechnung'].join(';'));
+    data.items.forEach(function(it){
+      rows.push([
+        it.charge_date,
+        fmt(it.student_name),
+        fmt(it.description),
+        fmt(it.category),
+        fmt(it.instructor_name || ''),
+        it.quantity || 1,
+        ((it.unit_price_cents || 0) / 100).toFixed(2).replace('.', ','),
+        ((it.total_cents || 0) / 100).toFixed(2).replace('.', ','),
+        fmt(it.source || ''),
+        it.invoice_id ? 'ja' : 'nein'
+      ].join(';'));
+    });
+    // Summen-Zeile
+    rows.push('');
+    var t = data.totals || {};
+    rows.push(['', '', '', '', '', '', 'Netto:', ((t.netto_cents || 0) / 100).toFixed(2).replace('.', ',')].join(';'));
+    if ((data.school && data.school.tax_mode) === 'regelbesteuerung') {
+      rows.push(['', '', '', '', '', '', 'USt:', ((t.ust_cents || 0) / 100).toFixed(2).replace('.', ',')].join(';'));
+      rows.push(['', '', '', '', '', '', 'Brutto:', ((t.brutto_cents || 0) / 100).toFixed(2).replace('.', ',')].join(';'));
+    }
+    var csv = '\uFEFF' + rows.join('\r\n'); // BOM für Excel
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'tagesuebersicht_' + data.from + (data.from !== data.to ? '_bis_' + data.to : '') + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+    App.showToast('CSV exportiert');
+  },
+
+  _dailyExportPdf: function() {
+    var data = App._daily.data;
+    if (!data || !data.items) return App.showToast('Keine Daten zum Exportieren');
+    if (!window.jspdf || !window.jspdf.jsPDF) return App.showToast('PDF-Bibliothek wird geladen, bitte nochmal versuchen...');
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    var fmtE = function(c){ return ((c || 0) / 100).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' \u20ac'; };
+    var fmtD = function(s){ if (!s) return ''; var dt = new Date(s); return isNaN(dt.getTime()) ? s : dt.toLocaleDateString('de-DE'); };
+    var school = data.school || {};
+    var items = data.items || [];
+    var totals = data.totals || { netto_cents: 0, ust_cents: 0, brutto_cents: 0 };
+    var isKlein = (school.tax_mode || 'kleinunternehmer') === 'kleinunternehmer';
+
+    var pageW = 297, pageH = 210, margin = 12, y = margin;
+    // Kopf
+    doc.setFontSize(14); doc.setFont(undefined, 'bold');
+    doc.text(school.name || 'Fahrschule', margin, y + 4); y += 6;
+    doc.setFontSize(11); doc.setFont(undefined, 'normal');
+    var d = App._daily;
+    var rangeLabel = '';
+    if (d.mode === 'day') rangeLabel = fmtD(d.from);
+    else if (d.mode === 'week') rangeLabel = fmtD(d.from) + ' – ' + fmtD(d.to);
+    else if (d.mode === 'month') {
+      var dt = new Date(d.from + 'T00:00:00');
+      var monatsnamen = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+      rangeLabel = monatsnamen[dt.getMonth()] + ' ' + dt.getFullYear();
+    }
+    doc.text('Tagesübersicht Soll-Positionen — ' + rangeLabel, margin, y + 4); y += 8;
+    doc.setDrawColor(0); doc.setLineWidth(0.5); doc.line(margin, y, pageW - margin, y); y += 4;
+
+    // Spalten: Datum | Schueler | Position | Fahrlehrer | Anz | Betrag | Bezahlt am | Betrag €
+    var cols = [
+      { x: margin,         w: 22, label: 'Datum' },
+      { x: margin + 22,    w: 50, label: 'Schüler' },
+      { x: margin + 72,    w: 70, label: 'Position' },
+      { x: margin + 142,   w: 40, label: 'Fahrlehrer' },
+      { x: margin + 182,   w: 12, label: 'Anz', align: 'right' },
+      { x: margin + 194,   w: 25, label: 'Betrag', align: 'right' },
+      { x: margin + 219,   w: 25, label: 'Bezahlt am' },
+      { x: margin + 244,   w: 28, label: 'Betrag €' }
+    ];
+    doc.setFontSize(9); doc.setFont(undefined, 'bold');
+    cols.forEach(function(c){
+      doc.text(c.label, c.align === 'right' ? c.x + c.w - 1 : c.x, y + 4, { align: c.align || 'left' });
+    });
+    y += 5;
+    doc.setLineWidth(0.3); doc.line(margin, y, pageW - margin, y); y += 2;
+    doc.setFont(undefined, 'normal');
+
+    var rowH = 5.5;
+    items.forEach(function(it){
+      if (y + rowH > pageH - 25) {
+        doc.addPage(); y = margin;
+      }
+      doc.text(fmtD(it.charge_date), cols[0].x, y + 4);
+      doc.text(doc.splitTextToSize(it.student_name || '—', cols[1].w - 2)[0], cols[1].x, y + 4);
+      doc.text(doc.splitTextToSize(it.description || '—', cols[2].w - 2)[0], cols[2].x, y + 4);
+      doc.text(doc.splitTextToSize(it.instructor_name || '—', cols[3].w - 2)[0], cols[3].x, y + 4);
+      doc.text(String(it.quantity || 1), cols[4].x + cols[4].w - 1, y + 4, { align: 'right' });
+      doc.text(fmtE(it.total_cents), cols[5].x + cols[5].w - 1, y + 4, { align: 'right' });
+      // Leere Kästchen für handschriftliche Einträge
+      doc.setDrawColor(180);
+      doc.line(cols[6].x, y + rowH - 0.5, cols[6].x + cols[6].w - 1, y + rowH - 0.5);
+      doc.line(cols[7].x, y + rowH - 0.5, cols[7].x + cols[7].w - 1, y + rowH - 0.5);
+      doc.setDrawColor(0);
+      y += rowH;
+    });
+
+    // Summen
+    y += 4;
+    if (y + 20 > pageH - 10) { doc.addPage(); y = margin; }
+    doc.setLineWidth(0.3); doc.line(margin, y, pageW - margin, y); y += 5;
+    doc.setFont(undefined, 'bold'); doc.setFontSize(10);
+    var sumX = pageW - margin - 60;
+    doc.text('Positionen:', sumX, y); doc.text(String(items.length), pageW - margin, y, { align: 'right' }); y += 5;
+    if (!isKlein) {
+      doc.setFont(undefined, 'normal');
+      doc.text('Netto:', sumX, y); doc.text(fmtE(totals.netto_cents), pageW - margin, y, { align: 'right' }); y += 5;
+      doc.text('USt (' + (school.tax_rate_percent || 19) + ' %):', sumX, y); doc.text(fmtE(totals.ust_cents), pageW - margin, y, { align: 'right' }); y += 5;
+      doc.setFont(undefined, 'bold');
+      doc.text('Brutto:', sumX, y); doc.text(fmtE(totals.brutto_cents), pageW - margin, y, { align: 'right' }); y += 5;
+    } else {
+      doc.text('Gesamt:', sumX, y); doc.text(fmtE(totals.brutto_cents), pageW - margin, y, { align: 'right' }); y += 5;
+      doc.setFont(undefined, 'normal'); doc.setFontSize(8); doc.setTextColor(120);
+      doc.text('Kleinunternehmer · keine USt ausgewiesen', sumX, y); y += 5;
+      doc.setTextColor(0);
+    }
+
+    doc.save('tagesuebersicht_' + data.from + (data.from !== data.to ? '_bis_' + data.to : '') + '.pdf');
+    App.showToast('PDF gespeichert');
   }
 };
 
