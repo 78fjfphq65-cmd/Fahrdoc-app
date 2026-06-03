@@ -521,6 +521,185 @@
 
 </div>
 
+<!-- ============================================
+     PWA-INSTALL-KARTE — "Zum Home-Bildschirm hinzufügen"
+     Erscheint nur auf iOS/Android, nicht in installierter PWA.
+     ============================================ -->
+<div class="pwa-install-card collapsed" id="pwaInstallCard" role="dialog" aria-label="FahrDoc zum Home-Bildschirm hinzufügen" aria-hidden="true">
+  <div class="pwa-card-header" onclick="PwaInstall.expandIfCollapsed(event)">
+    <div class="pwa-card-icon">FD</div>
+    <div class="pwa-card-title">
+      <strong>FahrDoc wie eine App nutzen</strong>
+      <span>Zum Home-Bildschirm hinzufügen</span>
+    </div>
+    <div class="pwa-card-expand" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+    </div>
+    <button class="pwa-card-close" onclick="event.stopPropagation(); PwaInstall.dismiss()" aria-label="Schließen">×</button>
+  </div>
+  <div class="pwa-card-tabs">
+    <button class="pwa-card-tab" data-pwa-tab="ios" onclick="PwaInstall.switchTab('ios')">
+      <svg class="pwa-platform-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
+      iPhone · Safari
+    </button>
+    <button class="pwa-card-tab" data-pwa-tab="android" onclick="PwaInstall.switchTab('android')">
+      <svg class="pwa-platform-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.6 9.48l1.84-3.18c.16-.31.04-.69-.26-.85a.637.637 0 00-.83.22l-1.88 3.24a11.43 11.43 0 00-8.94 0L5.65 5.67a.643.643 0 00-.87-.2c-.28.18-.37.54-.22.83L6.4 9.48A10.78 10.78 0 001 18h22c0-3.39-1.9-6.34-4.81-8.04l-.59-.48zM7 15.25a1.25 1.25 0 110-2.5 1.25 1.25 0 010 2.5zm10 0a1.25 1.25 0 110-2.5 1.25 1.25 0 010 2.5z"/></svg>
+      Android · Chrome
+    </button>
+  </div>
+  <div class="pwa-card-steps" data-pwa-steps="ios">
+    <div class="pwa-step">
+      <div class="pwa-step-num">1</div>
+      <div class="pwa-step-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><polyline points="7 8 12 3 17 8"/><path d="M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/></svg></div>
+      <div class="pwa-step-text"><strong>Teilen</strong>-Symbol in Safari tippen<small>Unten in der Browser-Leiste</small></div>
+    </div>
+    <div class="pwa-step">
+      <div class="pwa-step-num">2</div>
+      <div class="pwa-step-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
+      <div class="pwa-step-text"><strong>„Zum Home-Bildschirm“</strong> wählen<small>Im Menü nach unten scrollen</small></div>
+    </div>
+    <div class="pwa-step">
+      <div class="pwa-step-num">3</div>
+      <div class="pwa-step-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></div>
+      <div class="pwa-step-text"><strong>„Hinzufügen“</strong> bestätigen<small>FahrDoc öffnet sich wie eine App</small></div>
+    </div>
+  </div>
+  <div class="pwa-card-steps" data-pwa-steps="android">
+    <div class="pwa-step">
+      <div class="pwa-step-num">1</div>
+      <div class="pwa-step-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></div>
+      <div class="pwa-step-text"><strong>Drei-Punkte-Menü</strong> in Chrome öffnen<small>Oben rechts in der Browser-Leiste</small></div>
+    </div>
+    <div class="pwa-step">
+      <div class="pwa-step-num">2</div>
+      <div class="pwa-step-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+      <div class="pwa-step-text"><strong>„App installieren“</strong> antippen<small>Oder „Zum Startbildschirm zufügen“</small></div>
+    </div>
+    <div class="pwa-step">
+      <div class="pwa-step-num">3</div>
+      <div class="pwa-step-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></div>
+      <div class="pwa-step-text"><strong>„Installieren“</strong> bestätigen<small>Icon erscheint auf deinem Startbildschirm</small></div>
+    </div>
+  </div>
+  <div class="pwa-card-footer">
+    <span>✓ Offline-fähig</span> · <span>✓ Keine Installation aus Store</span>
+  </div>
+</div>
+
+<script>
+  // ══════════════════════════════════════════════
+  // PwaInstall — Floating-Karte "Zum Home-Bildschirm hinzufügen"
+  // • zeigt sich nur auf Mobile (iOS/Android)
+  // • zeigt sich NICHT in installierter PWA (display-mode standalone)
+  // • nach Schließen: 30 Tage Ruhe
+  // • Auto-Detect: iOS → iOS-Tab, sonst Android-Tab
+  // • Auto-Show 5 Sek nach Page-Load
+  // ══════════════════════════════════════════════
+  window.PwaInstall = (function() {
+    var DISMISS_KEY = 'fahrdoc_pwa_dismissed_at';
+    var DISMISS_DAYS = 30;
+    var SHOW_DELAY_MS = 5000;
+    var card = null;
+
+    function ls() {
+      try { return window['local' + 'Storage']; } catch (e) { return null; }
+    }
+    function isStandalone() {
+      if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+      if (window.navigator && window.navigator.standalone === true) return true; // iOS Safari
+      if (document.referrer && document.referrer.indexOf('android-app://') === 0) return true;
+      return false;
+    }
+    function isMobile() {
+      var ua = navigator.userAgent || '';
+      return /iPhone|iPad|iPod|Android/i.test(ua);
+    }
+    function detectPlatform() {
+      var ua = navigator.userAgent || '';
+      if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
+      if (/Android/i.test(ua)) return 'android';
+      return 'ios';
+    }
+    function isDismissedRecently() {
+      var s = ls(); if (!s) return false;
+      var v = s.getItem(DISMISS_KEY);
+      if (!v) return false;
+      var ts = parseInt(v, 10);
+      if (!ts) return false;
+      var ageDays = (Date.now() - ts) / (1000 * 60 * 60 * 24);
+      return ageDays < DISMISS_DAYS;
+    }
+
+    function switchTab(name) {
+      if (!card) return;
+      var tabs = card.querySelectorAll('.pwa-card-tab');
+      for (var i = 0; i < tabs.length; i++) {
+        tabs[i].classList.toggle('active', tabs[i].getAttribute('data-pwa-tab') === name);
+      }
+      var steps = card.querySelectorAll('.pwa-card-steps');
+      for (var j = 0; j < steps.length; j++) {
+        steps[j].classList.toggle('active', steps[j].getAttribute('data-pwa-steps') === name);
+      }
+    }
+    function show() {
+      if (!card) return;
+      card.classList.add('show');
+      card.setAttribute('aria-hidden', 'false');
+    }
+    function expandIfCollapsed(ev) {
+      if (!card) return;
+      if (card.classList.contains('collapsed')) {
+        card.classList.remove('collapsed');
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+      }
+    }
+    function collapse() {
+      if (!card) return;
+      card.classList.add('collapsed');
+    }
+    function dismiss() {
+      if (!card) return;
+      card.classList.remove('show');
+      card.setAttribute('aria-hidden', 'true');
+      var s = ls(); if (s) { try { s.setItem(DISMISS_KEY, String(Date.now())); } catch (e) {} }
+    }
+    function reset() {
+      var s = ls(); if (s) { try { s.removeItem(DISMISS_KEY); } catch (e) {} }
+    }
+
+    function dsgvoVisible() {
+      var b = document.getElementById('dsgvo-banner');
+      return !!(b && b.offsetParent !== null);
+    }
+    function showWhenReady(retries) {
+      if (retries == null) retries = 60; // bis ~60s warten
+      if (dsgvoVisible() && retries > 0) {
+        setTimeout(function() { showWhenReady(retries - 1); }, 1000);
+        return;
+      }
+      show();
+    }
+
+    function init() {
+      card = document.getElementById('pwaInstallCard');
+      if (!card) return;
+      // Nicht auf Desktop, nicht in installierter PWA, nicht wenn kürzlich dismissed
+      if (!isMobile() || isStandalone() || isDismissedRecently()) return;
+      // Default-Tab je nach Plattform
+      switchTab(detectPlatform());
+      // Auto-Show nach Delay (wartet bis DSGVO-Banner weg ist)
+      setTimeout(showWhenReady, SHOW_DELAY_MS);
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+
+    return { show: show, dismiss: dismiss, switchTab: switchTab, reset: reset, expandIfCollapsed: expandIfCollapsed, collapse: collapse };
+  })();
+</script>
 <script src="./app.js"></script>
 </body>
 </html>

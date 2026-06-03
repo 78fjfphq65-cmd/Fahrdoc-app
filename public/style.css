@@ -3228,3 +3228,213 @@ html[dir="rtl"] .notif-panel {
   .daily-row-done td { background: #fff !important; }
   @page { size: A4 landscape; margin: 1cm; }
 }
+
+/* ════════════════════════════════════════════
+   PWA-INSTALL-KARTE
+   "Zum Home-Bildschirm hinzufügen" — Floating Card
+   ════════════════════════════════════════════ */
+.pwa-install-card {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  background: #fff;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.12), 0 4px 8px rgba(0,0,0,.06);
+  overflow: hidden;
+  z-index: 9000;
+  opacity: 0;
+  transform: translateY(20px) scale(.95);
+  transition: opacity .3s ease, transform .3s ease;
+  pointer-events: none;
+  font-family: inherit;
+}
+.pwa-install-card.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+/* Collapsed-Modus: nur Header sichtbar, Tabs/Steps/Footer ausgeblendet */
+.pwa-install-card.collapsed .pwa-card-tabs,
+.pwa-install-card.collapsed .pwa-card-steps,
+.pwa-install-card.collapsed .pwa-card-footer {
+  display: none;
+}
+.pwa-install-card.collapsed .pwa-card-header {
+  border-bottom: none;
+  cursor: pointer;
+}
+.pwa-install-card.collapsed .pwa-card-expand {
+  display: flex;
+}
+.pwa-card-expand {
+  display: none;
+  width: 28px; height: 28px;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted, #64748b);
+  flex-shrink: 0;
+}
+.pwa-install-card:not(.collapsed) .pwa-card-expand { display: none; }
+.pwa-install-card.collapsed .pwa-card-close { display: none; }
+.pwa-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+.pwa-card-icon {
+  width: 40px; height: 40px;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #0d9488, #0f766e);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: -.02em;
+}
+.pwa-card-title { flex: 1; min-width: 0; }
+.pwa-card-title strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-default, #0f172a);
+}
+.pwa-card-title span {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  margin-top: 2px;
+}
+.pwa-card-close {
+  width: 28px; height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.pwa-card-close:hover { background: #f1f5f9; color: var(--text-default, #0f172a); }
+
+.pwa-card-tabs {
+  display: flex;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+.pwa-card-tab {
+  flex: 1;
+  padding: 10px 8px;
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  font-family: inherit;
+}
+.pwa-card-tab.active {
+  color: #0d9488;
+  background: #fff;
+  border-bottom-color: #0d9488;
+}
+.pwa-platform-icon { display: inline-block; margin-right: 4px; vertical-align: -2px; }
+
+.pwa-card-steps { padding: 14px; display: none; }
+.pwa-card-steps.active { display: block; }
+.pwa-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  position: relative;
+}
+.pwa-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  top: 100%;
+  width: 1px;
+  height: 8px;
+  background: var(--border-color, #e2e8f0);
+}
+.pwa-step-num {
+  width: 28px; height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #0d9488;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+.pwa-step-icon {
+  width: 40px; height: 40px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #0d9488;
+}
+.pwa-step-text {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-default, #0f172a);
+  line-height: 1.4;
+}
+.pwa-step-text strong { font-weight: 700; }
+.pwa-step-text small {
+  display: block;
+  color: var(--text-muted, #64748b);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.pwa-card-footer {
+  padding: 10px 14px;
+  background: #f8fafc;
+  border-top: 1px solid var(--border-color, #e2e8f0);
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+  text-align: center;
+}
+.pwa-card-footer span { color: #0d9488; font-weight: 600; }
+
+@media (max-width: 480px) {
+  .pwa-install-card {
+    bottom: 12px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-width: none;
+  }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+  .pwa-install-card { background: #1e293b; border-color: #334155; }
+  .pwa-card-header, .pwa-card-tabs, .pwa-card-footer { border-color: #334155; }
+  .pwa-card-tabs, .pwa-card-footer { background: #0f172a; }
+  .pwa-card-tab.active { background: #1e293b; }
+  .pwa-card-title strong { color: #f1f5f9; }
+  .pwa-card-close:hover { background: #334155; color: #f1f5f9; }
+  .pwa-step-icon { background: #0f172a; border-color: #334155; }
+  .pwa-step-text { color: #f1f5f9; }
+  .pwa-step:not(:last-child)::after { background: #334155; }
+}
