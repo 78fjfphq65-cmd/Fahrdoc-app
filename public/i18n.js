@@ -205,7 +205,7 @@ var TRANSLATIONS = {
   designWechseln:  { de:'Design wechseln', en:'Toggle theme', tr:'Tema değiştir', ar:'تغيير المظهر', es:'Cambiar tema', fr:'Changer de thème' },
   willkommen:      { de:'Willkommen', en:'Welcome', tr:'Hoş geldiniz', ar:'مرحباً', es:'Bienvenido', fr:'Bienvenue' },
   angemeldetBleiben:{ de:'Angemeldet bleiben', en:'Stay logged in', tr:'Oturumu açık tut', ar:'البقاء مسجل الدخول', es:'Mantener sesión', fr:'Rester connecté' },
-  transparenz:     { de:'Dokumentation der Fahrstunden mit KI-Funktion', en:'Driving lesson documentation with AI', tr:'Yapay zeka destekli sürüş dersi dokümantasyonu', ar:'توثيق دروس القيادة مع وظيفة الذكاء الاصطناعي', es:'Documentación de clases con función IA', fr:'Documentation des leçons avec fonction IA' },
+  transparenz:     { de:'Planung und Dokumentation der Fahrstunden mit KI-Funktion', en:'Planning and documentation of driving lessons with AI', tr:'Yapay zeka destekli sürüş dersi planlama ve dokümantasyonu', ar:'تخطيط وتوثيق دروس القيادة مع وظيفة الذكاء الاصطناعي', es:'Planificación y documentación de clases con función IA', fr:'Planification et documentation des leçons avec fonction IA' },
   kw:              { de:'KW', en:'CW', tr:'HF', ar:'أسبوع', es:'SC', fr:'Sem.' },
   abgemeldet:      { de:'Abgemeldet', en:'Signed out', tr:'Çıkış yapıldı', ar:'تم تسجيل الخروج', es:'Sesión cerrada', fr:'Déconnecté' },
   sitzungAbgelaufen:{ de:'Sitzung abgelaufen', en:'Session expired', tr:'Oturum süresi doldu', ar:'انتهت الجلسة', es:'Sesión expirada', fr:'Session expirée' },

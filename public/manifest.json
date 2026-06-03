@@ -1,7 +1,7 @@
 {
   "name": "FahrDoc",
   "short_name": "FahrDoc",
-  "description": "Dokumentation der Fahrstunden mit KI-Funktion — für Fahrlehrer und Fahrschüler",
+  "description": "Planung und Dokumentation der Fahrstunden mit KI-Funktion — für Fahrlehrer und Fahrschüler",
   "start_url": "./index.html",
   "display": "standalone",
   "orientation": "portrait",
