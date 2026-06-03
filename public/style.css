@@ -3510,3 +3510,32 @@ html[dir="rtl"] .notif-panel {
   height: 16px;
   color: var(--color-success);
 }
+
+/* ============================================
+   WELCOME-MODAL nach Erstregistrierung
+   ============================================ */
+.welcome-modal-body {
+  padding: 0 2px;
+}
+.welcome-modal-lead {
+  font-size: 15.5px;
+  line-height: 1.55;
+  color: var(--color-text);
+  margin: 0 0 var(--space-3) 0;
+}
+.welcome-modal-text {
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--color-text-muted, var(--color-text));
+  margin: 0 0 var(--space-4) 0;
+}
+.welcome-modal-text strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+.welcome-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}

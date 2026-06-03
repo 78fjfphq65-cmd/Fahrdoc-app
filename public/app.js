@@ -611,6 +611,9 @@ var App = {
       AppState.signupUserId = result.userId;
       AppState.signupRole = result.role;
       AppState.signupEmail = body.email;
+      // Marker setzen: dieser User durchläuft gerade eine echte Erstregistrierung
+      // → nach Email-Verify zeigen wir das Welcome-Modal
+      try { window['session' + 'Storage'].setItem('fahrdoc_pending_welcome', '1'); } catch(_) {}
       this.navigate('verify-email');
     } catch (err) { errorEl.textContent = err.message; errorEl.classList.remove('hidden'); }
     finally { this.showLoading(false); }
@@ -644,6 +647,15 @@ var App = {
       AppState.currentUser = user;
       var dash = { school: 'school-dashboard', instructor: 'instructor-dashboard', student: 'student-dashboard' };
       this.navigate(dash[user.role]);
+      // Welcome-Modal nach Erstregistrierung (einmalig)
+      var self = this;
+      try {
+        var pending = window['session' + 'Storage'].getItem('fahrdoc_pending_welcome');
+        if (pending === '1') {
+          window['session' + 'Storage'].removeItem('fahrdoc_pending_welcome');
+          setTimeout(function() { self.showWelcomeAfterSignup(user); }, 600);
+        }
+      } catch(_) {}
     } catch (err) { var errEl = document.getElementById('verify-error'); errEl.textContent = err.message; errEl.classList.remove('hidden'); }
     finally { this.showLoading(false); }
   },
@@ -684,6 +696,47 @@ var App = {
     document.getElementById('modal-title').textContent = title;
     document.getElementById('modal-body').innerHTML = bodyHtml;
     document.getElementById('modal-backdrop').classList.add('active');
+  },
+
+  // ============================================
+  // Welcome-Modal nach erfolgreicher Erstregistrierung
+  // ============================================
+  showWelcomeAfterSignup: function(user) {
+    var firstName = ((user && (user.firstName || user.first_name || user.name)) || '').split(' ')[0];
+    var greeting = firstName ? ('Willkommen, ' + firstName + ' \ud83d\udc4b') : 'Willkommen bei FahrDoc \ud83d\udc4b';
+    var html =
+      '<div class="welcome-modal-body">' +
+        '<p class="welcome-modal-lead">Sch\u00f6n, dass du dabei bist. Wir vom FahrDoc-Team legen gro\u00dfen Wert auf Kundenzufriedenheit und arbeiten jeden Tag daran, die App besser zu machen.</p>' +
+        '<p class="welcome-modal-text">Dein Feedback hilft uns enorm \u2014 ob Lob, Kritik, Fragen oder W\u00fcnsche f\u00fcr neue Funktionen. Du findest jederzeit einen <strong>Feedback-Bereich in deinem Profil</strong>. Schreib uns einfach, wir k\u00fcmmern uns pers\u00f6nlich darum.</p>' +
+        '<div class="welcome-modal-actions">' +
+          '<button class="btn btn-secondary btn-full" onclick="App.openFeedbackFromWelcome()">Direkt zum Feedback</button>' +
+          '<button class="btn btn-primary btn-full" onclick="App.closeModalForce()">Verstanden, los geht\'s</button>' +
+        '</div>' +
+      '</div>';
+    this.openModal(greeting, html);
+  },
+
+  openFeedbackFromWelcome: function() {
+    this.closeModalForce();
+    var role = AppState.currentUser && AppState.currentUser.role;
+    var self = this;
+    setTimeout(function() {
+      var btn;
+      if (role === 'school') {
+        btn = document.querySelector('#school-dashboard [data-tab="profile"]');
+        if (btn) self.switchSchoolTab('profile', btn);
+      } else if (role === 'instructor') {
+        btn = document.querySelector('#instructor-dashboard [data-tab="profile"]');
+        if (btn) self.switchInstructorTab('profile', btn);
+      } else if (role === 'student') {
+        btn = document.querySelector('#student-dashboard [data-tab="profile"]');
+        if (btn) self.switchStudentTab('profile', btn);
+      }
+      setTimeout(function() {
+        var fb = document.getElementById('feedback-message');
+        if (fb && fb.scrollIntoView) fb.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 250);
+    }, 200);
   },
   closeModal: function(e) { if (e && e.target !== document.getElementById('modal-backdrop')) return; document.getElementById('modal-backdrop').classList.remove('active'); },
   closeModalForce: function() { document.getElementById('modal-backdrop').classList.remove('active'); },
