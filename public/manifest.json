@@ -1,7 +1,7 @@
 {
   "name": "FahrDoc",
   "short_name": "FahrDoc",
-  "description": "Transparenz für deine Fahrstunden — Dokumentation und Tracking für Fahrlehrer und Fahrschüler",
+  "description": "Dokumentation der Fahrstunden mit KI-Funktion — für Fahrlehrer und Fahrschüler",
   "start_url": "./index.html",
   "display": "standalone",
   "orientation": "portrait",
