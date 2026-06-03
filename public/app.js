@@ -544,6 +544,12 @@ var App = {
     var fieldMap = { school: 'signup-school-fields', instructor: 'signup-instructor-fields', student: 'signup-student-fields' };
     var target = document.getElementById(fieldMap[role]);
     if (target) target.classList.remove('hidden');
+    // Trial-Promo nur für Fahrschulen anzeigen (nur sie zahlen später)
+    var trialPromo = document.getElementById('signup-trial-promo');
+    if (trialPromo) {
+      if (role === 'school') trialPromo.classList.remove('hidden');
+      else trialPromo.classList.add('hidden');
+    }
   },
 
   handleLogin: async function(e) {
