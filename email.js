@@ -242,4 +242,63 @@ async function sendPaymentFailedEmail(to, schoolName, amount) {
   } catch (err) { console.error('[EMAIL] Payment-failed send failed:', err.message); return false; }
 }
 
-module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail };
+// ============================================
+// Feedback-Mail an info@fahrdoc.app
+// ============================================
+async function sendFeedbackEmail(payload) {
+  try {
+    const FEEDBACK_TO = process.env.FEEDBACK_TO_EMAIL || 'info@fahrdoc.app';
+    const userName = payload.userName || '(ohne Name)';
+    const userEmail = payload.userEmail || '(ohne E-Mail)';
+    const userRole = payload.userRole || '';
+    const category = payload.category || 'feedback';
+    const message = payload.message || '';
+
+    // HTML-Escape gegen XSS in Mail
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const messageHtml = esc(message).replace(/\n/g, '<br>');
+
+    const categoryColors = {
+      bug: '#ef4444',
+      feature: '#0d9488',
+      feedback: '#3b82f6',
+      frage: '#f59e0b',
+      sonstiges: '#6b7280'
+    };
+    const catColor = categoryColors[category] || '#6b7280';
+
+    const html = emailLayout('Neues Feedback', `
+      <p style="font-size: 16px; color: #333; line-height: 1.5;">Es ist neues Feedback in der FahrDoc-App eingegangen.</p>
+      <div style="background:#f8fafc;border-left:4px solid ${catColor};padding:16px 20px;margin:24px 0;border-radius:6px;">
+        <table style="width:100%;font-size:14px;color:#333;border-collapse:collapse;">
+          <tr><td style="padding:4px 0;color:#666;width:120px;">Kategorie:</td><td style="padding:4px 0;font-weight:600;">${esc(category)}</td></tr>
+          <tr><td style="padding:4px 0;color:#666;">Von:</td><td style="padding:4px 0;">${esc(userName)}</td></tr>
+          <tr><td style="padding:4px 0;color:#666;">E-Mail:</td><td style="padding:4px 0;"><a href="mailto:${esc(userEmail)}" style="color:#0d9488;text-decoration:none;">${esc(userEmail)}</a></td></tr>
+          <tr><td style="padding:4px 0;color:#666;">Rolle:</td><td style="padding:4px 0;">${esc(userRole)}</td></tr>
+        </table>
+      </div>
+      <div style="background:#ffffff;border:1px solid #e5e7eb;padding:18px 20px;margin:20px 0;border-radius:8px;">
+        <div style="font-size:13px;color:#666;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Nachricht</div>
+        <div style="font-size:15px;color:#1a1a1a;line-height:1.6;">${messageHtml}</div>
+      </div>
+      <p style="font-size:13px;color:#666;line-height:1.5;">Antworte direkt auf diese E-Mail, um dem Nutzer zu antworten.</p>
+    `);
+
+    const subject = 'FahrDoc Feedback [' + category + '] \u2014 ' + (userName || userEmail);
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [FEEDBACK_TO],
+      reply_to: userEmail && userEmail.indexOf('@') > -1 ? userEmail : undefined,
+      subject: subject,
+      html: html
+    });
+    if (error) { console.error('[EMAIL] Feedback send error:', error); return false; }
+    console.log('[EMAIL] Feedback sent to ' + FEEDBACK_TO + ' (id: ' + (data && data.id) + ')');
+    return true;
+  } catch (err) {
+    console.error('[EMAIL] Feedback send failed:', err.message);
+    return false;
+  }
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail };

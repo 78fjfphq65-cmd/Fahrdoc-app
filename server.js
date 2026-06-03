@@ -8,7 +8,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const { supabase, generateToken, generateId, hashPassword, verifyPassword } = require('./db');
-const { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail } = require('./email');
+const { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail } = require('./email');
 const Stripe = require('stripe');
 const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -2025,6 +2025,18 @@ app.post('/api/feedback', authMiddleware, async (req, res) => {
       user_name: req.user.name || req.user.admin_name || '',
       user_email: req.user.email, category: category || 'feedback', message: message.trim()
     });
+    // Feedback per Mail an info@fahrdoc.app weiterleiten (Fehler nicht hart durchreichen)
+    try {
+      await sendFeedbackEmail({
+        userName: req.user.name || req.user.admin_name || '',
+        userEmail: req.user.email,
+        userRole: req.user.role,
+        category: category || 'feedback',
+        message: message.trim()
+      });
+    } catch (mailErr) {
+      console.error('[FEEDBACK] Mail-Versand fehlgeschlagen:', mailErr.message);
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
