@@ -2389,11 +2389,10 @@ app.post('/api/ai/briefing/:studentId', authMiddleware, async (req, res) => {
       .select('id, name, license_class, school_id').eq('id', studentId).maybeSingle();
     if (!student || student.school_id !== schoolId) return res.status(404).json({ error: 'Schüler nicht gefunden' });
 
-    // Letzte 10 Fahrstunden (abgeschlossen) mit Markierungen + Notizen
+    // Letzte 10 durchgefuehrte Fahrstunden (eingetragene Lessons) mit Notizen + Bewertungen
     const { data: lessons } = await supabase.from('lessons')
-      .select('id, date, lesson_type, duration_minutes, notes, markers, status')
+      .select('id, date, type, duration, notes')
       .eq('student_id', studentId)
-      .in('status', ['completed', 'abgeschlossen'])
       .order('date', { ascending: false })
       .limit(10);
 
@@ -2401,13 +2400,25 @@ app.post('/api/ai/briefing/:studentId', authMiddleware, async (req, res) => {
       return res.json({ briefing: 'Noch keine abgeschlossenen Fahrstunden vorhanden. Beim ersten Termin bitte Grundlagen besprechen: Lenkrad, Pedalerie, Spiegel, erste Fahrt.', empty: true });
     }
 
+    // Skill-Bewertungen je Fahrstunde laden (separate Tabelle)
+    const lessonIds = lessons.map(function(l){ return l.id; });
+    var ratingsByLesson = {};
+    try {
+      const { data: ratings } = await supabase.from('skill_ratings')
+        .select('lesson_id, skill_name, rating')
+        .in('lesson_id', lessonIds);
+      (ratings || []).forEach(function(r){
+        if (!ratingsByLesson[r.lesson_id]) ratingsByLesson[r.lesson_id] = [];
+        ratingsByLesson[r.lesson_id].push(r.skill_name + ': ' + r.rating);
+      });
+    } catch(e){}
+
     // Prompt zusammenbauen
     var ctx = '';
     lessons.slice().reverse().forEach(function(l, i){
-      ctx += '\nFahrstunde ' + (i+1) + ' (' + (l.date || '') + ', ' + (l.lesson_type || 'Standard') + ', ' + (l.duration_minutes || 45) + ' Min):';
-      if (l.markers) {
-        try { var m = typeof l.markers === 'string' ? JSON.parse(l.markers) : l.markers; if (Array.isArray(m) && m.length) ctx += '\n  Markierungen: ' + m.map(function(x){ return x.text || x.type || x; }).join('; '); } catch(e){}
-      }
+      ctx += '\nFahrstunde ' + (i+1) + ' (' + (l.date || '') + ', ' + (l.type || 'Standard') + ', ' + (l.duration || 45) + ' Min):';
+      var rs = ratingsByLesson[l.id];
+      if (rs && rs.length) ctx += '\n  Bewertungen: ' + rs.join('; ');
       if (l.notes) ctx += '\n  Notizen: ' + l.notes;
     });
 
