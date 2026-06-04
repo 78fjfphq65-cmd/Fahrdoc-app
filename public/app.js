@@ -4282,11 +4282,8 @@ var App = {
           '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + pct + '%;background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></div></div></div>';
       });
       html += '</div>';
-      // ── Theory Progress Section ──
-      html += '<div class="card mb-4 theory-progress-section"><div class="section-title mb-3">' + t('theorieFortschritt') + '</div>' +
-        '<div id="theory-progress-container"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div></div>';
 
-      // ── KI-Briefing (nur fuer school + instructor wenn KI-Tarif) ──
+      // ── KI-Briefing (direkt unter Aktuelles Koennen) ──
       if (AppState.currentUser && (AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor')) {
         html += '<div class="card mb-4" id="ai-briefing-card-' + studentId + '" style="background:linear-gradient(135deg,#f3f8ff 0%,#e8f0fe 100%);border:1px solid #c5dafa;">' +
           '<div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);">' +
@@ -4298,6 +4295,26 @@ var App = {
           '<div id="ai-briefing-output-' + studentId + '" style="margin-top:var(--space-3);display:none;"></div>' +
         '</div>';
       }
+
+      // ── Theory Progress Section ──
+      html += '<div class="card mb-4 theory-progress-section"><div class="section-title mb-3">' + t('theorieFortschritt') + '</div>' +
+        '<div id="theory-progress-container"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div></div>';
+
+      // ── Fahrstunden-Liste (anklickbar) ──
+      html += '<div class="card mb-4"><div class="section-title mb-3">' + t('fahrstunden') + ' (' + lessons.length + ')</div>';
+      if (!lessons || lessons.length === 0) {
+        html += '<p class="text-sm text-muted">' + t('nochKeineFahrstunden') + '</p>';
+      } else {
+        lessons.forEach(function(l) {
+          html += '<div class="card card-interactive mb-2" onclick="App.showLessonReview(\'' + l.id + '\', \'' + studentId + '\', \'instructor\')">' +
+            '<div style="display:flex;align-items:center;gap:var(--space-3);">' +
+              '<div class="flex-1"><div style="font-weight:600;font-size:var(--text-sm);">' + tType(l.type) + '</div>' +
+              '<div class="text-xs text-muted">' + App.formatDate(l.date) + ' \u00b7 ' + App.formatDuration(l.duration) + (l.instructors && l.instructors.name ? ' \u00b7 ' + l.instructors.name : '') + '</div></div>' +
+              '<div>' + App.skillLevelHtml(App.avgRating(l.ratings)) + '</div>' +
+            '</div></div>';
+        });
+      }
+      html += '</div>';
 
       // ── Bescheinigungen (only for school/admin) ──
       if (AppState.currentUser && AppState.currentUser.role === 'school') {
