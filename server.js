@@ -2378,7 +2378,10 @@ app.post('/api/ai/briefing/:studentId', authMiddleware, async (req, res) => {
     const { data: school } = await supabase.from('schools').select('created_at').eq('id', schoolId).maybeSingle();
     const state = computeSubscriptionState(sub, school?.created_at);
     if (!state.active) return res.status(402).json({ error: 'Testphase abgelaufen', lock: true });
-    if (state.plan !== 'ki') return res.status(402).json({ error: 'KI-Briefing nur im FahrDoc KI Tarif verfügbar', upgrade: true });
+    // Open-Beta: KI-Briefing fuer alle in aktiver Testphase freigeben (per ENV abschaltbar)
+    const briefingOpenBeta = process.env.BRIEFING_OPEN_BETA === 'true';
+    const briefingAllowed = state.plan === 'ki' || (briefingOpenBeta && state.status === 'trial');
+    if (!briefingAllowed) return res.status(402).json({ error: 'KI-Briefing nur im FahrDoc KI Tarif verfügbar', upgrade: true });
 
     // Schueler-Daten laden
     const studentId = req.params.studentId;
