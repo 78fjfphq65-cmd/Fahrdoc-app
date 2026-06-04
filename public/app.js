@@ -766,6 +766,19 @@ var App = {
     var sum = 0; keys.forEach(function(k) { sum += ratings[k]; });
     return sum / keys.length;
   },
+  // Pro Skill die zuletzt vergebene Bewertung ueber alle Fahrstunden (neueste zuerst sortiert erwartet)
+  latestSkillRatings: function(lessons) {
+    var result = {};
+    if (!Array.isArray(lessons)) return result;
+    lessons.forEach(function(l) {
+      var r = l && l.ratings;
+      if (!r) return;
+      Object.keys(r).forEach(function(skill) {
+        if (result[skill] === undefined && r[skill] != null && r[skill] !== 0) result[skill] = r[skill];
+      });
+    });
+    return result;
+  },
   buildProgressRing: function(value, max, size) {
     var pct = (value / max) * 100;
     var r = (size - 8) / 2; var circ = 2 * Math.PI * r;
@@ -4250,7 +4263,7 @@ var App = {
       var data = await ApiClient.get('/api/student-detail/' + studentId);
       var student = data.student; var lessons = data.lessons;
       document.getElementById('student-detail-name').textContent = student.name;
-      var latestRatings = lessons.length > 0 ? lessons[0].ratings : {};
+      var latestRatings = this.latestSkillRatings(lessons);
       var avg = this.avgRating(latestRatings);
       var totalDuration = 0;
       lessons.forEach(function(l) { totalDuration += l.duration; });
@@ -5963,7 +5976,7 @@ var App = {
       try { data = await ApiClient.get('/api/student/overview'); AppState._cachedData.studentOverview = data; } catch (e) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + '</p></div>'; return; }
     }
     var lessons = data.lessons || [];
-    var latestRatings = lessons.length > 0 ? lessons[0].ratings : {};
+    var latestRatings = this.latestSkillRatings(lessons);
     var avg = this.avgRating(latestRatings);
     var pctReady = Math.min(100, (avg / 4) * 100);
     var html = '<div class="page-padding"><div class="welcome-msg"><h2>' + t('hallo') + ', ' + stu.name + '</h2><p>' + t('fortschrittPruefungsreife') + '</p></div>' +
