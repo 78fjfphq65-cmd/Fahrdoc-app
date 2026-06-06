@@ -754,7 +754,7 @@ app.get('/api/school/instructors', authMiddleware, async (req, res) => {
       supabase.from('instructors').select('id, name, email, phone').eq('school_id', schoolId),
       supabase.from('invite_codes').select('*').eq('school_id', schoolId).eq('type', 'instructor').order('created_at', { ascending: false })
     ]);
-    const instructors = instRes.data || [];
+    const instructors = (instRes.data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'de', { sensitivity: 'base' }));
 
     // Bulk: alle student_instructors-Mappings in EINER Query (statt N)
     if (instructors.length > 0) {
@@ -847,7 +847,8 @@ app.get('/api/school/students', authMiddleware, async (req, res) => {
       .select('*').eq('school_id', req.user.id).eq('type', 'student')
       .order('created_at', { ascending: false });
 
-    res.json({ students: students || [], codes: codes || [] });
+    const sortedStudents = (students || []).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'de', { sensitivity: 'base' }));
+    res.json({ students: sortedStudents, codes: codes || [] });
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
   }
