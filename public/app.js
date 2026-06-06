@@ -157,6 +157,12 @@ function slotTopPx(startTime) {
 function slotHeightPx(startTime, endTime) {
   return Math.max((timeToMinutes(endTime) - timeToMinutes(startTime)) * PX_PER_MIN, 20);
 }
+function minutesToTime(mins) {
+  mins = Math.max(0, Math.round(mins));
+  var h = Math.floor(mins / 60);
+  var m = mins % 60;
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
 function slotTypeClass(type) {
   return SCHEDULE_TYPE_CLASS[type] || 'type-uebung';
 }
@@ -916,7 +922,7 @@ var App = {
       var isToday = day.toDateString() === new Date().toDateString();
       var holiday = getHolidayForDate(day);
       var daySlots = slots.filter(function(s) { return s.date === dayStr; });
-      html += '<div class="week-grid-day-col' + (isToday ? ' today' : '') + (holiday ? ' holiday' : '') + '" onclick="App.onWeekGridCellClick(event, \'' + dayStr + '\', ' + JSON.stringify(onCellClick).replace(/"/g, '&quot;') + ')">';
+      html += '<div class="week-grid-day-col' + (isToday ? ' today' : '') + (holiday ? ' holiday' : '') + '" data-day-date="' + dayStr + '" onclick="App.onWeekGridCellClick(event, \'' + dayStr + '\', ' + JSON.stringify(onCellClick).replace(/"/g, '&quot;') + ')">';
       // Hour lines
       for (var hh = GRID_START_HOUR; hh < GRID_END_HOUR; hh++) {
         html += '<div class="week-grid-hour-line" style="top:' + ((hh - GRID_START_HOUR) * HOUR_HEIGHT) + 'px;"></div>';
@@ -957,7 +963,10 @@ var App = {
         } else {
           clickJs = onSlotClick.replace('{SLOT}', JSON.stringify(slot).replace(/"/g, '&quot;'));
         }
-        html += '<div class="week-grid-slot ' + typeCls + (isOffen ? ' slot-offen' : '') + (pruef ? ' slot-pruefung' : '') + (isUnconfirmed ? ' slot-unconfirmed' : '') + '" ' +
+        // Drag&Drop nur fuer echte Fahrstunden-Termine (kein Block/Theorie/Angebot) in der Verwaltungs-/Fahrlehreransicht
+        var canDrag = !isBlock && !isTheory && !isOffer && (AppState.currentUser && (AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor'));
+        var dragAttrs = canDrag ? (' data-slot-draggable="1" data-slot-id="' + slot.id + '" data-slot-date="' + slot.date + '" data-slot-start="' + slot.start_time + '" data-slot-end="' + slot.end_time + '"') : '';
+        html += '<div class="week-grid-slot ' + typeCls + (isOffen ? ' slot-offen' : '') + (pruef ? ' slot-pruefung' : '') + (isUnconfirmed ? ' slot-unconfirmed' : '') + (canDrag ? ' slot-draggable' : '') + '" ' + dragAttrs + ' ' +
           'style="top:' + top + 'px;height:' + height + 'px;" onclick="event.stopPropagation();' + clickJs + '">';
         // Green checkmark for confirmed slots in admin view
         if (isAdminView && isConfirmed && !isBlock && !isTheory) {
@@ -1175,6 +1184,104 @@ var App = {
       else this.renderSchoolScheduleTab();
     } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
     finally { this.showLoading(false); }
+  },
+
+  // ════════════════ Kalender Drag & Drop (Tag + Zeit) ════════════════
+  initSlotDragDrop: function() {
+    var self = this;
+    var SNAP_MIN = 5; // auf 5-Minuten-Raster einrasten
+    var MOVE_THRESHOLD = 8; // px, bevor Dragging startet (sonst zaehlt es als Klick)
+    var els = document.querySelectorAll('.week-grid-slot[data-slot-draggable="1"]');
+    els.forEach(function(el) {
+      if (el._ddBound) return; el._ddBound = true;
+      el.style.touchAction = 'none';
+      el.addEventListener('pointerdown', function(ev) {
+        if (ev.button != null && ev.button !== 0) return; // nur linke Maustaste
+        var startX = ev.clientX, startY = ev.clientY;
+        var dragging = false, ghost = null, suppressClick = false;
+        var durationMin = timeToMinutes(el.getAttribute('data-slot-end')) - timeToMinutes(el.getAttribute('data-slot-start'));
+        var origDate = el.getAttribute('data-slot-date');
+        var origStart = el.getAttribute('data-slot-start');
+        var grabOffsetY = ev.clientY - el.getBoundingClientRect().top;
+
+        function onMove(e) {
+          var dx = e.clientX - startX, dy = e.clientY - startY;
+          if (!dragging && Math.sqrt(dx*dx + dy*dy) < MOVE_THRESHOLD) return;
+          if (!dragging) {
+            dragging = true; suppressClick = true;
+            el.style.opacity = '0.35';
+            ghost = el.cloneNode(true);
+            ghost.style.position = 'fixed'; ghost.style.zIndex = '9999'; ghost.style.pointerEvents = 'none';
+            ghost.style.width = el.getBoundingClientRect().width + 'px';
+            ghost.style.opacity = '0.9'; ghost.style.boxShadow = '0 6px 20px rgba(0,0,0,0.3)';
+            ghost.classList.add('slot-dragging-ghost');
+            document.body.appendChild(ghost);
+          }
+          if (ghost) {
+            ghost.style.left = (e.clientX - ghost.getBoundingClientRect().width / 2) + 'px';
+            ghost.style.top = (e.clientY - grabOffsetY) + 'px';
+          }
+        }
+
+        function computeTarget(e) {
+          if (ghost) ghost.style.display = 'none';
+          var under = document.elementFromPoint(e.clientX, e.clientY);
+          if (ghost) ghost.style.display = '';
+          var col = under ? under.closest('.week-grid-day-col') : null;
+          if (!col) return null;
+          var dayStr = col.getAttribute('data-day-date');
+          if (!dayStr) return null;
+          var rect = col.getBoundingClientRect();
+          var yInCol = (e.clientY - grabOffsetY) - rect.top; // Top des Slots relativ zur Spalte
+          var minutesFromStart = yInCol / PX_PER_MIN;
+          var absMin = GRID_START_HOUR * 60 + minutesFromStart;
+          absMin = Math.round(absMin / SNAP_MIN) * SNAP_MIN;
+          // in gueltigen Bereich klemmen
+          absMin = Math.max(GRID_START_HOUR * 60, Math.min(absMin, GRID_END_HOUR * 60 - durationMin));
+          return { date: dayStr, startMin: absMin, endMin: absMin + durationMin };
+        }
+
+        function onUp(e) {
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+          document.removeEventListener('pointercancel', onUp);
+          el.style.opacity = '';
+          if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+          if (!dragging) return;
+          var tgt = computeTarget(e);
+          if (!tgt) return;
+          var newStart = minutesToTime(tgt.startMin);
+          var newEnd = minutesToTime(tgt.endMin);
+          if (tgt.date === origDate && newStart === origStart) return; // nichts geaendert
+          self._persistSlotMove(el.getAttribute('data-slot-id'), tgt.date, newStart, newEnd);
+        }
+
+        // Klick unterdruecken, wenn gezogen wurde
+        el.addEventListener('click', function guard(ce) {
+          if (suppressClick) { ce.stopImmediatePropagation(); ce.preventDefault(); suppressClick = false; el.removeEventListener('click', guard, true); }
+        }, true);
+
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', onUp);
+      });
+    });
+  },
+
+  _persistSlotMove: async function(id, date, startTime, endTime) {
+    try {
+      this.showLoading(true);
+      await ApiClient.put('/api/schedule/' + id, { date: date, startTime: startTime, endTime: endTime });
+      this.showToast(t('terminAktualisiert'));
+      AppState.scheduleData = null;
+      if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
+      else this.renderSchoolScheduleTab();
+    } catch(err) {
+      this.showToast(t('fehler') + ': ' + err.message);
+      AppState.scheduleData = null;
+      if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
+      else this.renderSchoolScheduleTab();
+    } finally { this.showLoading(false); }
   },
 
   updateScheduleSlot: async function(id) {
@@ -1967,6 +2074,7 @@ var App = {
       }
       html += '</div>';
       main.innerHTML = html;
+      setTimeout(function() { App.initSlotDragDrop(); }, 50);
 
       // Load multi-view extra grids async
       if (AppState.multiViewCount > 1) {
@@ -2057,6 +2165,7 @@ var App = {
       );
       // Init drag-scroll on this panel after content loads
       this._initDragScrollOnPanel(container.closest('.multi-view-panel'));
+      setTimeout(function() { App.initSlotDragDrop(); }, 50);
     } catch (err) { container.innerHTML = '<p class="text-sm text-muted">' + t('fehler') + '</p>'; }
   },
 
@@ -4169,6 +4278,7 @@ var App = {
 
     html += '</div>';
     main.innerHTML = html;
+    setTimeout(function() { App.initSlotDragDrop(); }, 50);
   },
 
   renderInstructorStudentsTab: async function() {
