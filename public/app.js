@@ -3440,10 +3440,10 @@ var App = {
       html += '<div class="card" style="display:flex;flex-direction:column;border:2px solid ' + (classicActive ? '#2e7d32' : 'var(--border-color)') + ';position:relative;">' +
         (classicActive ? '<div style="position:absolute;top:-12px;right:16px;background:#2e7d32;color:#fff;padding:4px 12px;border-radius:12px;font-size:var(--text-xs);font-weight:600;">Aktiver Tarif</div>' : '') +
         '<div style="font-size:var(--text-xl);font-weight:700;margin-bottom:8px;">FahrDoc Classic</div>' +
-        '<div style="margin-bottom:var(--space-3);"><span style="font-size:var(--text-3xl,32px);font-weight:800;">29,99 \u20ac</span><span style="color:var(--text-muted);font-size:var(--text-sm);"> / Monat</span></div>' +
+        '<div style="margin-bottom:var(--space-3);"><span style="font-size:var(--text-3xl,32px);font-weight:800;">29,99 \u20ac</span><span style="color:var(--text-muted);font-size:var(--text-sm);"> / Fahrlehrer / Monat</span></div>' +
         '<ul style="list-style:none;padding:0;margin:0 0 var(--space-4) 0;font-size:var(--text-sm);flex:1;">' +
         '<li style="padding:6px 0;">\u2713 Unbegrenzte Sch\u00fcler</li>' +
-        '<li style="padding:6px 0;">\u2713 Unbegrenzte Fahrlehrer</li>' +
+        '<li style="padding:6px 0;">\u2713 Skaliert pro Fahrlehrer</li>' +
         '<li style="padding:6px 0;">\u2713 Kalender & Slot-Buchung</li>' +
         '<li style="padding:6px 0;">\u2713 Schein-Verwaltung</li>' +
         '<li style="padding:6px 0;">\u2713 PDF-Bescheinigungen</li>' +
@@ -3459,7 +3459,7 @@ var App = {
         (kiActive ? '<div style="position:absolute;top:-12px;right:16px;background:#2e7d32;color:#fff;padding:4px 12px;border-radius:12px;font-size:var(--text-xs);font-weight:600;">Aktiver Tarif</div>' :
           '<div style="position:absolute;top:-12px;right:16px;background:#1565c0;color:#fff;padding:4px 12px;border-radius:12px;font-size:var(--text-xs);font-weight:600;">Empfohlen</div>') +
         '<div style="font-size:var(--text-xl);font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px;">FahrDoc KI <span style="font-size:18px;">\u2728</span></div>' +
-        '<div style="margin-bottom:var(--space-3);"><span style="font-size:var(--text-3xl,32px);font-weight:800;">39,99 \u20ac</span><span style="color:var(--text-muted);font-size:var(--text-sm);"> / Monat</span></div>' +
+        '<div style="margin-bottom:var(--space-3);"><span style="font-size:var(--text-3xl,32px);font-weight:800;">39,99 \u20ac</span><span style="color:var(--text-muted);font-size:var(--text-sm);"> / Fahrlehrer / Monat</span></div>' +
         '<ul style="list-style:none;padding:0;margin:0 0 var(--space-4) 0;font-size:var(--text-sm);flex:1;">' +
         '<li style="padding:6px 0;"><strong>Alles aus Classic</strong></li>' +
         '<li style="padding:6px 0;color:#1565c0;">\u2728 <strong>KI-Briefing</strong> vor jeder Fahrstunde</li>' +
@@ -3475,6 +3475,22 @@ var App = {
 
       // Abo verwalten (nur wenn Stripe-Abo existiert)
       if (hasStripe) {
+        // Plaetze-Info wenn vorhanden
+        var seatsBlock = '';
+        if (sub.seats && sub.seats > 0) {
+          var totalPrice = (sub.total_price || (sub.seats * (sub.unit_price || 0))).toFixed(2).replace('.', ',');
+          var unit = (sub.unit_price || 0).toFixed(2).replace('.', ',');
+          seatsBlock = '<div class="card mb-4" style="text-align:center;">' +
+            '<div style="font-weight:600;margin-bottom:8px;">Fahrlehrer-Pl\u00e4tze</div>' +
+            '<div style="display:flex;justify-content:center;gap:24px;margin-bottom:var(--space-3);">' +
+              '<div><div style="font-size:28px;font-weight:800;color:#1565c0;">' + sub.seats + '</div><div style="font-size:12px;color:var(--text-muted);">gebucht</div></div>' +
+              '<div><div style="font-size:28px;font-weight:800;color:' + ((sub.used_instructor_seats||0) >= sub.seats ? '#f57c00' : '#2e7d32') + ';">' + (sub.used_instructor_seats || 0) + '</div><div style="font-size:12px;color:var(--text-muted);">belegt</div></div>' +
+            '</div>' +
+            '<p style="font-size:var(--text-sm);color:var(--text-muted);margin-bottom:var(--space-3);">' + totalPrice + ' \u20ac / Monat (' + sub.seats + ' \u00d7 ' + unit + ' \u20ac)</p>' +
+            '<button class="btn btn-primary" onclick="App.openSeatsAdjustModal()">Pl\u00e4tze anpassen</button>' +
+          '</div>';
+        }
+        html += seatsBlock;
         html += '<div class="card mb-4" style="text-align:center;">' +
           '<div style="font-weight:600;margin-bottom:8px;">Abo verwalten</div>' +
           '<p style="font-size:var(--text-sm);color:var(--text-muted);margin-bottom:var(--space-3);">Rechnungen, Zahlungsmethode oder K\u00fcndigung</p>' +
@@ -3641,10 +3657,140 @@ var App = {
   stripeCheckout: async function(plan) {
     try {
       var planName = plan === 'ki' ? 'ki' : 'classic';
+      // Erst Plaetze-Wahl-Modal oeffnen
+      App.openSeatsPickerModal(planName);
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+  },
+
+  // ============================================================
+  // PLAETZE-WAHL: Modal vor Stripe-Checkout
+  // ============================================================
+  openSeatsPickerModal: async function(planName) {
+    var unitPrice = planName === 'ki' ? 39.99 : 29.99;
+    var planLabel = planName === 'ki' ? 'FahrDoc KI' : 'FahrDoc Classic';
+    // Aktuell eingeloeste Fahrlehrer-Codes als Default
+    var defaultSeats = 1;
+    var minSeats = 1;
+    try {
+      var sub = await ApiClient.get('/api/stripe/subscription');
+      var used = sub && sub.used_instructor_seats ? sub.used_instructor_seats : 0;
+      defaultSeats = Math.max(1, used);
+      minSeats = Math.max(1, used);
+    } catch(e) { /* default 1 */ }
+
+    App._seatsPickerState = { planName: planName, unitPrice: unitPrice, seats: defaultSeats, minSeats: minSeats };
+
+    var html = '<div style="padding:8px 0;">' +
+      '<div style="text-align:center;margin-bottom:16px;">' +
+        '<div style="font-size:18px;font-weight:700;color:#1565c0;">' + planLabel + '</div>' +
+        '<div style="font-size:13px;color:#666;margin-top:4px;">' + unitPrice.toFixed(2).replace('.', ',') + ' \u20ac pro Fahrlehrer / Monat</div>' +
+      '</div>' +
+      '<div style="background:#f8f9fa;border-radius:12px;padding:20px;margin-bottom:16px;">' +
+        '<div style="text-align:center;font-size:14px;color:#444;margin-bottom:12px;">Wie viele Fahrlehrer-Pl\u00e4tze m\u00f6chtest du buchen?</div>' +
+        '<div style="display:flex;align-items:center;justify-content:center;gap:16px;">' +
+          '<button id="seats-minus" class="btn btn-secondary" onclick="App.adjustSeats(-1)" style="width:48px;height:48px;font-size:22px;padding:0;border-radius:50%;">\u2212</button>' +
+          '<div id="seats-value" style="font-size:36px;font-weight:800;min-width:60px;text-align:center;color:#1565c0;">' + defaultSeats + '</div>' +
+          '<button class="btn btn-secondary" onclick="App.adjustSeats(1)" style="width:48px;height:48px;font-size:22px;padding:0;border-radius:50%;">+</button>' +
+        '</div>' +
+        (minSeats > 1 ? '<div style="text-align:center;font-size:12px;color:#888;margin-top:10px;">\u2139\ufe0f Du hast aktuell ' + minSeats + ' Fahrlehrer-Codes eingel\u00f6st. Mindestens so viele Pl\u00e4tze sind n\u00f6tig.</div>' : '<div style="text-align:center;font-size:12px;color:#888;margin-top:10px;">Du kannst sp\u00e4ter jederzeit weitere Pl\u00e4tze hinzubuchen.</div>') +
+      '</div>' +
+      '<div style="background:#e8f5e9;border-radius:12px;padding:16px;margin-bottom:16px;text-align:center;">' +
+        '<div style="font-size:13px;color:#2e7d32;margin-bottom:4px;">Gesamtpreis</div>' +
+        '<div id="seats-total" style="font-size:24px;font-weight:800;color:#2e7d32;">' + (defaultSeats * unitPrice).toFixed(2).replace('.', ',') + ' \u20ac / Monat</div>' +
+        '<div id="seats-calc" style="font-size:12px;color:#558b2f;margin-top:4px;">' + defaultSeats + ' \u00d7 ' + unitPrice.toFixed(2).replace('.', ',') + ' \u20ac</div>' +
+      '</div>' +
+      '<button class="btn btn-primary" onclick="App.confirmSeatsCheckout()" style="width:100%;padding:14px;font-size:16px;">Weiter zum Checkout</button>' +
+      '<button class="btn btn-ghost" onclick="App.closeModalForce()" style="width:100%;margin-top:8px;">Abbrechen</button>' +
+    '</div>';
+    App.openModal('Pl\u00e4tze w\u00e4hlen', html);
+  },
+
+  adjustSeats: function(delta) {
+    var st = App._seatsPickerState;
+    if (!st) return;
+    var next = st.seats + delta;
+    if (next < st.minSeats) next = st.minSeats;
+    if (next > 100) next = 100;
+    st.seats = next;
+    var valEl = document.getElementById('seats-value');
+    var totEl = document.getElementById('seats-total');
+    var calcEl = document.getElementById('seats-calc');
+    var minusBtn = document.getElementById('seats-minus');
+    if (valEl) valEl.textContent = next;
+    if (totEl) totEl.textContent = (next * st.unitPrice).toFixed(2).replace('.', ',') + ' \u20ac / Monat';
+    if (calcEl) calcEl.textContent = next + ' \u00d7 ' + st.unitPrice.toFixed(2).replace('.', ',') + ' \u20ac';
+    if (minusBtn) minusBtn.disabled = (next <= st.minSeats);
+  },
+
+  confirmSeatsCheckout: async function() {
+    var st = App._seatsPickerState;
+    if (!st) return;
+    App.closeModalForce();
+    try {
       App.showToast('Weiterleitung zu Stripe...');
-      var result = await ApiClient.post('/api/stripe/create-checkout', { plan: planName });
+      var result = await ApiClient.post('/api/stripe/create-checkout', { plan: st.planName, quantity: st.seats });
       if (result.url) window.location.href = result.url;
       else App.showToast('Fehler: Keine Checkout-URL erhalten');
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+  },
+
+  // ============================================================
+  // PLAETZE ANPASSEN (nach abgeschlossenem Abo)
+  // ============================================================
+  openSeatsAdjustModal: async function() {
+    try {
+      var sub = await ApiClient.get('/api/stripe/subscription');
+      var currentSeats = sub.seats || 1;
+      var unitPrice = sub.unit_price || (sub.plan === 'ki' ? 39.99 : 29.99);
+      var minSeats = sub.used_instructor_seats || 1;
+      if (minSeats < 1) minSeats = 1;
+      App._seatsAdjustState = { seats: currentSeats, currentSeats: currentSeats, unitPrice: unitPrice, minSeats: minSeats };
+      var html = '<div style="padding:8px 0;">' +
+        '<div style="text-align:center;margin-bottom:16px;font-size:13px;color:#666;">Aktuell: <strong>' + currentSeats + '</strong> Pl\u00e4tze \u00b7 ' + (currentSeats * unitPrice).toFixed(2).replace('.', ',') + ' \u20ac / Monat</div>' +
+        '<div style="background:#f8f9fa;border-radius:12px;padding:20px;margin-bottom:16px;">' +
+          '<div style="text-align:center;font-size:14px;color:#444;margin-bottom:12px;">Neue Anzahl Fahrlehrer-Pl\u00e4tze</div>' +
+          '<div style="display:flex;align-items:center;justify-content:center;gap:16px;">' +
+            '<button id="adj-minus" class="btn btn-secondary" onclick="App.adjustSeatsAdjust(-1)" style="width:48px;height:48px;font-size:22px;padding:0;border-radius:50%;">\u2212</button>' +
+            '<div id="adj-value" style="font-size:36px;font-weight:800;min-width:60px;text-align:center;color:#1565c0;">' + currentSeats + '</div>' +
+            '<button class="btn btn-secondary" onclick="App.adjustSeatsAdjust(1)" style="width:48px;height:48px;font-size:22px;padding:0;border-radius:50%;">+</button>' +
+          '</div>' +
+          '<div style="text-align:center;font-size:12px;color:#888;margin-top:10px;">Mindestens ' + minSeats + ' Platz' + (minSeats === 1 ? '' : 'e') + ' (aktive Fahrlehrer). \u00c4nderungen sind anteilig.</div>' +
+        '</div>' +
+        '<div style="background:#e8f5e9;border-radius:12px;padding:16px;margin-bottom:16px;text-align:center;">' +
+          '<div style="font-size:13px;color:#2e7d32;margin-bottom:4px;">Neuer Gesamtpreis</div>' +
+          '<div id="adj-total" style="font-size:24px;font-weight:800;color:#2e7d32;">' + (currentSeats * unitPrice).toFixed(2).replace('.', ',') + ' \u20ac / Monat</div>' +
+        '</div>' +
+        '<button class="btn btn-primary" onclick="App.confirmSeatsAdjust()" style="width:100%;padding:14px;font-size:16px;">Pl\u00e4tze aktualisieren</button>' +
+        '<button class="btn btn-ghost" onclick="App.closeModalForce()" style="width:100%;margin-top:8px;">Abbrechen</button>' +
+      '</div>';
+      App.openModal('Pl\u00e4tze anpassen', html);
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+  },
+
+  adjustSeatsAdjust: function(delta) {
+    var st = App._seatsAdjustState;
+    if (!st) return;
+    var next = st.seats + delta;
+    if (next < st.minSeats) next = st.minSeats;
+    if (next > 100) next = 100;
+    st.seats = next;
+    var valEl = document.getElementById('adj-value');
+    var totEl = document.getElementById('adj-total');
+    var minusBtn = document.getElementById('adj-minus');
+    if (valEl) valEl.textContent = next;
+    if (totEl) totEl.textContent = (next * st.unitPrice).toFixed(2).replace('.', ',') + ' \u20ac / Monat';
+    if (minusBtn) minusBtn.disabled = (next <= st.minSeats);
+  },
+
+  confirmSeatsAdjust: async function() {
+    var st = App._seatsAdjustState;
+    if (!st) return;
+    if (st.seats === st.currentSeats) { App.closeModalForce(); App.showToast('Keine \u00c4nderung'); return; }
+    try {
+      await ApiClient.post('/api/stripe/update-quantity', { quantity: st.seats });
+      App.closeModalForce();
+      App.showToast('Pl\u00e4tze aktualisiert: ' + st.seats);
+      if (App.renderSchoolAboTab) App.renderSchoolAboTab();
     } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
   },
 
@@ -3678,8 +3824,8 @@ var App = {
           '<h2 style="font-size:24px;font-weight:700;margin:0 0 8px;">Testphase abgelaufen</h2>' +
           '<p style="color:#666;margin:0 0 24px;font-size:15px;">' + (sub.lock_reason || 'Bitte ein Abo abschliessen, um FahrDoc weiter zu nutzen.') + '</p>' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">' +
-            '<button class="btn btn-secondary" onclick="App.stripeCheckout(\'classic\')" style="padding:14px;"><strong>Classic</strong><br><span style="font-size:13px;">29,99\u20ac / Monat</span></button>' +
-            '<button class="btn btn-primary" onclick="App.stripeCheckout(\'ki\')" style="padding:14px;"><strong>KI \u2728</strong><br><span style="font-size:13px;">39,99\u20ac / Monat</span></button>' +
+            '<button class="btn btn-secondary" onclick="App.stripeCheckout(\'classic\')" style="padding:14px;"><strong>Classic</strong><br><span style="font-size:13px;">ab 29,99\u20ac / Fahrlehrer</span></button>' +
+            '<button class="btn btn-primary" onclick="App.stripeCheckout(\'ki\')" style="padding:14px;"><strong>KI \u2728</strong><br><span style="font-size:13px;">ab 39,99\u20ac / Fahrlehrer</span></button>' +
           '</div>' +
           '<button class="btn btn-link" onclick="App.stripePortal()" style="font-size:13px;color:#666;">Bestehendes Abo verwalten</button>' +
         '</div>';
@@ -4043,7 +4189,22 @@ var App = {
       this.renderSchoolDashboardTab();
       // Show modal with code + optional email send
       this.showInviteCodeModal(result.code, type);
-    } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
+    } catch (err) {
+      var msg = err && err.message ? err.message : '';
+      // Spezialfall: Testphasen-Limit fuer Fahrlehrer-Codes
+      if (msg.indexOf('Testphase') !== -1 && msg.indexOf('Fahrlehrer') !== -1) {
+        var lockHtml = '<div style="text-align:center;padding:8px 0;">' +
+          '<div style="font-size:42px;margin-bottom:12px;">\uD83D\uDD12</div>' +
+          '<h3 style="margin:0 0 12px 0;color:#c62828;">Limit erreicht</h3>' +
+          '<p style="margin:0 0 16px 0;line-height:1.5;color:#444;">In der Testphase kannst du <strong>maximal 2 Fahrlehrer-Codes</strong> erstellen. Schliesse jetzt ein Abo ab, um beliebig viele Fahrlehrer hinzuzufuegen.</p>' +
+          '<button class="btn btn-primary" onclick="App.closeModalForce();App.switchSchoolTab(\'abo\')" style="width:100%;padding:14px;font-size:16px;">Jetzt Abo abschliessen</button>' +
+          '<button class="btn btn-ghost" onclick="App.closeModalForce()" style="width:100%;margin-top:8px;">Abbrechen</button>' +
+        '</div>';
+        this.openModal('Fahrlehrer-Limit', lockHtml);
+        return;
+      }
+      this.showToast(t('fehler') + ': ' + msg);
+    }
   },
 
   showInviteCodeModal: function(code, type) {

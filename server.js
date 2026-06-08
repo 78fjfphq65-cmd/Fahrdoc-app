@@ -48,10 +48,10 @@ function computeSubscriptionState(sub, schoolCreatedAt) {
       return { active: true, status: 'trial', plan: 'classic', daysRemaining: Math.ceil((ext - now) / 86400000), lockReason: null };
     }
   }
-  // 4) 7-Tage-Free-Trial nach Registrierung
+  // 4) 14-Tage-Free-Trial nach Registrierung
   if (schoolCreatedAt) {
     var created = new Date(schoolCreatedAt);
-    var trialEnd = new Date(created.getTime() + 7 * 86400000);
+    var trialEnd = new Date(created.getTime() + 14 * 86400000);
     if (trialEnd > now) {
       return { active: true, status: 'trial', plan: 'classic', daysRemaining: Math.ceil((trialEnd - now) / 86400000), lockReason: null };
     }
@@ -420,6 +420,36 @@ app.post('/api/auth/signup', async (req, res) => {
       await supabase.from('invite_codes').update({
         status: 'verwendet', used_by: fullName, used_by_id: id
       }).eq('id', code.id);
+
+      // Auto-Hochbuchung der Stripe-Subscription wenn alle bezahlten Plaetze nun belegt sind
+      try {
+        if (stripe) {
+          const { data: subRow } = await supabase.from('subscriptions')
+            .select('stripe_subscription_id').eq('school_id', code.school_id).maybeSingle();
+          if (subRow && subRow.stripe_subscription_id) {
+            const stripeSub = await stripe.subscriptions.retrieve(subRow.stripe_subscription_id);
+            if (stripeSub && (stripeSub.status === 'active' || stripeSub.status === 'trialing')) {
+              const currentQty = stripeSub.items.data[0].quantity || 0;
+              const { count: usedNow } = await supabase.from('invite_codes')
+                .select('id', { count: 'exact', head: true })
+                .eq('school_id', code.school_id)
+                .eq('type', 'instructor')
+                .eq('status', 'verwendet');
+              if ((usedNow || 0) > currentQty) {
+                const itemId = stripeSub.items.data[0].id;
+                await stripe.subscriptions.update(subRow.stripe_subscription_id, {
+                  items: [{ id: itemId, quantity: usedNow }],
+                  proration_behavior: 'create_prorations'
+                });
+                console.log('[Auto-Quantity] School ' + code.school_id + ' Subscription auf ' + usedNow + ' Plaetze hochgebucht');
+              }
+            }
+          }
+        }
+      } catch (qtyErr) {
+        console.error('[Auto-Quantity Error] ' + qtyErr.message);
+        // Nicht blockierend: Code-Einloesung war erfolgreich
+      }
 
       // Send verification email
       const vCode = generateCode();
@@ -859,6 +889,25 @@ app.post('/api/school/codes', authMiddleware, async (req, res) => {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
     const { type } = req.body;
     if (!type || !['instructor', 'student'].includes(type)) return res.status(400).json({ error: 'Ungültiger Typ' });
+
+    // Code-Limit in der Testphase: max 2 Fahrlehrer-Codes (Schueler unbegrenzt)
+    if (type === 'instructor') {
+      const { data: subRow } = await supabase.from('subscriptions').select('*').eq('school_id', req.user.id).single();
+      const { data: schoolRow } = await supabase.from('schools').select('created_at').eq('id', req.user.id).single();
+      const state = computeSubscriptionState(subRow, schoolRow ? schoolRow.created_at : null);
+      if (state.status === 'trial') {
+        const { count: instructorCodeCount } = await supabase.from('invite_codes')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_id', req.user.id)
+          .eq('type', 'instructor');
+        if ((instructorCodeCount || 0) >= 2) {
+          return res.status(402).json({
+            error: 'In der Testphase koennen maximal 2 Fahrlehrer-Codes erstellt werden. Bitte schliesse ein Abo ab, um weitere Fahrlehrer hinzuzufuegen.',
+            code: 'TRIAL_INSTRUCTOR_LIMIT'
+          });
+        }
+      }
+    }
 
     const prefix = type === 'instructor' ? 'FL' : 'FS';
     const code = prefix + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -2068,9 +2117,10 @@ app.get('/api/feedback', authMiddleware, async (req, res) => {
 app.get('/api/stripe/config', (req, res) => {
   res.json({
     publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
+    perSeat: true,
     plans: {
-      classic: { priceId: process.env.STRIPE_PRICE_ID_CLASSIC || '', name: 'FahrDoc Classic', price: 29.99, currency: 'EUR', features: ['Unbegrenzte Schüler', 'Unbegrenzte Fahrlehrer', 'Kalender & Slot-Buchung', 'Schein-Verwaltung', 'PDF-Bescheinigungen', 'Email-Support'] },
-      ki: { priceId: process.env.STRIPE_PRICE_ID_KI || '', name: 'FahrDoc KI', price: 39.99, currency: 'EUR', features: ['Alles aus Classic', 'KI-Briefing vor jeder Fahrstunde', 'Automatische Lernfortschritt-Analyse', 'Unbegrenzte KI-Anfragen', 'Prioritäts-Support'] }
+      classic: { priceId: process.env.STRIPE_PRICE_ID_CLASSIC || '', name: 'FahrDoc Classic', price: 29.99, currency: 'EUR', perSeat: true, unit: 'Fahrlehrer', features: ['Pro Fahrlehrer/Monat', 'Unbegrenzte Schüler', 'Kalender & Slot-Buchung', 'Schein-Verwaltung', 'PDF-Bescheinigungen', 'Email-Support'] },
+      ki: { priceId: process.env.STRIPE_PRICE_ID_KI || '', name: 'FahrDoc KI', price: 39.99, currency: 'EUR', perSeat: true, unit: 'Fahrlehrer', features: ['Pro Fahrlehrer/Monat', 'Alles aus Classic', 'KI-Briefing vor jeder Fahrstunde', 'Automatische Lernfortschritt-Analyse', 'Unbegrenzte KI-Anfragen', 'Prioritäts-Support'] }
     }
   });
 });
@@ -2083,10 +2133,24 @@ app.post('/api/stripe/create-checkout', authMiddleware, async (req, res) => {
   if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschulen können Abos verwalten' });
 
   try {
-    const { plan } = req.body;
+    const { plan, quantity } = req.body;
     var planName = plan === 'ki' ? 'ki' : 'classic';
     var priceId = planName === 'ki' ? process.env.STRIPE_PRICE_ID_KI : process.env.STRIPE_PRICE_ID_CLASSIC;
     if (!priceId) return res.status(500).json({ error: 'Tarif nicht konfiguriert. Bitte Admin kontaktieren.' });
+
+    // Quantity validieren: mindestens so viele Plaetze wie bereits eingeloeste Fahrlehrer-Codes,
+    // mindestens 1
+    var requestedQty = parseInt(quantity, 10);
+    if (!requestedQty || requestedQty < 1) requestedQty = 1;
+    if (requestedQty > 100) requestedQty = 100; // sanity cap
+
+    const { count: usedSeats } = await supabase.from('invite_codes')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', req.user.id)
+      .eq('type', 'instructor')
+      .eq('status', 'verwendet');
+    const minSeats = Math.max(1, usedSeats || 0);
+    if (requestedQty < minSeats) requestedQty = minSeats;
 
     // Check if school already has a Stripe customer
     const { data: existingSub } = await supabase.from('subscriptions')
@@ -2106,11 +2170,11 @@ app.post('/api/stripe/create-checkout', authMiddleware, async (req, res) => {
       customer: customerId,
       mode: 'subscription',
       payment_method_types: ['card', 'sepa_debit'],
-      line_items: [{ price: priceId, quantity: 1 }],
+      line_items: [{ price: priceId, quantity: requestedQty, adjustable_quantity: { enabled: true, minimum: minSeats, maximum: 100 } }],
       subscription_data: {
         metadata: { school_id: req.user.id, plan: planName }
       },
-      metadata: { school_id: req.user.id, plan: planName },
+      metadata: { school_id: req.user.id, plan: planName, seats: String(requestedQty) },
       success_url: `${req.protocol}://${req.get('host')}/?stripe=success`,
       cancel_url: `${req.protocol}://${req.get('host')}/?stripe=cancel`,
       locale: 'de',
@@ -2120,6 +2184,44 @@ app.post('/api/stripe/create-checkout', authMiddleware, async (req, res) => {
     res.json({ url: session.url });
   } catch (err) {
     console.error('[Stripe Checkout Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// STRIPE: Quantity aendern (Plaetze hinzufuegen/reduzieren)
+// ============================================
+app.post('/api/stripe/update-quantity', authMiddleware, async (req, res) => {
+  if (!stripe) return res.status(500).json({ error: 'Stripe nicht konfiguriert' });
+  if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschulen' });
+  try {
+    var newQty = parseInt(req.body && req.body.quantity, 10);
+    if (!newQty || newQty < 1) return res.status(400).json({ error: 'Ungueltige Anzahl' });
+    if (newQty > 100) return res.status(400).json({ error: 'Maximal 100 Plaetze' });
+
+    // Mindestmenge = bereits eingeloeste Fahrlehrer-Codes
+    const { count: usedSeats } = await supabase.from('invite_codes')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', req.user.id)
+      .eq('type', 'instructor')
+      .eq('status', 'verwendet');
+    if (newQty < (usedSeats || 0)) {
+      return res.status(400).json({ error: 'Mindestens ' + (usedSeats || 0) + ' Plaetze noetig (aktive Fahrlehrer). Bitte zuerst Fahrlehrer deaktivieren.' });
+    }
+
+    const { data: sub } = await supabase.from('subscriptions')
+      .select('stripe_subscription_id').eq('school_id', req.user.id).single();
+    if (!sub || !sub.stripe_subscription_id) return res.status(404).json({ error: 'Kein aktives Abo gefunden' });
+
+    const stripeSub = await stripe.subscriptions.retrieve(sub.stripe_subscription_id);
+    const itemId = stripeSub.items.data[0].id;
+    await stripe.subscriptions.update(sub.stripe_subscription_id, {
+      items: [{ id: itemId, quantity: newQty }],
+      proration_behavior: 'create_prorations'
+    });
+    res.json({ success: true, quantity: newQty });
+  } catch (err) {
+    console.error('[Stripe Update Qty Error]', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2162,11 +2264,15 @@ app.get('/api/stripe/subscription', authMiddleware, async (req, res) => {
       .select('created_at, name').eq('id', schoolId).maybeSingle();
 
     // Stripe-Sync wenn nutzbar
+    var seats = 0;
+    var unitPrice = 0;
     if (stripe && sub && sub.stripe_subscription_id) {
       try {
         const stripeSub = await stripe.subscriptions.retrieve(sub.stripe_subscription_id);
         const priceId = stripeSub.items.data[0]?.price?.id;
         const detectedPlan = priceId === process.env.STRIPE_PRICE_ID_KI ? 'ki' : (priceId === process.env.STRIPE_PRICE_ID_CLASSIC ? 'classic' : sub.plan);
+        seats = stripeSub.items.data[0]?.quantity || 0;
+        unitPrice = (stripeSub.items.data[0]?.price?.unit_amount || 0) / 100;
         const updated = {
           status: stripeSub.status,
           plan: detectedPlan,
@@ -2180,6 +2286,13 @@ app.get('/api/stripe/subscription', authMiddleware, async (req, res) => {
       } catch (e) { /* offline: cached */ }
     }
 
+    // Eingeloeste Fahrlehrer-Codes (used seats)
+    const { count: usedInstructorSeats } = await supabase.from('invite_codes')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', schoolId)
+      .eq('type', 'instructor')
+      .eq('status', 'verwendet');
+
     const state = computeSubscriptionState(sub, school?.created_at);
     res.json({
       active: state.active,
@@ -2192,7 +2305,11 @@ app.get('/api/stripe/subscription', authMiddleware, async (req, res) => {
       current_period_end: sub?.current_period_end || null,
       trial_extended_until: sub?.trial_extended_until || null,
       free_subscription: !!(sub && sub.free_subscription),
-      school_name: school?.name || ''
+      school_name: school?.name || '',
+      seats: seats,
+      used_instructor_seats: usedInstructorSeats || 0,
+      unit_price: unitPrice,
+      total_price: seats * unitPrice
     });
   } catch (err) {
     console.error('[Stripe Sub Error]', err);
