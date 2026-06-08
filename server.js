@@ -8,7 +8,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const { supabase, generateToken, generateId, hashPassword, verifyPassword } = require('./db');
-const { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail } = require('./email');
+const { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail, sendStudentSetupEmail } = require('./email');
 const Stripe = require('stripe');
 const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -214,12 +214,7 @@ app.use('/api/', (req, res, next) => {
 });
 app.use('/api/', apiLimiter);
 app.use('/api/auth/', authLimiter);
-// App-Assets (JS/CSS/Icons) unter /app/ ausliefern; kein Auto-index.html auf /
-app.use('/app', express.static(path.join(__dirname, 'public'), { dotfiles: 'allow', index: false, redirect: false }));
-// Bestehende absolute Asset-Pfade der App weiterhin unterstuetzen (z.B. /base.css, /app.js)
-app.use(express.static(path.join(__dirname, 'public'), { dotfiles: 'allow', index: false }));
-// Landing-Page-Assets unter / ausliefern (index.html nur ueber Fallback-Route)
-app.use(express.static(path.join(__dirname, 'landing'), { dotfiles: 'allow', index: false }));
+app.use(express.static(path.join(__dirname, 'public'), { dotfiles: 'allow' }));
 
 // ============================================
 // AUTH MIDDLEWARE
@@ -784,7 +779,7 @@ app.get('/api/school/instructors', authMiddleware, async (req, res) => {
       supabase.from('instructors').select('id, name, email, phone').eq('school_id', schoolId),
       supabase.from('invite_codes').select('*').eq('school_id', schoolId).eq('type', 'instructor').order('created_at', { ascending: false })
     ]);
-    const instructors = (instRes.data || []).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'de', { sensitivity: 'base' }));
+    const instructors = instRes.data || [];
 
     // Bulk: alle student_instructors-Mappings in EINER Query (statt N)
     if (instructors.length > 0) {
@@ -877,9 +872,289 @@ app.get('/api/school/students', authMiddleware, async (req, res) => {
       .select('*').eq('school_id', req.user.id).eq('type', 'student')
       .order('created_at', { ascending: false });
 
-    const sortedStudents = (students || []).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'de', { sensitivity: 'base' }));
-    res.json({ students: sortedStudents, codes: codes || [] });
+    res.json({ students: students || [], codes: codes || [] });
   } catch (err) {
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// ========================================================================
+// MANUELLE SCHUELER-ANLAGE durch die Fahrschule
+// ========================================================================
+
+// Helper: erlaubte Stammdaten-Felder validieren/normalisieren
+function _normalizeStudentPayload(body) {
+  const trim = (v) => (typeof v === 'string' ? v.trim() : v);
+  const orNull = (v) => (v === undefined || v === '' || v === null ? null : trim(v));
+  const firstName = trim(body.firstName) || '';
+  const lastName = trim(body.lastName) || '';
+  const fullName = (firstName + ' ' + lastName).trim();
+  return {
+    name: fullName,
+    email: trim(body.email) ? String(body.email).trim().toLowerCase() : null,
+    phone: orNull(body.phone),
+    birthdate: orNull(body.birthdate),
+    address: orNull(body.address),
+    license_class: orNull(body.license_class) || 'B',
+    status: orNull(body.status) || 'aktiv',
+    registered_at: orNull(body.registered_at),
+    bf17: !!body.bf17,
+    notes: orNull(body.notes)
+  };
+}
+
+// POST /api/school/students  — manuell anlegen, optional Magic-Link-Mail
+app.post('/api/school/students', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur fuer Fahrschulen' });
+    const schoolId = req.user.id;
+
+    const payload = _normalizeStudentPayload(req.body);
+    const sendInvite = req.body.sendInvite !== false; // Default: ja
+    const instructorId = (req.body.instructor_id && String(req.body.instructor_id).trim()) || null;
+
+    if (!payload.name || payload.name.length < 2) {
+      return res.status(400).json({ error: 'Vor- und Nachname erforderlich' });
+    }
+    if (!payload.email) {
+      return res.status(400).json({ error: 'E-Mail erforderlich' });
+    }
+
+    // E-Mail-Eindeutigkeit (ueber alle Rollen)
+    const [e1, e2, e3] = await Promise.all([
+      supabase.from('schools').select('id').eq('email', payload.email).maybeSingle(),
+      supabase.from('instructors').select('id').eq('email', payload.email).maybeSingle(),
+      supabase.from('students').select('id').eq('email', payload.email).maybeSingle()
+    ]);
+    if ((e1 && e1.data) || (e2 && e2.data) || (e3 && e3.data)) {
+      return res.status(409).json({ error: 'E-Mail ist bereits registriert' });
+    }
+
+    // Falls instructor_id mitgegeben: gehoert der Fahrlehrer zur Schule?
+    if (instructorId) {
+      const { data: inst } = await supabase.from('instructors')
+        .select('id, school_id').eq('id', instructorId).maybeSingle();
+      if (!inst || inst.school_id !== schoolId) {
+        return res.status(400).json({ error: 'Fahrlehrer gehoert nicht zu deiner Schule' });
+      }
+    }
+
+    // INSERT students (password_hash NULL, verified=0 bis Magic-Link gesetzt)
+    const studentId = generateId();
+    const insertRow = Object.assign({
+      id: studentId,
+      password_hash: null,
+      school_id: schoolId,
+      verified: 0
+    }, payload);
+
+    const { data: inserted, error: insErr } = await supabase.from('students').insert(insertRow).select('*').single();
+    if (insErr) {
+      console.error('[STUDENT-CREATE] insert error:', insErr);
+      return res.status(500).json({ error: 'Schueler konnte nicht angelegt werden' });
+    }
+
+    // Optional Fahrlehrer-Zuweisung
+    if (instructorId) {
+      await supabase.from('student_instructors').insert({
+        student_id: studentId, instructor_id: instructorId
+      });
+    }
+
+    // Optional: Magic-Link-Mail
+    let inviteResult = { sent: false };
+    if (sendInvite) {
+      try {
+        const token = crypto.randomBytes(24).toString('hex');
+        const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 Tage
+        await supabase.from('verification_codes').insert({
+          user_id: studentId,
+          user_role: 'student',
+          email: payload.email,
+          code: token,
+          type: 'password_set',
+          expires_at: expires,
+          used: 0
+        });
+        // Schulname holen
+        const { data: schoolRow } = await supabase.from('schools').select('name').eq('id', schoolId).maybeSingle();
+        const schoolName = schoolRow ? schoolRow.name : 'Deine Fahrschule';
+        const setupUrl = (process.env.PUBLIC_APP_URL || 'https://www.fahrdoc.app') + '/app/?setup=' + encodeURIComponent(token);
+        const mailRes = await sendStudentSetupEmail({
+          to: payload.email,
+          name: payload.name,
+          schoolName: schoolName,
+          setupUrl: setupUrl
+        });
+        inviteResult = { sent: !!mailRes.success, error: mailRes.error || null };
+      } catch (mailErr) {
+        console.error('[STUDENT-CREATE] mail error:', mailErr);
+        inviteResult = { sent: false, error: mailErr.message };
+      }
+    }
+
+    res.json({ ok: true, student: inserted, invite: inviteResult });
+  } catch (err) {
+    console.error('[STUDENT-CREATE] error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// PUT /api/school/students/:id  — Stammdaten editieren
+app.put('/api/school/students/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur fuer Fahrschulen' });
+    const schoolId = req.user.id;
+    const studentId = req.params.id;
+
+    const { data: existing } = await supabase.from('students').select('*').eq('id', studentId).maybeSingle();
+    if (!existing) return res.status(404).json({ error: 'Schueler nicht gefunden' });
+    if (existing.school_id !== schoolId) return res.status(403).json({ error: 'Kein Zugriff' });
+
+    const payload = _normalizeStudentPayload(req.body);
+    // E-Mail-Aenderung: pruefen ob neue Mail frei ist
+    if (payload.email && payload.email !== existing.email) {
+      const [e1, e2, e3] = await Promise.all([
+        supabase.from('schools').select('id').eq('email', payload.email).maybeSingle(),
+        supabase.from('instructors').select('id').eq('email', payload.email).maybeSingle(),
+        supabase.from('students').select('id').eq('email', payload.email).maybeSingle()
+      ]);
+      if ((e1 && e1.data) || (e2 && e2.data) || (e3 && e3.data && e3.data.id !== studentId)) {
+        return res.status(409).json({ error: 'E-Mail ist bereits registriert' });
+      }
+    }
+
+    // Felder, die wir aktualisieren wollen (kein password_hash, kein verified, kein school_id)
+    // PATCH-Semantik: nur Felder ueberschreiben, die im Request-Body tatsaechlich vorkommen.
+    const has = (k) => Object.prototype.hasOwnProperty.call(req.body, k);
+    const updateRow = {};
+    if (has('firstName') || has('lastName')) updateRow.name = payload.name || existing.name;
+    if (has('email')) updateRow.email = payload.email || existing.email;
+    if (has('phone')) updateRow.phone = payload.phone;
+    if (has('birthdate')) updateRow.birthdate = payload.birthdate;
+    if (has('address')) updateRow.address = payload.address;
+    if (has('license_class')) updateRow.license_class = payload.license_class;
+    if (has('status')) updateRow.status = payload.status;
+    if (has('registered_at')) updateRow.registered_at = payload.registered_at;
+    if (has('bf17')) updateRow.bf17 = payload.bf17;
+    if (has('notes')) updateRow.notes = payload.notes;
+    if (Object.keys(updateRow).length === 0) {
+      return res.json({ ok: true, student: existing });
+    }
+
+    const { data: updated, error: upErr } = await supabase.from('students')
+      .update(updateRow).eq('id', studentId).select('*').single();
+    if (upErr) {
+      console.error('[STUDENT-UPDATE] error:', upErr);
+      return res.status(500).json({ error: 'Update fehlgeschlagen' });
+    }
+    res.json({ ok: true, student: updated });
+  } catch (err) {
+    console.error('[STUDENT-UPDATE] error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// POST /api/school/students/:id/resend-invite — Magic-Link erneut senden
+app.post('/api/school/students/:id/resend-invite', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur fuer Fahrschulen' });
+    const schoolId = req.user.id;
+    const studentId = req.params.id;
+    const { data: student } = await supabase.from('students').select('*').eq('id', studentId).maybeSingle();
+    if (!student) return res.status(404).json({ error: 'Schueler nicht gefunden' });
+    if (student.school_id !== schoolId) return res.status(403).json({ error: 'Kein Zugriff' });
+    if (student.password_hash) return res.status(400).json({ error: 'Schueler hat bereits ein Passwort gesetzt' });
+    if (!student.email) return res.status(400).json({ error: 'Keine E-Mail hinterlegt' });
+
+    // Alte ungenutzte Tokens als used markieren
+    await supabase.from('verification_codes')
+      .update({ used: 1 })
+      .eq('user_id', studentId).eq('type', 'password_set').eq('used', 0);
+
+    const token = crypto.randomBytes(24).toString('hex');
+    const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    await supabase.from('verification_codes').insert({
+      user_id: studentId,
+      user_role: 'student',
+      email: student.email,
+      code: token,
+      type: 'password_set',
+      expires_at: expires,
+      used: 0
+    });
+    const { data: schoolRow } = await supabase.from('schools').select('name').eq('id', schoolId).maybeSingle();
+    const setupUrl = (process.env.PUBLIC_APP_URL || 'https://www.fahrdoc.app') + '/app/?setup=' + encodeURIComponent(token);
+    const mailRes = await sendStudentSetupEmail({
+      to: student.email, name: student.name,
+      schoolName: schoolRow ? schoolRow.name : 'Deine Fahrschule',
+      setupUrl: setupUrl
+    });
+    res.json({ ok: !!mailRes.success, error: mailRes.error || null });
+  } catch (err) {
+    console.error('[STUDENT-RESEND] error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// GET /api/school/setup-token/:token — Token validieren (unauth) -> Email zurueck
+app.get('/api/school/setup-token/:token', async (req, res) => {
+  try {
+    const token = req.params.token;
+    if (!token) return res.status(400).json({ error: 'Token fehlt' });
+    const { data: vc } = await supabase.from('verification_codes')
+      .select('*').eq('code', token).eq('type', 'password_set').eq('used', 0).maybeSingle();
+    if (!vc) return res.status(404).json({ error: 'Link ungueltig oder bereits verwendet' });
+    if (new Date(vc.expires_at).getTime() < Date.now()) {
+      return res.status(410).json({ error: 'Link abgelaufen' });
+    }
+    const { data: student } = await supabase.from('students')
+      .select('id, name, email, school_id').eq('id', vc.user_id).maybeSingle();
+    if (!student) return res.status(404).json({ error: 'Schueler nicht gefunden' });
+    let schoolName = '';
+    const { data: sch } = await supabase.from('schools').select('name').eq('id', student.school_id).maybeSingle();
+    if (sch) schoolName = sch.name;
+    res.json({ ok: true, email: student.email, name: student.name, schoolName: schoolName });
+  } catch (err) {
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// POST /api/school/setup-password — Passwort setzen via Token
+app.post('/api/school/setup-password', async (req, res) => {
+  try {
+    const { token, password } = req.body || {};
+    if (!token) return res.status(400).json({ error: 'Token fehlt' });
+    if (!password || password.length < 6) return res.status(400).json({ error: 'Passwort zu kurz (min. 6 Zeichen)' });
+
+    const { data: vc } = await supabase.from('verification_codes')
+      .select('*').eq('code', token).eq('type', 'password_set').eq('used', 0).maybeSingle();
+    if (!vc) return res.status(404).json({ error: 'Link ungueltig oder bereits verwendet' });
+    if (new Date(vc.expires_at).getTime() < Date.now()) {
+      return res.status(410).json({ error: 'Link abgelaufen' });
+    }
+
+    const pwHash = hashPassword(password);
+    const { error: upErr } = await supabase.from('students')
+      .update({ password_hash: pwHash, verified: 1 })
+      .eq('id', vc.user_id);
+    if (upErr) return res.status(500).json({ error: 'Passwort konnte nicht gesetzt werden' });
+
+    // Token verbrauchen
+    await supabase.from('verification_codes').update({ used: 1 }).eq('id', vc.id);
+
+    // Login-Session erzeugen, damit der Schueler direkt eingeloggt ist
+    const sessionToken = generateToken();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    await supabase.from('sessions').insert({
+      token: sessionToken,
+      user_id: vc.user_id,
+      user_role: 'student',
+      expires_at: expiresAt
+    });
+    res.json({ ok: true, token: sessionToken, role: 'student' });
+  } catch (err) {
+    console.error('[SETUP-PWD] error:', err);
     res.status(500).json({ error: 'Serverfehler' });
   }
 });
@@ -2169,7 +2444,7 @@ app.post('/api/stripe/create-checkout', authMiddleware, async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'subscription',
-      // payment_method_types weglassen -> Stripe waehlt automatisch verfuegbare Methoden (Card, SEPA wenn aktiviert, etc.)
+      payment_method_types: ['card', 'sepa_debit'],
       line_items: [{ price: priceId, quantity: requestedQty, adjustable_quantity: { enabled: true, minimum: minSeats, maximum: 100 } }],
       subscription_data: {
         metadata: { school_id: req.user.id, plan: planName }
@@ -2501,10 +2776,7 @@ app.post('/api/ai/briefing/:studentId', authMiddleware, async (req, res) => {
     const { data: school } = await supabase.from('schools').select('created_at').eq('id', schoolId).maybeSingle();
     const state = computeSubscriptionState(sub, school?.created_at);
     if (!state.active) return res.status(402).json({ error: 'Testphase abgelaufen', lock: true });
-    // Open-Beta: KI-Briefing fuer alle in aktiver Testphase freigeben (per ENV abschaltbar)
-    const briefingOpenBeta = process.env.BRIEFING_OPEN_BETA === 'true';
-    const briefingAllowed = state.plan === 'ki' || (briefingOpenBeta && state.status === 'trial');
-    if (!briefingAllowed) return res.status(402).json({ error: 'KI-Briefing nur im FahrDoc KI Tarif verfügbar', upgrade: true });
+    if (state.plan !== 'ki') return res.status(402).json({ error: 'KI-Briefing nur im FahrDoc KI Tarif verfügbar', upgrade: true });
 
     // Schueler-Daten laden
     const studentId = req.params.studentId;
@@ -2512,10 +2784,11 @@ app.post('/api/ai/briefing/:studentId', authMiddleware, async (req, res) => {
       .select('id, name, license_class, school_id').eq('id', studentId).maybeSingle();
     if (!student || student.school_id !== schoolId) return res.status(404).json({ error: 'Schüler nicht gefunden' });
 
-    // Letzte 10 durchgefuehrte Fahrstunden (eingetragene Lessons) mit Notizen + Bewertungen
+    // Letzte 10 Fahrstunden (abgeschlossen) mit Markierungen + Notizen
     const { data: lessons } = await supabase.from('lessons')
-      .select('id, date, type, duration, notes')
+      .select('id, date, lesson_type, duration_minutes, notes, markers, status')
       .eq('student_id', studentId)
+      .in('status', ['completed', 'abgeschlossen'])
       .order('date', { ascending: false })
       .limit(10);
 
@@ -2523,31 +2796,19 @@ app.post('/api/ai/briefing/:studentId', authMiddleware, async (req, res) => {
       return res.json({ briefing: 'Noch keine abgeschlossenen Fahrstunden vorhanden. Beim ersten Termin bitte Grundlagen besprechen: Lenkrad, Pedalerie, Spiegel, erste Fahrt.', empty: true });
     }
 
-    // Skill-Bewertungen je Fahrstunde laden (separate Tabelle)
-    const lessonIds = lessons.map(function(l){ return l.id; });
-    var ratingsByLesson = {};
-    try {
-      const { data: ratings } = await supabase.from('skill_ratings')
-        .select('lesson_id, skill_name, rating')
-        .in('lesson_id', lessonIds);
-      (ratings || []).forEach(function(r){
-        if (!ratingsByLesson[r.lesson_id]) ratingsByLesson[r.lesson_id] = [];
-        ratingsByLesson[r.lesson_id].push(r.skill_name + ': ' + r.rating);
-      });
-    } catch(e){}
-
     // Prompt zusammenbauen
     var ctx = '';
     lessons.slice().reverse().forEach(function(l, i){
-      ctx += '\nFahrstunde ' + (i+1) + ' (' + (l.date || '') + ', ' + (l.type || 'Standard') + ', ' + (l.duration || 45) + ' Min):';
-      var rs = ratingsByLesson[l.id];
-      if (rs && rs.length) ctx += '\n  Bewertungen: ' + rs.join('; ');
+      ctx += '\nFahrstunde ' + (i+1) + ' (' + (l.date || '') + ', ' + (l.lesson_type || 'Standard') + ', ' + (l.duration_minutes || 45) + ' Min):';
+      if (l.markers) {
+        try { var m = typeof l.markers === 'string' ? JSON.parse(l.markers) : l.markers; if (Array.isArray(m) && m.length) ctx += '\n  Markierungen: ' + m.map(function(x){ return x.text || x.type || x; }).join('; '); } catch(e){}
+      }
       if (l.notes) ctx += '\n  Notizen: ' + l.notes;
     });
 
     const prompt = 'Du bist Assistent für einen Fahrlehrer in Deutschland. Erstelle ein kurzes Briefing (max. 150 Wörter) für die nächste Fahrstunde mit ' + student.name + ' (Klasse ' + (student.license_class || 'B') + ').\n\nBisheriger Verlauf:' + ctx + '\n\nSchreibe das Briefing auf Deutsch, direkt an den Fahrlehrer gerichtet. Struktur:\n1. Aktueller Stand (1-2 Sätze)\n2. Was funktioniert gut (Bullet-Points)\n3. Was muss noch geübt werden (Bullet-Points)\n4. Empfehlung für heutige Stunde (1-2 Sätze)\n\nSei konkret und praxisnah.';
 
-    const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-flash-latest' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
     const result = await model.generateContent(prompt);
     const briefing = result.response.text();
 
@@ -4721,22 +4982,10 @@ app.get('/api/accounting/daily-summary', authMiddleware, async (req, res) => {
 });
 
 // ============================================
-// FALLBACK: Landing-Page (/) + App-SPA (/app/*)
+// FALLBACK: SPA
 // ============================================
-// /app ohne abschliessenden Slash -> auf /app/ umleiten (wichtig fuer <base href>)
-// RegExp damit NUR exakt "/app" matcht und nicht auch "/app/"
-app.get(/^\/app$/, (req, res) => {
-  res.redirect(301, '/app/');
-});
-
-// Alle App-Routen liefern die App-SPA aus
-app.get('/app/*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Alles andere liefert die Landing-Page aus
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'landing', 'index.html'));
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ============================================

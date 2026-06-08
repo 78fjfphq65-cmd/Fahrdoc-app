@@ -301,4 +301,40 @@ async function sendFeedbackEmail(payload) {
   }
 }
 
-module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail };
+// ============================================
+// Schueler-Setup-Mail (Magic Link nach manueller Anlage durch Fahrschule)
+// ============================================
+async function sendStudentSetupEmail({ to, name, schoolName, setupUrl }) {
+  try {
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [to],
+      subject: 'Dein FahrDoc-Zugang \u2014 ' + schoolName,
+      html: emailLayout('FahrDoc Zugang', `
+        <p style="font-size: 16px; color: #333; line-height: 1.6;">Hallo${name ? ' ' + name : ''},</p>
+        <p style="font-size: 16px; color: #333; line-height: 1.6;">${schoolName} hat dich als Fahrsch\u00fcler bei FahrDoc angelegt.</p>
+        <p style="font-size: 16px; color: #333; line-height: 1.6;">Setze jetzt dein Passwort und log dich ein, um deine Fahrstunden, Termine und deinen Fortschritt zu sehen.</p>
+        <div style="text-align: center; margin: 28px 0;">
+          <a href="${setupUrl}" style="display: inline-block; background: #0d9488; color: #ffffff; font-size: 16px; font-weight: 600; padding: 14px 36px; border-radius: 10px; text-decoration: none;">Passwort jetzt setzen</a>
+        </div>
+        <p style="font-size: 13px; color: #777; line-height: 1.6;">Der Link ist 7 Tage g\u00fcltig.</p>
+        <div style="background: #f8fafb; border-radius: 12px; padding: 20px; margin: 28px 0;">
+          <p style="font-size: 14px; font-weight: 600; color: #333; margin: 0 0 12px 0;">\ud83d\udcf1 App zum Startbildschirm hinzuf\u00fcgen:</p>
+          <p style="font-size: 13px; color: #555; line-height: 1.6; margin: 0 0 8px 0;"><strong>iPhone/iPad (Safari):</strong><br>Link in Safari \u00f6ffnen \u2192 Teilen-Symbol (\u25fb\u2191) \u2192 "Zum Home-Bildschirm"</p>
+          <p style="font-size: 13px; color: #555; line-height: 1.6; margin: 0;"><strong>Android (Chrome):</strong><br>Link in Chrome \u00f6ffnen \u2192 \u22ee (Men\u00fc) \u2192 "Zum Startbildschirm hinzuf\u00fcgen"</p>
+        </div>
+      `)
+    });
+    if (error) {
+      console.error('[EMAIL] Student setup send error:', error);
+      return { success: false, error: error.message };
+    }
+    console.log(`[EMAIL] Student setup sent to ${to} (id: ${data?.id})`);
+    return { success: true };
+  } catch (err) {
+    console.error('[EMAIL] Student setup send failed:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail, sendStudentSetupEmail };

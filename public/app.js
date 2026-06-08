@@ -5,7 +5,7 @@
 // ============================================
 // API CLIENT
 // ============================================
-var API_BASE = '';
+var API_BASE = '.';
 
 var ApiClient = {
   token: null,
@@ -156,12 +156,6 @@ function slotTopPx(startTime) {
 }
 function slotHeightPx(startTime, endTime) {
   return Math.max((timeToMinutes(endTime) - timeToMinutes(startTime)) * PX_PER_MIN, 20);
-}
-function minutesToTime(mins) {
-  mins = Math.max(0, Math.round(mins));
-  var h = Math.floor(mins / 60);
-  var m = mins % 60;
-  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
 function slotTypeClass(type) {
   return SCHEDULE_TYPE_CLASS[type] || 'type-uebung';
@@ -381,6 +375,64 @@ var App = {
         App.showToast(t('emailBestaetigt') || 'E-Mail bestätigt — bitte anmelden');
         if (!ApiClient.token) App.navigate('login');
       }, 400);
+    }
+    // Setup-Token (Magic Link nach manueller Anlage durch Fahrschule)
+    var setupToken = urlParams.get('setup');
+    if (setupToken) {
+      window.history.replaceState({}, '', window.location.pathname);
+      setTimeout(function() { App.openSetupPasswordFlow(setupToken); }, 400);
+    }
+  },
+
+  openSetupPasswordFlow: async function(token) {
+    // Falls bereits eingeloggt: erst ausloggen, damit die neue Schueler-Session aktiv wird
+    if (ApiClient.token) {
+      ApiClient.setToken(null);
+      AppState.currentUser = null;
+    }
+    this.navigate('login');
+    // Token serverseitig pruefen
+    var info;
+    try {
+      info = await ApiClient.get('/api/school/setup-token/' + encodeURIComponent(token));
+    } catch (err) {
+      this.openModal('Link ung\u00fcltig', '<p>Dieser Einladungslink ist ung\u00fcltig, abgelaufen oder bereits verwendet.</p>' +
+        '<button class="btn btn-primary btn-full mt-3" onclick="App.closeModalForce()">Schlie\u00dfen</button>');
+      return;
+    }
+    var h = '<form id="setup-pw-form" onsubmit="event.preventDefault();App.submitSetupPassword(\'' + token.replace(/\\/g,'').replace(/"/g,'') + '\');">' +
+      '<p style="margin-bottom:var(--space-3);font-size:var(--text-sm);">Hallo ' + (info.name || '').replace(/</g,'&lt;') +
+        ',<br>' + (info.schoolName || 'Deine Fahrschule').replace(/</g,'&lt;') +
+        ' hat dich bei FahrDoc angelegt. Setze jetzt dein Passwort.</p>' +
+      '<div class="form-group mb-3"><label class="form-label">E-Mail</label>' +
+        '<input class="form-input" type="email" value="' + (info.email || '').replace(/"/g,'&quot;') + '" readonly style="background:#f5f5f5;"></div>' +
+      '<div class="form-group mb-3"><label class="form-label">Neues Passwort *</label>' +
+        '<input class="form-input" id="setup-pw1" type="password" minlength="6" required autofocus></div>' +
+      '<div class="form-group mb-3"><label class="form-label">Passwort wiederholen *</label>' +
+        '<input class="form-input" id="setup-pw2" type="password" minlength="6" required></div>' +
+      '<button type="submit" class="btn btn-primary btn-full" id="setup-pw-submit">Passwort setzen &amp; einloggen</button>' +
+    '</form>';
+    this.openModal('Passwort setzen', h);
+  },
+
+  submitSetupPassword: async function(token) {
+    var pw1 = (document.getElementById('setup-pw1') || {}).value || '';
+    var pw2 = (document.getElementById('setup-pw2') || {}).value || '';
+    if (pw1.length < 6) { this.showToast('Passwort zu kurz (min. 6 Zeichen)'); return; }
+    if (pw1 !== pw2) { this.showToast('Passw\u00f6rter stimmen nicht \u00fcberein'); return; }
+    var btn = document.getElementById('setup-pw-submit');
+    if (btn) { btn.disabled = true; btn.textContent = 'Speichere\u2026'; }
+    try {
+      var res = await ApiClient.post('/api/school/setup-password', { token: token, password: pw1 });
+      if (!res || !res.ok || !res.token) throw new Error('Fehler beim Setzen');
+      // Login-Token speichern und Auto-Login ausl\u00f6sen
+      ApiClient.setToken(res.token, false); // session-only, kein remember
+      this.closeModalForce();
+      this.showToast('Willkommen bei FahrDoc');
+      await this.autoLogin();
+    } catch (err) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Passwort setzen & einloggen'; }
+      this.showToast('Fehler: ' + (err.message || err));
     }
   },
 
@@ -772,19 +824,6 @@ var App = {
     var sum = 0; keys.forEach(function(k) { sum += ratings[k]; });
     return sum / keys.length;
   },
-  // Pro Skill die zuletzt vergebene Bewertung ueber alle Fahrstunden (neueste zuerst sortiert erwartet)
-  latestSkillRatings: function(lessons) {
-    var result = {};
-    if (!Array.isArray(lessons)) return result;
-    lessons.forEach(function(l) {
-      var r = l && l.ratings;
-      if (!r) return;
-      Object.keys(r).forEach(function(skill) {
-        if (result[skill] === undefined && r[skill] != null && r[skill] !== 0) result[skill] = r[skill];
-      });
-    });
-    return result;
-  },
   buildProgressRing: function(value, max, size) {
     var pct = (value / max) * 100;
     var r = (size - 8) / 2; var circ = 2 * Math.PI * r;
@@ -922,7 +961,7 @@ var App = {
       var isToday = day.toDateString() === new Date().toDateString();
       var holiday = getHolidayForDate(day);
       var daySlots = slots.filter(function(s) { return s.date === dayStr; });
-      html += '<div class="week-grid-day-col' + (isToday ? ' today' : '') + (holiday ? ' holiday' : '') + '" data-day-date="' + dayStr + '" onclick="App.onWeekGridCellClick(event, \'' + dayStr + '\', ' + JSON.stringify(onCellClick).replace(/"/g, '&quot;') + ')">';
+      html += '<div class="week-grid-day-col' + (isToday ? ' today' : '') + (holiday ? ' holiday' : '') + '" onclick="App.onWeekGridCellClick(event, \'' + dayStr + '\', ' + JSON.stringify(onCellClick).replace(/"/g, '&quot;') + ')">';
       // Hour lines
       for (var hh = GRID_START_HOUR; hh < GRID_END_HOUR; hh++) {
         html += '<div class="week-grid-hour-line" style="top:' + ((hh - GRID_START_HOUR) * HOUR_HEIGHT) + 'px;"></div>';
@@ -963,10 +1002,7 @@ var App = {
         } else {
           clickJs = onSlotClick.replace('{SLOT}', JSON.stringify(slot).replace(/"/g, '&quot;'));
         }
-        // Drag&Drop nur fuer echte Fahrstunden-Termine (kein Block/Theorie/Angebot) in der Verwaltungs-/Fahrlehreransicht
-        var canDrag = !isBlock && !isTheory && !isOffer && (AppState.currentUser && (AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor'));
-        var dragAttrs = canDrag ? (' data-slot-draggable="1" data-slot-id="' + slot.id + '" data-slot-date="' + slot.date + '" data-slot-start="' + slot.start_time + '" data-slot-end="' + slot.end_time + '"') : '';
-        html += '<div class="week-grid-slot ' + typeCls + (isOffen ? ' slot-offen' : '') + (pruef ? ' slot-pruefung' : '') + (isUnconfirmed ? ' slot-unconfirmed' : '') + (canDrag ? ' slot-draggable' : '') + '" ' + dragAttrs + ' ' +
+        html += '<div class="week-grid-slot ' + typeCls + (isOffen ? ' slot-offen' : '') + (pruef ? ' slot-pruefung' : '') + (isUnconfirmed ? ' slot-unconfirmed' : '') + '" ' +
           'style="top:' + top + 'px;height:' + height + 'px;" onclick="event.stopPropagation();' + clickJs + '">';
         // Green checkmark for confirmed slots in admin view
         if (isAdminView && isConfirmed && !isBlock && !isTheory) {
@@ -1184,104 +1220,6 @@ var App = {
       else this.renderSchoolScheduleTab();
     } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
     finally { this.showLoading(false); }
-  },
-
-  // ════════════════ Kalender Drag & Drop (Tag + Zeit) ════════════════
-  initSlotDragDrop: function() {
-    var self = this;
-    var SNAP_MIN = 5; // auf 5-Minuten-Raster einrasten
-    var MOVE_THRESHOLD = 8; // px, bevor Dragging startet (sonst zaehlt es als Klick)
-    var els = document.querySelectorAll('.week-grid-slot[data-slot-draggable="1"]');
-    els.forEach(function(el) {
-      if (el._ddBound) return; el._ddBound = true;
-      el.style.touchAction = 'none';
-      el.addEventListener('pointerdown', function(ev) {
-        if (ev.button != null && ev.button !== 0) return; // nur linke Maustaste
-        var startX = ev.clientX, startY = ev.clientY;
-        var dragging = false, ghost = null, suppressClick = false;
-        var durationMin = timeToMinutes(el.getAttribute('data-slot-end')) - timeToMinutes(el.getAttribute('data-slot-start'));
-        var origDate = el.getAttribute('data-slot-date');
-        var origStart = el.getAttribute('data-slot-start');
-        var grabOffsetY = ev.clientY - el.getBoundingClientRect().top;
-
-        function onMove(e) {
-          var dx = e.clientX - startX, dy = e.clientY - startY;
-          if (!dragging && Math.sqrt(dx*dx + dy*dy) < MOVE_THRESHOLD) return;
-          if (!dragging) {
-            dragging = true; suppressClick = true;
-            el.style.opacity = '0.35';
-            ghost = el.cloneNode(true);
-            ghost.style.position = 'fixed'; ghost.style.zIndex = '9999'; ghost.style.pointerEvents = 'none';
-            ghost.style.width = el.getBoundingClientRect().width + 'px';
-            ghost.style.opacity = '0.9'; ghost.style.boxShadow = '0 6px 20px rgba(0,0,0,0.3)';
-            ghost.classList.add('slot-dragging-ghost');
-            document.body.appendChild(ghost);
-          }
-          if (ghost) {
-            ghost.style.left = (e.clientX - ghost.getBoundingClientRect().width / 2) + 'px';
-            ghost.style.top = (e.clientY - grabOffsetY) + 'px';
-          }
-        }
-
-        function computeTarget(e) {
-          if (ghost) ghost.style.display = 'none';
-          var under = document.elementFromPoint(e.clientX, e.clientY);
-          if (ghost) ghost.style.display = '';
-          var col = under ? under.closest('.week-grid-day-col') : null;
-          if (!col) return null;
-          var dayStr = col.getAttribute('data-day-date');
-          if (!dayStr) return null;
-          var rect = col.getBoundingClientRect();
-          var yInCol = (e.clientY - grabOffsetY) - rect.top; // Top des Slots relativ zur Spalte
-          var minutesFromStart = yInCol / PX_PER_MIN;
-          var absMin = GRID_START_HOUR * 60 + minutesFromStart;
-          absMin = Math.round(absMin / SNAP_MIN) * SNAP_MIN;
-          // in gueltigen Bereich klemmen
-          absMin = Math.max(GRID_START_HOUR * 60, Math.min(absMin, GRID_END_HOUR * 60 - durationMin));
-          return { date: dayStr, startMin: absMin, endMin: absMin + durationMin };
-        }
-
-        function onUp(e) {
-          document.removeEventListener('pointermove', onMove);
-          document.removeEventListener('pointerup', onUp);
-          document.removeEventListener('pointercancel', onUp);
-          el.style.opacity = '';
-          if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
-          if (!dragging) return;
-          var tgt = computeTarget(e);
-          if (!tgt) return;
-          var newStart = minutesToTime(tgt.startMin);
-          var newEnd = minutesToTime(tgt.endMin);
-          if (tgt.date === origDate && newStart === origStart) return; // nichts geaendert
-          self._persistSlotMove(el.getAttribute('data-slot-id'), tgt.date, newStart, newEnd);
-        }
-
-        // Klick unterdruecken, wenn gezogen wurde
-        el.addEventListener('click', function guard(ce) {
-          if (suppressClick) { ce.stopImmediatePropagation(); ce.preventDefault(); suppressClick = false; el.removeEventListener('click', guard, true); }
-        }, true);
-
-        document.addEventListener('pointermove', onMove);
-        document.addEventListener('pointerup', onUp);
-        document.addEventListener('pointercancel', onUp);
-      });
-    });
-  },
-
-  _persistSlotMove: async function(id, date, startTime, endTime) {
-    try {
-      this.showLoading(true);
-      await ApiClient.put('/api/schedule/' + id, { date: date, startTime: startTime, endTime: endTime });
-      this.showToast(t('terminAktualisiert'));
-      AppState.scheduleData = null;
-      if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
-      else this.renderSchoolScheduleTab();
-    } catch(err) {
-      this.showToast(t('fehler') + ': ' + err.message);
-      AppState.scheduleData = null;
-      if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
-      else this.renderSchoolScheduleTab();
-    } finally { this.showLoading(false); }
   },
 
   updateScheduleSlot: async function(id) {
@@ -1794,9 +1732,9 @@ var App = {
         '<input class="dashboard-search-input" type="text" id="dashboard-search" placeholder="' + t('sucheSchuelerFahrlehrer') + '" oninput="App.onDashboardSearch(this.value)" autocomplete="off">' +
         '<div class="dashboard-search-results" id="dashboard-search-results"></div></div>';
 
-      // ──── NEW STUDENTS THIS WEEK WIDGET ────
+      // ──── NEW STUDENTS THIS WEEK WIDGET (klickbar -> Schueler anlegen) ────
       var newStudents = data.newStudentsThisWeek || [];
-      html += '<div class="new-students-widget mb-4">' +
+      html += '<div class="new-students-widget mb-4" role="button" tabindex="0" style="cursor:pointer;position:relative;" onclick="App.openCreateStudentModal()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();App.openCreateStudentModal();}" title="Neuen Fahrschueler anlegen">' +
         '<div class="new-students-header">' +
           '<div class="new-students-icon-wrap">' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:24px;height:24px;"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>' +
@@ -1804,6 +1742,9 @@ var App = {
           '<div class="new-students-text">' +
             '<div class="new-students-count">' + newStudents.length + '</div>' +
             '<div class="new-students-label">' + t('neueSchueler') + '</div>' +
+          '</div>' +
+          '<div style="margin-left:auto;display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.25);flex-shrink:0;" title="Neuen Fahrschueler anlegen">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:20px;height:20px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
           '</div>' +
         '</div>';
       if (newStudents.length > 0) {
@@ -2074,7 +2015,6 @@ var App = {
       }
       html += '</div>';
       main.innerHTML = html;
-      setTimeout(function() { App.initSlotDragDrop(); }, 50);
 
       // Load multi-view extra grids async
       if (AppState.multiViewCount > 1) {
@@ -2165,7 +2105,6 @@ var App = {
       );
       // Init drag-scroll on this panel after content loads
       this._initDragScrollOnPanel(container.closest('.multi-view-panel'));
-      setTimeout(function() { App.initSlotDragDrop(); }, 50);
     } catch (err) { container.innerHTML = '<p class="text-sm text-muted">' + t('fehler') + '</p>'; }
   },
 
@@ -4439,7 +4378,6 @@ var App = {
 
     html += '</div>';
     main.innerHTML = html;
-    setTimeout(function() { App.initSlotDragDrop(); }, 50);
   },
 
   renderInstructorStudentsTab: async function() {
@@ -4526,6 +4464,149 @@ var App = {
   // ══════════════════════════════════════════
   //  STUDENT DETAIL
   // ══════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
+  //  SCHUELER MANUELL ANLEGEN / EDITIEREN (durch Fahrschule)
+  // ════════════════════════════════════════════════════════════════
+  _studentFormHtml: function(student, instructors) {
+    var s = student || {};
+    // name -> firstName/lastName splitten (rueckwaerts-kompatibel)
+    var parts = (s.name || '').trim().split(/\s+/);
+    var firstName = parts.slice(0, -1).join(' ') || (parts.length === 1 ? parts[0] : '');
+    var lastName = parts.length > 1 ? parts[parts.length - 1] : '';
+    var classes = ['B', 'BE', 'A', 'A1', 'A2', 'AM', 'B96', 'BF17', 'C', 'CE', 'D', 'L', 'T'];
+    var statuses = ['aktiv', 'pausiert', 'abgeschlossen', 'abgemeldet'];
+    var selectedClass = s.license_class || 'B';
+    var selectedStatus = s.status || 'aktiv';
+    var todayIso = new Date().toISOString().slice(0, 10);
+    var registered = s.registered_at ? s.registered_at.slice(0, 10) : (s.id ? '' : todayIso);
+    var birth = s.birthdate ? s.birthdate.slice(0, 10) : '';
+    var instOptions = '<option value="">\u2014 Kein Fahrlehrer \u2014</option>';
+    (instructors || []).forEach(function(i) {
+      instOptions += '<option value="' + i.id + '">' + i.name + '</option>';
+    });
+    var isEdit = !!s.id;
+
+    var h = '<form id="student-form" onsubmit="event.preventDefault();App.submitStudentForm();" style="display:flex;flex-direction:column;gap:var(--space-3);">' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">' +
+        '<div class="form-group"><label class="form-label">Vorname *</label><input class="form-input" id="stf-firstName" type="text" value="' + firstName.replace(/"/g,'&quot;') + '" required></div>' +
+        '<div class="form-group"><label class="form-label">Nachname *</label><input class="form-input" id="stf-lastName" type="text" value="' + lastName.replace(/"/g,'&quot;') + '" required></div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">E-Mail *</label><input class="form-input" id="stf-email" type="email" value="' + (s.email || '').replace(/"/g,'&quot;') + '" required></div>' +
+      '<div class="form-group"><label class="form-label">Telefon</label><input class="form-input" id="stf-phone" type="tel" value="' + (s.phone || '').replace(/"/g,'&quot;') + '"></div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">' +
+        '<div class="form-group"><label class="form-label">Geburtsdatum</label><input class="form-input" id="stf-birthdate" type="date" value="' + birth + '"></div>' +
+        '<div class="form-group"><label class="form-label">Angemeldet am</label><input class="form-input" id="stf-registered" type="date" value="' + registered + '"></div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">Adresse</label><input class="form-input" id="stf-address" type="text" placeholder="Stra\u00dfe, PLZ Ort" value="' + (s.address || '').replace(/"/g,'&quot;') + '"></div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">' +
+        '<div class="form-group"><label class="form-label">Klasse</label><select class="form-select" id="stf-class">';
+    classes.forEach(function(c) {
+      h += '<option value="' + c + '"' + (c === selectedClass ? ' selected' : '') + '>' + c + '</option>';
+    });
+    h += '</select></div>' +
+        '<div class="form-group"><label class="form-label">Status</label><select class="form-select" id="stf-status">';
+    statuses.forEach(function(st) {
+      h += '<option value="' + st + '"' + (st === selectedStatus ? ' selected' : '') + '>' + st + '</option>';
+    });
+    h += '</select></div>' +
+      '</div>' +
+      (!isEdit ? ('<div class="form-group"><label class="form-label">Zugewiesener Fahrlehrer</label><select class="form-select" id="stf-instructor">' + instOptions + '</select></div>') : '') +
+      '<div class="form-group" style="display:flex;align-items:center;gap:var(--space-2);"><input type="checkbox" id="stf-bf17"' + (s.bf17 ? ' checked' : '') + '><label for="stf-bf17" style="margin:0;cursor:pointer;">Begleitetes Fahren ab 17 (BF17)</label></div>' +
+      '<div class="form-group"><label class="form-label">Notizen</label><textarea class="form-input" id="stf-notes" rows="3" placeholder="Interne Notizen (nur f\u00fcr die Fahrschule sichtbar)">' + (s.notes || '').replace(/</g,'&lt;') + '</textarea></div>' +
+      (!isEdit ? ('<div class="form-group" style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-3);background:#f0fdf4;border-radius:var(--radius-md);border:1px solid #bbf7d0;">' +
+        '<input type="checkbox" id="stf-sendInvite" checked>' +
+        '<label for="stf-sendInvite" style="margin:0;cursor:pointer;font-size:var(--text-sm);">Einladungsmail jetzt senden (Sch\u00fcler setzt selbst sein Passwort)</label>' +
+      '</div>') : '') +
+      '<input type="hidden" id="stf-id" value="' + (s.id || '') + '">' +
+      '<div style="display:flex;gap:var(--space-2);margin-top:var(--space-2);">' +
+        '<button type="button" class="btn btn-ghost btn-full" onclick="App.closeModalForce()">Abbrechen</button>' +
+        '<button type="submit" class="btn btn-primary btn-full" id="stf-submit">' + (isEdit ? 'Speichern' : 'Anlegen') + '</button>' +
+      '</div>' +
+    '</form>';
+    return h;
+  },
+
+  openCreateStudentModal: async function() {
+    if (!AppState.currentUser || AppState.currentUser.role !== 'school') return;
+    var insts = [];
+    try {
+      var instData = await ApiClient.get('/api/school/instructors');
+      insts = (instData && instData.instructors) || [];
+    } catch (e) { /* nicht kritisch */ }
+    this.openModal('Neuer Fahrsch\u00fcler', this._studentFormHtml(null, insts));
+  },
+
+  openEditStudentModal: async function(studentId) {
+    if (!AppState.currentUser || AppState.currentUser.role !== 'school') return;
+    try {
+      var data = await ApiClient.get('/api/student-detail/' + studentId);
+      this.openModal('Fahrsch\u00fcler bearbeiten', this._studentFormHtml(data.student, []));
+    } catch (err) {
+      this.showToast('Fehler beim Laden: ' + err.message);
+    }
+  },
+
+  submitStudentForm: async function() {
+    var v = function(id) { var el = document.getElementById(id); return el ? el.value : ''; };
+    var c = function(id) { var el = document.getElementById(id); return el ? !!el.checked : false; };
+    var payload = {
+      firstName: v('stf-firstName').trim(),
+      lastName: v('stf-lastName').trim(),
+      email: v('stf-email').trim(),
+      phone: v('stf-phone').trim(),
+      birthdate: v('stf-birthdate') || null,
+      address: v('stf-address').trim(),
+      license_class: v('stf-class'),
+      status: v('stf-status'),
+      registered_at: v('stf-registered') || null,
+      bf17: c('stf-bf17'),
+      notes: v('stf-notes').trim(),
+      instructor_id: v('stf-instructor') || null,
+      sendInvite: c('stf-sendInvite')
+    };
+    var studentId = v('stf-id');
+    var btn = document.getElementById('stf-submit');
+    if (btn) { btn.disabled = true; btn.textContent = studentId ? 'Speichere\u2026' : 'Lege an\u2026'; }
+    try {
+      var res;
+      if (studentId) {
+        res = await ApiClient.put('/api/school/students/' + studentId, payload);
+      } else {
+        res = await ApiClient.post('/api/school/students', payload);
+      }
+      this.closeModalForce();
+      // Cache invalidieren -> Dashboard frisch laden
+      if (AppState && AppState._cachedData) {
+        AppState._cachedData._dashboardBundle = null;
+        AppState._cachedData._dashboardBundleTs = 0;
+      }
+      if (studentId) {
+        this.showToast('Fahrsch\u00fcler aktualisiert');
+        this.viewStudentDetail(studentId);
+      } else {
+        var mailMsg = (res && res.invite && res.invite.sent) ? ' (Einladung gesendet)' : (payload.sendInvite ? ' (Einladung konnte nicht gesendet werden)' : '');
+        this.showToast('Fahrsch\u00fcler angelegt' + mailMsg);
+        this.renderSchoolDashboardTab();
+      }
+    } catch (err) {
+      this.showToast('Fehler: ' + (err.message || err));
+      if (btn) { btn.disabled = false; btn.textContent = studentId ? 'Speichern' : 'Anlegen'; }
+    }
+  },
+
+  resendStudentInvite: async function(studentId) {
+    try {
+      var res = await ApiClient.post('/api/school/students/' + studentId + '/resend-invite', {});
+      if (res && res.ok) {
+        this.showToast('Einladung erneut gesendet');
+      } else {
+        this.showToast('Mail-Versand fehlgeschlagen: ' + ((res && res.error) || 'unbekannter Fehler'));
+      }
+    } catch (err) {
+      this.showToast('Fehler: ' + (err.message || err));
+    }
+  },
+
   viewStudentDetail: async function(studentId) {
     this.navigate('student-detail');
     var content = document.getElementById('student-detail-content');
@@ -4534,7 +4615,7 @@ var App = {
       var data = await ApiClient.get('/api/student-detail/' + studentId);
       var student = data.student; var lessons = data.lessons;
       document.getElementById('student-detail-name').textContent = student.name;
-      var latestRatings = this.latestSkillRatings(lessons);
+      var latestRatings = lessons.length > 0 ? lessons[0].ratings : {};
       var avg = this.avgRating(latestRatings);
       var totalDuration = 0;
       lessons.forEach(function(l) { totalDuration += l.duration; });
@@ -4543,6 +4624,43 @@ var App = {
         '<div class="student-header-info"><h3>' + student.name + '</h3><div class="student-header-meta">' +
           '<span>' + t('klasse') + ' ' + student.license_class + '</span><span>' + data.instructorName + '</span><span>' + lessons.length + ' ' + t('fahrstunden') + '</span>' +
         '</div></div></div>';
+
+      // ── Stammdaten-Karte (nur fuer Fahrschule sichtbar) ──
+      if (AppState.currentUser && AppState.currentUser.role === 'school') {
+        var st = student;
+        var fmtDate = function(s) { if (!s) return '\u2014'; var d = new Date(s); if (isNaN(d.getTime())) return s; return d.toLocaleDateString('de-DE'); };
+        var rowHtml = function(label, val) {
+          return '<div style="display:flex;justify-content:space-between;gap:var(--space-3);padding:6px 0;border-bottom:1px solid var(--color-border-subtle,rgba(0,0,0,0.05));font-size:var(--text-sm);">' +
+            '<span style="color:var(--text-muted);">' + label + '</span>' +
+            '<span style="text-align:right;word-break:break-word;">' + (val || '\u2014') + '</span>' +
+          '</div>';
+        };
+        var statusBadge = '';
+        if (st.status) {
+          var sCol = st.status === 'aktiv' ? '#16a34a' : (st.status === 'pausiert' ? '#d97706' : (st.status === 'abgeschlossen' ? '#2563eb' : '#64748b'));
+          statusBadge = '<span style="background:' + sCol + ';color:#fff;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">' + st.status + '</span>';
+        }
+        var pwStatus = st.password_hash ? '<span style="color:#16a34a;">\u2713 aktiviert</span>' : '<span style="color:#d97706;">noch nicht aktiviert</span>';
+        html += '<div class="card mb-4">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3);gap:var(--space-2);flex-wrap:wrap;">' +
+            '<div class="section-title" style="margin:0;">Stammdaten</div>' +
+            '<div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap;">' + statusBadge +
+              '<button class="btn btn-sm btn-secondary" onclick="App.openEditStudentModal(\'' + st.id + '\')">Bearbeiten</button>' +
+              (!st.password_hash ? '<button class="btn btn-sm btn-primary" onclick="App.resendStudentInvite(\'' + st.id + '\')">Einladung erneut senden</button>' : '') +
+            '</div>' +
+          '</div>' +
+          rowHtml('E-Mail', st.email) +
+          rowHtml('Telefon', st.phone) +
+          rowHtml('Geburtsdatum', fmtDate(st.birthdate)) +
+          rowHtml('Adresse', st.address) +
+          rowHtml('Klasse(n)', st.license_class) +
+          rowHtml('Angemeldet am', fmtDate(st.registered_at)) +
+          rowHtml('Fahrlehrer', data.instructorName) +
+          rowHtml('BF17', st.bf17 ? 'Ja' : 'Nein') +
+          rowHtml('Konto', pwStatus) +
+          (st.notes ? ('<div style="margin-top:var(--space-3);padding:var(--space-3);background:var(--bg-elevated,#f8fafb);border-radius:var(--radius-md);font-size:var(--text-sm);white-space:pre-wrap;"><strong style="color:var(--text-muted);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.5px;">Notizen</strong><br>' + st.notes.replace(/</g,'&lt;') + '</div>') : '') +
+        '</div>';
+      }
       html += '<div class="card mb-4"><div class="section-title mb-3">' + t('aktuellesKoennen') + '</div>' +
         '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);">' +
           '<div class="progress-ring-container">' + this.buildProgressRing(avg, 4, 60) + '</div>' +
@@ -4553,8 +4671,11 @@ var App = {
           '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + pct + '%;background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></div></div></div>';
       });
       html += '</div>';
+      // ── Theory Progress Section ──
+      html += '<div class="card mb-4 theory-progress-section"><div class="section-title mb-3">' + t('theorieFortschritt') + '</div>' +
+        '<div id="theory-progress-container"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div></div>';
 
-      // ── KI-Briefing (direkt unter Aktuelles Koennen) ──
+      // ── KI-Briefing (nur fuer school + instructor wenn KI-Tarif) ──
       if (AppState.currentUser && (AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor')) {
         html += '<div class="card mb-4" id="ai-briefing-card-' + studentId + '" style="background:linear-gradient(135deg,#f3f8ff 0%,#e8f0fe 100%);border:1px solid #c5dafa;">' +
           '<div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);">' +
@@ -4566,26 +4687,6 @@ var App = {
           '<div id="ai-briefing-output-' + studentId + '" style="margin-top:var(--space-3);display:none;"></div>' +
         '</div>';
       }
-
-      // ── Theory Progress Section ──
-      html += '<div class="card mb-4 theory-progress-section"><div class="section-title mb-3">' + t('theorieFortschritt') + '</div>' +
-        '<div id="theory-progress-container"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div></div>';
-
-      // ── Fahrstunden-Liste (anklickbar) ──
-      html += '<div class="card mb-4"><div class="section-title mb-3">' + t('fahrstunden') + ' (' + lessons.length + ')</div>';
-      if (!lessons || lessons.length === 0) {
-        html += '<p class="text-sm text-muted">' + t('nochKeineFahrstunden') + '</p>';
-      } else {
-        lessons.forEach(function(l) {
-          html += '<div class="card card-interactive mb-2" onclick="App.showLessonReview(\'' + l.id + '\', \'' + studentId + '\', \'instructor\')">' +
-            '<div style="display:flex;align-items:center;gap:var(--space-3);">' +
-              '<div class="flex-1"><div style="font-weight:600;font-size:var(--text-sm);">' + tType(l.type) + '</div>' +
-              '<div class="text-xs text-muted">' + App.formatDate(l.date) + ' \u00b7 ' + App.formatDuration(l.duration) + (l.instructors && l.instructors.name ? ' \u00b7 ' + l.instructors.name : '') + '</div></div>' +
-              '<div>' + App.skillLevelHtml(App.avgRating(l.ratings)) + '</div>' +
-            '</div></div>';
-        });
-      }
-      html += '</div>';
 
       // ── Bescheinigungen (only for school/admin) ──
       if (AppState.currentUser && AppState.currentUser.role === 'school') {
@@ -6264,7 +6365,7 @@ var App = {
       try { data = await ApiClient.get('/api/student/overview'); AppState._cachedData.studentOverview = data; } catch (e) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + '</p></div>'; return; }
     }
     var lessons = data.lessons || [];
-    var latestRatings = this.latestSkillRatings(lessons);
+    var latestRatings = lessons.length > 0 ? lessons[0].ratings : {};
     var avg = this.avgRating(latestRatings);
     var pctReady = Math.min(100, (avg / 4) * 100);
     var html = '<div class="page-padding"><div class="welcome-msg"><h2>' + t('hallo') + ', ' + stu.name + '</h2><p>' + t('fortschrittPruefungsreife') + '</p></div>' +
