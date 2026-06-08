@@ -4473,7 +4473,7 @@ var App = {
     var parts = (s.name || '').trim().split(/\s+/);
     var firstName = parts.slice(0, -1).join(' ') || (parts.length === 1 ? parts[0] : '');
     var lastName = parts.length > 1 ? parts[parts.length - 1] : '';
-    var classes = ['B', 'BE', 'A', 'A1', 'A2', 'AM', 'B96', 'BF17', 'C', 'CE', 'D', 'L', 'T'];
+    var classes = ['B', 'B78', 'B96', 'B197', 'BE', 'A', 'A1', 'A2', 'AM', 'BF17', 'C', 'CE', 'D', 'L', 'T'];
     var statuses = ['aktiv', 'pausiert', 'abgeschlossen', 'abgemeldet'];
     var selectedClass = s.license_class || 'B';
     var selectedStatus = s.status || 'aktiv';
@@ -4497,7 +4497,11 @@ var App = {
         '<div class="form-group"><label class="form-label">Geburtsdatum</label><input class="form-input" id="stf-birthdate" type="date" value="' + birth + '"></div>' +
         '<div class="form-group"><label class="form-label">Angemeldet am</label><input class="form-input" id="stf-registered" type="date" value="' + registered + '"></div>' +
       '</div>' +
-      '<div class="form-group"><label class="form-label">Adresse</label><input class="form-input" id="stf-address" type="text" placeholder="Stra\u00dfe, PLZ Ort" value="' + (s.address || '').replace(/"/g,'&quot;') + '"></div>' +
+      '<div class="form-group"><label class="form-label">Stra\u00dfe und Hausnummer</label><input class="form-input" id="stf-street" type="text" placeholder="Musterstra\u00dfe 12" value="' + (s.street || '').replace(/"/g,'&quot;') + '"></div>' +
+      '<div style="display:grid;grid-template-columns:120px 1fr;gap:var(--space-3);">' +
+        '<div class="form-group"><label class="form-label">PLZ</label><input class="form-input" id="stf-postal" type="text" inputmode="numeric" maxlength="5" placeholder="10115" value="' + (s.postal_code || '').replace(/"/g,'&quot;') + '"></div>' +
+        '<div class="form-group"><label class="form-label">Ort</label><input class="form-input" id="stf-city" type="text" placeholder="Berlin" value="' + (s.city || '').replace(/"/g,'&quot;') + '"></div>' +
+      '</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">' +
         '<div class="form-group"><label class="form-label">Klasse</label><select class="form-select" id="stf-class">';
     classes.forEach(function(c) {
@@ -4555,7 +4559,9 @@ var App = {
       email: v('stf-email').trim(),
       phone: v('stf-phone').trim(),
       birthdate: v('stf-birthdate') || null,
-      address: v('stf-address').trim(),
+      street: v('stf-street').trim(),
+      postal_code: v('stf-postal').trim(),
+      city: v('stf-city').trim(),
       license_class: v('stf-class'),
       status: v('stf-status'),
       registered_at: v('stf-registered') || null,
@@ -4652,7 +4658,8 @@ var App = {
           rowHtml('E-Mail', st.email) +
           rowHtml('Telefon', st.phone) +
           rowHtml('Geburtsdatum', fmtDate(st.birthdate)) +
-          rowHtml('Adresse', st.address) +
+          rowHtml('Stra\u00dfe', st.street || (st.address ? st.address.split(',')[0].trim() : null)) +
+          rowHtml('PLZ / Ort', (st.postal_code || st.city) ? [(st.postal_code || ''), (st.city || '')].filter(Boolean).join(' ') : (st.address && st.address.indexOf(',') > -1 ? st.address.split(',').slice(1).join(',').trim() : null)) +
           rowHtml('Klasse(n)', st.license_class) +
           rowHtml('Angemeldet am', fmtDate(st.registered_at)) +
           rowHtml('Fahrlehrer', data.instructorName) +

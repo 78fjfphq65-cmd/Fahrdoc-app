@@ -889,12 +889,26 @@ function _normalizeStudentPayload(body) {
   const firstName = trim(body.firstName) || '';
   const lastName = trim(body.lastName) || '';
   const fullName = (firstName + ' ' + lastName).trim();
+  // Adresse: aufgeteilte Felder bevorzugen, sonst Legacy-Feld 'address' beibehalten.
+  const street = orNull(body.street);
+  const postal_code = orNull(body.postal_code);
+  const city = orNull(body.city);
+  // Zusammengesetzte address-Spalte fuer Backward-Compat (Rechnungen, Briefe etc.)
+  let composedAddress = orNull(body.address);
+  if (street || postal_code || city) {
+    const left = street || '';
+    const right = [postal_code || '', city || ''].filter(Boolean).join(' ').trim();
+    composedAddress = [left, right].filter(Boolean).join(', ').trim() || null;
+  }
   return {
     name: fullName,
     email: trim(body.email) ? String(body.email).trim().toLowerCase() : null,
     phone: orNull(body.phone),
     birthdate: orNull(body.birthdate),
-    address: orNull(body.address),
+    address: composedAddress,
+    street,
+    postal_code,
+    city,
     license_class: orNull(body.license_class) || 'B',
     status: orNull(body.status) || 'aktiv',
     registered_at: orNull(body.registered_at),
@@ -1032,7 +1046,20 @@ app.put('/api/school/students/:id', authMiddleware, async (req, res) => {
     if (has('email')) updateRow.email = payload.email || existing.email;
     if (has('phone')) updateRow.phone = payload.phone;
     if (has('birthdate')) updateRow.birthdate = payload.birthdate;
-    if (has('address')) updateRow.address = payload.address;
+    // Adresse: aufgeteilte Felder mergen mit existing, address neu komponieren
+    const hasSplitAddress = has('street') || has('postal_code') || has('city');
+    if (has('street')) updateRow.street = payload.street;
+    if (has('postal_code')) updateRow.postal_code = payload.postal_code;
+    if (has('city')) updateRow.city = payload.city;
+    if (hasSplitAddress) {
+      const mergedStreet = has('street') ? payload.street : (existing.street || null);
+      const mergedPostal = has('postal_code') ? payload.postal_code : (existing.postal_code || null);
+      const mergedCity   = has('city')        ? payload.city        : (existing.city || null);
+      const right = [mergedPostal || '', mergedCity || ''].filter(Boolean).join(' ').trim();
+      updateRow.address = [mergedStreet || '', right].filter(Boolean).join(', ').trim() || null;
+    } else if (has('address')) {
+      updateRow.address = payload.address;
+    }
     if (has('license_class')) updateRow.license_class = payload.license_class;
     if (has('status')) updateRow.status = payload.status;
     if (has('registered_at')) updateRow.registered_at = payload.registered_at;
