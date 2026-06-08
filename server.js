@@ -215,6 +215,8 @@ app.use('/api/', (req, res, next) => {
 app.use('/api/', apiLimiter);
 app.use('/api/auth/', authLimiter);
 app.use(express.static(path.join(__dirname, 'public'), { dotfiles: 'allow' }));
+// Statische Assets auch unter /app/ erreichbar machen (damit <base href="/app/"> CSS/JS findet)
+app.use('/app', express.static(path.join(__dirname, 'public'), { dotfiles: 'allow' }));
 
 // ============================================
 // AUTH MIDDLEWARE
