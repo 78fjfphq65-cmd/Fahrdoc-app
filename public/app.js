@@ -4473,7 +4473,7 @@ var App = {
     var parts = (s.name || '').trim().split(/\s+/);
     var firstName = parts.slice(0, -1).join(' ') || (parts.length === 1 ? parts[0] : '');
     var lastName = parts.length > 1 ? parts[parts.length - 1] : '';
-    var classes = ['B', 'B78', 'B96', 'B197', 'BE', 'A', 'A1', 'A2', 'AM', 'BF17', 'C', 'CE', 'D', 'L', 'T'];
+    var classes = ['B', 'B78', 'B96', 'B196', 'B197', 'BE', 'A', 'A1', 'A2', 'AM', 'BF17', 'C', 'CE', 'D', 'L', 'T'];
     var statuses = ['aktiv', 'pausiert', 'abgeschlossen', 'abgemeldet'];
     var selectedClass = s.license_class || 'B';
     var selectedStatus = s.status || 'aktiv';
