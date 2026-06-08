@@ -8,7 +8,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const { supabase, generateToken, generateId, hashPassword, verifyPassword } = require('./db');
-const { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail, sendStudentSetupEmail } = require('./email');
+const { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail, sendStudentSetupEmail, sendSchoolWelcomeEmail } = require('./email');
 const Stripe = require('stripe');
 const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -523,6 +523,13 @@ app.post('/api/auth/verify-email', async (req, res) => {
     const table = role === 'school' ? 'schools' : role === 'instructor' ? 'instructors' : 'students';
     await supabase.from(table).update({ verified: 1 }).eq('id', userId);
 
+    // Welcome-Mail nach Bestätigung (nur Schulen, async, blockt Login nicht)
+    if (role === 'school') {
+      supabase.from('schools').select('email, name, admin_name').eq('id', userId).single().then(({ data: s }) => {
+        if (s && s.email) sendSchoolWelcomeEmail({ to: s.email, schoolName: s.name, adminName: s.admin_name }).catch(() => {});
+      });
+    }
+
     const token = generateToken();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     await supabase.from('sessions').insert({ token, user_id: userId, user_role: role, expires_at: expiresAt });
@@ -560,6 +567,13 @@ app.get('/api/auth/verify-link', async (req, res) => {
     // Verify user
     const table = role === 'school' ? 'schools' : role === 'instructor' ? 'instructors' : 'students';
     await supabase.from(table).update({ verified: 1 }).eq('id', uid);
+
+    // Welcome-Mail nach Bestätigung (nur Schulen, async)
+    if (role === 'school') {
+      supabase.from('schools').select('email, name, admin_name').eq('id', uid).single().then(({ data: s }) => {
+        if (s && s.email) sendSchoolWelcomeEmail({ to: s.email, schoolName: s.name, adminName: s.admin_name }).catch(() => {});
+      });
+    }
 
     res.json({ success: true });
   } catch (err) {

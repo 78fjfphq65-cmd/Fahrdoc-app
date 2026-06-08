@@ -337,4 +337,98 @@ async function sendStudentSetupEmail({ to, name, schoolName, setupUrl }) {
   }
 }
 
-module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail, sendStudentSetupEmail };
+// ============================================
+// Send school welcome email (nach erfolgreicher Email-Bestätigung)
+// ============================================
+async function sendSchoolWelcomeEmail({ to, schoolName, adminName }) {
+  try {
+    const baseUrl = process.env.APP_BASE_URL || 'https://www.fahrdoc.app';
+    const dashboardUrl = baseUrl + '/app/';
+    const supportEmail = 'support@fahrdoc.app';
+
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [to],
+      subject: `Willkommen bei FahrDoc, ${schoolName}! 🚗`,
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 520px; margin: 0 auto; padding: 0; background: #ffffff;">
+          <!-- Header -->
+          <div style="background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); padding: 40px 24px; text-align: center; border-radius: 12px 12px 0 0;">
+            <h1 style="color: #ffffff; font-size: 32px; margin: 0 0 8px 0; font-weight: 700;">🚗 Willkommen bei FahrDoc</h1>
+            <p style="color: rgba(255,255,255,0.9); font-size: 16px; margin: 0;">Deine Fahrschule, digital organisiert.</p>
+          </div>
+
+          <!-- Body -->
+          <div style="padding: 36px 28px;">
+            <p style="font-size: 17px; color: #1a1a1a; line-height: 1.55; margin: 0 0 16px 0;">Hallo ${adminName || ''},</p>
+            <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 20px 0;">Schön, dass <strong>${schoolName}</strong> jetzt bei FahrDoc dabei ist! Dein Konto ist aktiviert und du kannst direkt loslegen.</p>
+
+            <!-- Trial Badge -->
+            <div style="background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 10px; padding: 16px 20px; margin: 24px 0; text-align: center;">
+              <p style="margin: 0; font-size: 14px; color: #0f766e; font-weight: 600;">🎁 14 Tage kostenlos testen — keine Kreditkarte nötig</p>
+            </div>
+
+            <!-- Steps -->
+            <h2 style="font-size: 18px; color: #1a1a1a; margin: 32px 0 16px 0;">So legst du los:</h2>
+
+            <div style="margin: 16px 0;">
+              <div style="display: flex; align-items: flex-start; margin-bottom: 18px;">
+                <div style="flex-shrink: 0; width: 32px; height: 32px; background: #0d9488; color: #ffffff; border-radius: 50%; text-align: center; line-height: 32px; font-weight: 700; margin-right: 14px;">1</div>
+                <div style="flex: 1;">
+                  <strong style="font-size: 15px; color: #1a1a1a;">Fahrlehrer einladen</strong><br>
+                  <span style="font-size: 14px; color: #666; line-height: 1.5;">Im Dashboard unter „Profil → Fahrlehrer-Code" findest du den Einladungscode für deine Fahrlehrer.</span>
+                </div>
+              </div>
+
+              <div style="display: flex; align-items: flex-start; margin-bottom: 18px;">
+                <div style="flex-shrink: 0; width: 32px; height: 32px; background: #0d9488; color: #ffffff; border-radius: 50%; text-align: center; line-height: 32px; font-weight: 700; margin-right: 14px;">2</div>
+                <div style="flex: 1;">
+                  <strong style="font-size: 15px; color: #1a1a1a;">Fahrschüler anlegen</strong><br>
+                  <span style="font-size: 14px; color: #666; line-height: 1.5;">Über das Dashboard kannst du Schüler direkt anlegen — auf Wunsch mit automatischer Einladung per Magic-Link.</span>
+                </div>
+              </div>
+
+              <div style="display: flex; align-items: flex-start; margin-bottom: 18px;">
+                <div style="flex-shrink: 0; width: 32px; height: 32px; background: #0d9488; color: #ffffff; border-radius: 50%; text-align: center; line-height: 32px; font-weight: 700; margin-right: 14px;">3</div>
+                <div style="flex: 1;">
+                  <strong style="font-size: 15px; color: #1a1a1a;">Erste Fahrstunde dokumentieren</strong><br>
+                  <span style="font-size: 14px; color: #666; line-height: 1.5;">Deine Fahrlehrer können in der App eine Fahrstunde starten — mit GPS-Tracking, Markierungen und KI-Briefing.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- CTA Button -->
+            <div style="text-align: center; margin: 36px 0 24px 0;">
+              <a href="${dashboardUrl}" style="display: inline-block; background: #0d9488; color: #ffffff; font-size: 16px; font-weight: 600; padding: 14px 40px; border-radius: 10px; text-decoration: none;">Zum Dashboard</a>
+            </div>
+
+            <!-- Daten-Übernahme-Service -->
+            <div style="background: #fef3c7; border: 1px solid #fcd34d; border-radius: 10px; padding: 18px 20px; margin: 28px 0;">
+              <p style="margin: 0 0 8px 0; font-size: 15px; color: #92400e; font-weight: 700;">📦 Wechsel von einem anderen System?</p>
+              <p style="margin: 0; font-size: 14px; color: #78350f; line-height: 1.55;">Wir helfen dir kostenfrei bei der Übernahme deiner bestehenden Schüler- und Fahrlehrer-Daten aus deinem alten Fahrschulmanager. Schreib uns einfach mit deinem Export (CSV/Excel) an <a href="mailto:${supportEmail}" style="color: #92400e; font-weight: 600;">${supportEmail}</a> — wir machen den Rest.</p>
+            </div>
+
+            <!-- Support -->
+            <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 24px 0;">
+            <p style="font-size: 14px; color: #666; line-height: 1.6; margin: 0;">Fragen oder Feedback? Schreib uns einfach an <a href="mailto:${supportEmail}" style="color: #0d9488; text-decoration: none;">${supportEmail}</a> — wir helfen gerne weiter.</p>
+            <p style="font-size: 14px; color: #666; line-height: 1.6; margin: 16px 0 0 0;">Viel Erfolg mit FahrDoc!<br>Dein FahrDoc-Team</p>
+          </div>
+
+          <!-- Footer -->
+          <div style="background: #f9fafb; padding: 20px 24px; text-align: center; border-radius: 0 0 12px 12px;">
+            <p style="font-size: 12px; color: #999; margin: 0;">FahrDoc — Digitale Fahrstunden-Dokumentation</p>
+          </div>
+        </div>
+      `
+    });
+
+    if (error) { console.error('[EMAIL] School welcome send error:', error); return false; }
+    console.log(`[EMAIL] School welcome email sent to ${to} (id: ${data?.id})`);
+    return true;
+  } catch (err) {
+    console.error('[EMAIL] School welcome send failed:', err.message);
+    return false;
+  }
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail, sendStudentSetupEmail, sendSchoolWelcomeEmail };
