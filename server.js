@@ -3592,27 +3592,27 @@ app.get('/api/theory/schedule', authMiddleware, async (req, res) => {
     }
     const { data, error } = await query.order('date').order('start_time');
     if (error) throw error;
-    // Fetch rooms and topics for enrichment
-    const { data: rooms } = await supabase.from('theory_rooms').select('id, name, seat_limit').eq('school_id', schoolId);
-    const { data: topics } = await supabase.from('theory_topics').select('id, topic_number, title, is_basic').eq('school_id', schoolId);
+    // Fetch rooms, topics and instructors in parallel (bulk) for enrichment
+    const instructorIds = [...new Set((data || []).map(d => d.instructor_id).filter(Boolean))];
+    const [roomsRes, topicsRes, instructorsRes] = await Promise.all([
+      supabase.from('theory_rooms').select('id, name, seat_limit').eq('school_id', schoolId),
+      supabase.from('theory_topics').select('id, topic_number, title, is_basic').eq('school_id', schoolId),
+      instructorIds.length > 0
+        ? supabase.from('instructors').select('id, name').in('id', instructorIds)
+        : Promise.resolve({ data: [] })
+    ]);
     const roomMap = {};
-    (rooms || []).forEach(r => { roomMap[r.id] = r; });
+    (roomsRes.data || []).forEach(r => { roomMap[r.id] = r; });
     const topicMap = {};
-    (topics || []).forEach(t => { topicMap[t.id] = t; });
-    // Enrich with instructor name, room, and topic data
-    const enriched = [];
-    for (const item of (data || [])) {
-      let instructor_name = null;
-      if (item.instructor_id) {
-        const { data: inst } = await supabase.from('instructors').select('name').eq('id', item.instructor_id).single();
-        if (inst) instructor_name = inst.name;
-      }
-      enriched.push(Object.assign({}, item, {
-        instructor_name,
-        theory_rooms: roomMap[item.room_id] || null,
-        theory_topics: topicMap[item.topic_id] || null
-      }));
-    }
+    (topicsRes.data || []).forEach(t => { topicMap[t.id] = t; });
+    const instructorMap = {};
+    (instructorsRes.data || []).forEach(i => { instructorMap[i.id] = i.name; });
+    // Enrich with instructor name, room, and topic data (no per-row DB calls)
+    const enriched = (data || []).map(item => Object.assign({}, item, {
+      instructor_name: item.instructor_id ? (instructorMap[item.instructor_id] || null) : null,
+      theory_rooms: roomMap[item.room_id] || null,
+      theory_topics: topicMap[item.topic_id] || null
+    }));
     res.json(enriched);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

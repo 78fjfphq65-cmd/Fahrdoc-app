@@ -871,7 +871,7 @@ var App = {
     var d = new Date(AppState.scheduleWeekStart);
     d.setDate(d.getDate() + dir * 7);
     AppState.scheduleWeekStart = d;
-    AppState.scheduleData = null;
+    AppState.scheduleData = null; if(AppState._cachedData) AppState._cachedData._scheduleBundle = null;
     if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
     else this.renderSchoolScheduleTab();
   },
@@ -1215,7 +1215,7 @@ var App = {
       this.showLoading(true);
       await ApiClient.post('/api/schedule', slotData);
       this.closeModalForce(); this.showToast(t('terminErstellt'));
-      AppState.scheduleData = null;
+      AppState.scheduleData = null; if(AppState._cachedData) AppState._cachedData._scheduleBundle = null;
       if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
       else this.renderSchoolScheduleTab();
     } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
@@ -1239,7 +1239,7 @@ var App = {
       this.showLoading(true);
       await ApiClient.put('/api/schedule/' + id, slotData);
       this.closeModalForce(); this.showToast(t('terminAktualisiert'));
-      AppState.scheduleData = null;
+      AppState.scheduleData = null; if(AppState._cachedData) AppState._cachedData._scheduleBundle = null;
       if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
       else this.renderSchoolScheduleTab();
     } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
@@ -1252,7 +1252,7 @@ var App = {
       this.showLoading(true);
       await ApiClient.del('/api/schedule/' + id);
       this.closeModalForce(); this.showToast(t('terminGeloescht'));
-      AppState.scheduleData = null;
+      AppState.scheduleData = null; if(AppState._cachedData) AppState._cachedData._scheduleBundle = null;
       if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
       else this.renderSchoolScheduleTab();
     } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
@@ -1263,7 +1263,7 @@ var App = {
     try {
       await ApiClient.post('/api/schedule/' + id + '/confirm');
       this.closeModalForce(); this.showToast(t('terminBestaetigt'));
-      AppState.scheduleData = null;
+      AppState.scheduleData = null; if(AppState._cachedData) AppState._cachedData._scheduleBundle = null;
       if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
       else this.renderSchoolScheduleTab();
     } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
@@ -1624,7 +1624,7 @@ var App = {
       this.showLoading(true);
       await ApiClient.post('/api/schedule/blocks', blockData);
       this.closeModalForce(); this.showToast(t('zeitsperreErstellt'));
-      AppState.scheduleData = null;
+      AppState.scheduleData = null; if(AppState._cachedData) AppState._cachedData._scheduleBundle = null;
       if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
       else this.renderSchoolScheduleTab();
     } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
@@ -1638,7 +1638,7 @@ var App = {
       var url = '/api/schedule/blocks/' + id + (deleteAll ? '?deleteAll=1' : '');
       await ApiClient.del(url);
       this.closeModalForce(); this.showToast(t('zeitsperreGeloescht'));
-      AppState.scheduleData = null;
+      AppState.scheduleData = null; if(AppState._cachedData) AppState._cachedData._scheduleBundle = null;
       if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
       else this.renderSchoolScheduleTab();
     } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
@@ -1899,31 +1899,65 @@ var App = {
 
   renderSchoolScheduleTab: async function() {
     var main = document.getElementById('school-main');
-    main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
+    var self = this;
     this.initWeek();
     var w = this.getWeekDates(AppState.scheduleWeekStart);
     var wsStr = formatDateLocal(w.monday);
     var weStr = formatDateLocal(w.saturday);
     var instFilter = AppState.scheduleSelectedInstructor || '';
+
+    // TTL cache (30s) keyed by week+instructor — instant re-render on tab switch / week nav back
+    var cacheKey = wsStr + '|' + instFilter;
+    AppState._cachedData = AppState._cachedData || {};
+    AppState._cachedData._scheduleBundle = AppState._cachedData._scheduleBundle || {};
+    var cached = AppState._cachedData._scheduleBundle[cacheKey];
+    var cacheValid = cached && (Date.now() - cached.ts) < 30000;
+    if (!cacheValid) {
+      main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
+    }
+
     var url = '/api/schedule?weekStart=' + wsStr + '&weekEnd=' + weStr;
     if (instFilter) url += '&instructorId=' + instFilter;
     try {
-      var data = await ApiClient.get(url);
+      var data, theorySchedule;
+      if (cacheValid) {
+        data = cached.scheduleData;
+        theorySchedule = cached.theorySchedule;
+      } else {
+        // Parallel: schedule + theory schedule (eliminates sequential waterfall)
+        var results = await Promise.all([
+          ApiClient.get(url),
+          ApiClient.get('/api/theory/schedule?week_start=' + wsStr).catch(function(){ return []; })
+        ]);
+        data = results[0];
+        theorySchedule = results[1] || [];
+      }
       AppState.scheduleData = data;
       var instructors = data.instructors || [];
       if (!instFilter && instructors.length > 0) {
+        // Auto-select first instructor without a second network round-trip:
+        // filter the already-loaded slots client-side.
         AppState.scheduleSelectedInstructor = instructors[0].id;
-        url = '/api/schedule?weekStart=' + wsStr + '&weekEnd=' + weStr + '&instructorId=' + instructors[0].id;
-        data = await ApiClient.get(url);
+        instFilter = instructors[0].id;
+        var filtered = (data.slots || []).filter(function(s) {
+          return !s.instructor_id || s.instructor_id === instFilter;
+        });
+        data = { slots: filtered, instructors: instructors };
         AppState.scheduleData = data;
-        AppState.scheduleData.instructors = instructors;
+        cacheKey = wsStr + '|' + instFilter;
       }
+      // Store in cache
+      AppState._cachedData._scheduleBundle[cacheKey] = {
+        ts: Date.now(),
+        scheduleData: data,
+        theorySchedule: theorySchedule
+      };
 
       var html = '<div class="page-padding' + (AppState.multiViewCount > 1 ? ' multi-view-active' : '') + '">';
       // Instructor filter (hidden in multi-view, each panel has its own)
       html += '<div class="schedule-toolbar">';
       if (AppState.multiViewCount === 1) {
-        html += '<select class="form-select" id="school-instructor-filter" onchange="AppState.scheduleSelectedInstructor=this.value;AppState.scheduleData=null;App.renderSchoolScheduleTab()">';
+        html += '<select class="form-select" id="school-instructor-filter" onchange="AppState.scheduleSelectedInstructor=this.value;AppState.scheduleData=null;if(AppState._cachedData)AppState._cachedData._scheduleBundle=null;App.renderSchoolScheduleTab()">';
         instructors.forEach(function(inst) {
           html += '<option value="' + inst.id + '"' + (inst.id === AppState.scheduleSelectedInstructor ? ' selected' : '') + '>' + inst.name + '</option>';
         });
@@ -1952,32 +1986,29 @@ var App = {
       }
 
       // Desktop week grid (absolute positioned)
-      var slots = data.slots || [];
+      var slots = (data.slots || []).slice();
 
-      // Fetch theory schedule for this week and merge into slots
-      try {
-        var theorySchedule = await ApiClient.get('/api/theory/schedule?week_start=' + wsStr);
-        var selectedInst = AppState.scheduleSelectedInstructor;
-        (theorySchedule || []).forEach(function(ts) {
-          var isAssignedToSelected = ts.instructor_id && ts.instructor_id === selectedInst;
-          var isUnassigned = !ts.instructor_id;
-          // Show unassigned theory blocks (admin only) or assigned to selected instructor
-          if (isUnassigned || isAssignedToSelected) {
-            slots.push({
-              id: ts.id,
-              date: ts.date,
-              start_time: ts.start_time,
-              end_time: ts.end_time,
-              slot_type: 'theory',
-              theory_topic_number: ts.theory_topics ? ts.theory_topics.topic_number : '?',
-              theory_topic_title: ts.theory_topics ? ts.theory_topics.title : '',
-              instructor_id: ts.instructor_id,
-              instructor_name: ts.instructor_name,
-              status: ts.status
-            });
-          }
-        });
-      } catch(e) {}
+      // Merge theory schedule into slots (theorySchedule already loaded in parallel above)
+      var selectedInst = AppState.scheduleSelectedInstructor;
+      (theorySchedule || []).forEach(function(ts) {
+        var isAssignedToSelected = ts.instructor_id && ts.instructor_id === selectedInst;
+        var isUnassigned = !ts.instructor_id;
+        // Show unassigned theory blocks (admin only) or assigned to selected instructor
+        if (isUnassigned || isAssignedToSelected) {
+          slots.push({
+            id: ts.id,
+            date: ts.date,
+            start_time: ts.start_time,
+            end_time: ts.end_time,
+            slot_type: 'theory',
+            theory_topic_number: ts.theory_topics ? ts.theory_topics.topic_number : '?',
+            theory_topic_title: ts.theory_topics ? ts.theory_topics.title : '',
+            instructor_id: ts.instructor_id,
+            instructor_name: ts.instructor_name,
+            status: ts.status
+          });
+        }
+      });
 
       if (AppState.multiViewCount > 1) {
         // Multi view: 2 or 3 grids side by side, full width
@@ -2038,7 +2069,7 @@ var App = {
     if (AppState.multiViewInstructors[0]) {
       AppState.scheduleSelectedInstructor = AppState.multiViewInstructors[0];
     }
-    AppState.scheduleData = null;
+    AppState.scheduleData = null; if(AppState._cachedData) AppState._cachedData._scheduleBundle = null;
     this.renderSchoolScheduleTab();
   },
 
@@ -2065,7 +2096,7 @@ var App = {
     AppState.multiViewInstructors[panelIdx] = instId;
     if (panelIdx === 0) {
       AppState.scheduleSelectedInstructor = instId;
-      AppState.scheduleData = null;
+      AppState.scheduleData = null; if(AppState._cachedData) AppState._cachedData._scheduleBundle = null;
     }
     this.renderSchoolScheduleTab();
   },
@@ -7200,7 +7231,7 @@ var App = {
       await ApiClient.del('/api/recurring-lessons/' + id + '?scope=' + scope);
       this.closeModalForce();
       this.showToast(t('terminGeloescht'));
-      AppState.scheduleData = null;
+      AppState.scheduleData = null; if(AppState._cachedData) AppState._cachedData._scheduleBundle = null;
       if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
       else this.renderSchoolScheduleTab();
     } catch (err) {
