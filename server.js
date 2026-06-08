@@ -2169,7 +2169,7 @@ app.post('/api/stripe/create-checkout', authMiddleware, async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'subscription',
-      payment_method_types: ['card', 'sepa_debit'],
+      // payment_method_types weglassen -> Stripe waehlt automatisch verfuegbare Methoden (Card, SEPA wenn aktiviert, etc.)
       line_items: [{ price: priceId, quantity: requestedQty, adjustable_quantity: { enabled: true, minimum: minSeats, maximum: 100 } }],
       subscription_data: {
         metadata: { school_id: req.user.id, plan: planName }
