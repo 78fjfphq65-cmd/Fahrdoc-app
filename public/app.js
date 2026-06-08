@@ -1747,15 +1747,7 @@ var App = {
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:20px;height:20px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
           '</div>' +
         '</div>';
-      if (newStudents.length > 0) {
-        html += '<div class="new-students-list">';
-        newStudents.forEach(function(st) {
-          html += '<div class="new-student-chip">' + App.avatarHtml(st.name, 'sm') + '<span>' + st.name + '</span></div>';
-        });
-        html += '</div>';
-      } else {
-        html += '<div class="new-students-empty">' + t('keineNeueAnmeldungen') + '</div>';
-      }
+      // Liste der neuen Schueler entfernt - sie sind ohnehin in der Schuelerliste weiter unten zu sehen
       html += '</div>';
 
       // ──── TAGESÜBERSICHT-BUTTON (Buchhaltung) ────
