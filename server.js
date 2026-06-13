@@ -214,9 +214,10 @@ app.use('/api/', (req, res, next) => {
 });
 app.use('/api/', apiLimiter);
 app.use('/api/auth/', authLimiter);
-app.use(express.static(path.join(__dirname, 'public'), { dotfiles: 'allow' }));
-// Statische Assets auch unter /app/ erreichbar machen (damit <base href="/app/"> CSS/JS findet)
+// App-Dateien unter /app/ ausliefern (CSS/JS via <base href="/app/">)
 app.use('/app', express.static(path.join(__dirname, 'public'), { dotfiles: 'allow' }));
+// Landing-Page (Marketing-Startseite) unter /
+app.use('/', express.static(path.join(__dirname, 'landing'), { dotfiles: 'allow' }));
 
 // ============================================
 // AUTH MIDDLEWARE
@@ -5018,10 +5019,19 @@ app.get('/api/accounting/daily-summary', authMiddleware, async (req, res) => {
 });
 
 // ============================================
-// FALLBACK: SPA
+// FALLBACK: Landing Page (/) + App-SPA (/app/*)
 // ============================================
-app.get('*', (req, res) => {
+// /app ohne Slash -> auf /app/ umleiten (wichtig fuer <base href="/app/">)
+app.get('/app', (req, res) => res.redirect(301, '/app/'));
+
+// /app/ und alle App-Unterrouten -> App-SPA (public/index.html)
+app.get('/app/*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Alles andere -> Landing Page
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'landing', 'index.html'));
 });
 
 // ============================================
