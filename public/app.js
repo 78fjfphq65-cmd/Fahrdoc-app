@@ -4028,6 +4028,22 @@ var App = {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   },
 
+  // Linkify text: escape HTML, then turn http(s):// and www. URLs into clickable links.
+  // Newlines are kept by switching display to white-space:pre-wrap at the call site.
+  _linkifyText: function(s) {
+    if (s === null || s === undefined) return '';
+    var escaped = this._escapeHtml(s);
+    // Match http(s) URLs OR www-prefixed URLs. Trailing punctuation is excluded from link.
+    var re = /\b((?:https?:\/\/|www\.)[^\s<]+[^\s<.,;:!?\)\]])/g;
+    return escaped.replace(re, function(url) {
+      var href = url;
+      if (href.indexOf('http') !== 0) href = 'https://' + href;
+      // Display: shorten very long URLs
+      var display = url.length > 60 ? url.slice(0, 57) + '\u2026' : url;
+      return '<a href="' + href + '" target="_blank" rel="noopener noreferrer" style="color:var(--color-primary);text-decoration:underline;word-break:break-all;">' + display + '</a>';
+    });
+  },
+
   openTemplateDialog: async function(templateId) {
     var existing = null;
     if (templateId) {
@@ -6003,7 +6019,8 @@ var App = {
       html += '</div></div>';
     });
     html += '<div class="form-group mb-4"><label class="form-label">' + t('notizen') + '</label>' +
-      '<textarea class="form-textarea" id="lesson-notes" placeholder="' + t('anmerkungenPlaceholder') + '"></textarea></div>';
+      '<textarea class="form-textarea" id="lesson-notes" placeholder="' + t('anmerkungenPlaceholder') + '"></textarea>' +
+      '<div class="text-xs text-muted" style="margin-top:4px;">\u{1F517} Tipp: Links (z.B. YouTube-Videos) k\u00f6nnen einfach reinkopiert werden \u2013 sie werden f\u00fcr den Sch\u00fcler klickbar.</div></div>';
 
     // Image upload (Fix 3)
     html += '<div class="form-group mb-4"><label class="form-label">' + t('bilderOptional') + '</label>' +
@@ -6115,7 +6132,7 @@ var App = {
             '🌐 ' + t('notizenUebersetzen') + '</button>';
         }
         html += '</div>';
-        html += '<p class="text-sm" id="lesson-notes-text" data-original="' + lesson.notes.replace(/"/g, '&quot;') + '">' + lesson.notes + '</p></div>';
+        html += '<p class="text-sm" id="lesson-notes-text" data-original="' + this._escapeHtml(lesson.notes) + '" style="white-space:pre-wrap;">' + this._linkifyText(lesson.notes) + '</p></div>';
       }
 
       // Show images (Fix 3)
@@ -6211,8 +6228,8 @@ var App = {
     var originalText = notesEl.getAttribute('data-original');
     var isShowingTranslation = notesEl.getAttribute('data-translated') === 'true';
     if (isShowingTranslation) {
-      // Show original
-      notesEl.textContent = originalText;
+      // Show original (with clickable links restored)
+      notesEl.innerHTML = this._linkifyText(originalText);
       notesEl.setAttribute('data-translated', 'false');
       btn.innerHTML = '\ud83c\udf10 ' + t('notizenUebersetzen');
       return;
@@ -6222,7 +6239,7 @@ var App = {
     btn.disabled = true;
     try {
       var translated = await TranslateHelper.translate(originalText, AppState.language);
-      notesEl.textContent = translated;
+      notesEl.innerHTML = this._linkifyText(translated);
       notesEl.setAttribute('data-translated', 'true');
       btn.innerHTML = '\ud83d\udcdd ' + t('originalAnzeigen');
     } catch (e) {
@@ -6292,7 +6309,8 @@ var App = {
           '<option value="Prüfungsvorbereitung"' + (lesson.type === 'Prüfungsvorbereitung' ? ' selected' : '') + '>' + tType('Prüfungsvorbereitung') + '</option>' +
         '</select></div>' +
         '<div class="form-group mb-4"><label class="form-label">' + t('notizen') + '</label>' +
-          '<textarea class="form-textarea" id="edit-lesson-notes">' + (lesson.notes || '') + '</textarea></div>';
+          '<textarea class="form-textarea" id="edit-lesson-notes">' + this._escapeHtml(lesson.notes || '') + '</textarea>' +
+          '<div class="text-xs text-muted" style="margin-top:4px;">\u{1F517} Tipp: Links (z.B. YouTube-Videos) k\u00f6nnen einfach reinkopiert werden \u2013 sie werden f\u00fcr den Sch\u00fcler klickbar.</div></div>';
       html += '<div class="section-title mb-3">' + t('bewertung') + '</div>';
       SKILL_TASKS.forEach(function(task) {
         var current = lesson.ratings[task] || 2;
