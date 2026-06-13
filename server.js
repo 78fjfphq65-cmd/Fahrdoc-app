@@ -4211,59 +4211,10 @@ app.post('/api/slot-offers/book/:slotId', authMiddleware, async (req, res) => {
   }
 });
 
-// Cancel a booked slot (student) — respects cancel deadline
-app.post('/api/slot-offers/cancel/:slotId', authMiddleware, async (req, res) => {
-  if (req.user.role !== 'student') return res.status(403).json({ error: 'Nur Schüler' });
-  try {
-    var slotId = req.params.slotId;
-    var { data: slot } = await supabase.from('slot_offer_slots')
-      .select('id, offer_id, date, start_time, end_time, status, booked_by')
-      .eq('id', slotId).single();
-    if (!slot || slot.booked_by !== req.user.id) return res.status(404).json({ error: 'Nicht gefunden' });
-    if (slot.status !== 'booked') return res.status(400).json({ error: 'Slot nicht gebucht' });
-    // Check cancel deadline
-    var { data: offer } = await supabase.from('slot_offers')
-      .select('cancel_deadline_hours, school_id, instructor_id').eq('id', slot.offer_id).single();
-    var deadlineHours = (offer && offer.cancel_deadline_hours) || 24;
-    var slotDateTime = new Date(slot.date + 'T' + slot.start_time);
-    var deadlineTime = new Date(slotDateTime.getTime() - deadlineHours * 60 * 60 * 1000);
-    if (new Date() > deadlineTime) {
-      return res.status(400).json({ error: 'Absagefrist von ' + deadlineHours + ' Stunden abgelaufen' });
-    }
-    // Re-open slot
-    await supabase.from('slot_offer_slots')
-      .update({ status: 'open', booked_by: null, booked_at: null })
-      .eq('id', slotId);
-    // Delete the scheduled_lesson
-    await supabase.from('scheduled_lessons')
-      .delete()
-      .eq('instructor_id', offer.instructor_id)
-      .eq('student_id', req.user.id)
-      .eq('date', slot.date)
-      .eq('start_time', slot.start_time);
-    // Notify school + instructor
-    var { data: student } = await supabase.from('students').select('name').eq('id', req.user.id).single();
-    var stuName = student ? student.name : 'Schüler';
-    var dayStr = new Date(slot.date).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' });
-    var cancelMsg = stuName + ' hat den Termin am ' + dayStr + ' (' + slot.start_time + '-' + slot.end_time + ') abgesagt. Slot ist wieder verfügbar.';
-    await createNotification(offer.school_id, 'school', 'slot_cancelled', 'Termin abgesagt', cancelMsg, slotId);
-    await createNotification(offer.instructor_id, 'instructor', 'slot_cancelled', 'Termin abgesagt', cancelMsg, slotId);
-    // Re-notify other recipients
-    var { data: recipients } = await supabase.from('slot_offer_recipients')
-      .select('student_id').eq('offer_id', slot.offer_id);
-    if (recipients) {
-      for (var r = 0; r < recipients.length; r++) {
-        if (recipients[r].student_id !== req.user.id) {
-          await createNotification(recipients[r].student_id, 'student', 'slot_available',
-            'Termin wieder verfügbar', 'Ein Termin am ' + dayStr + ' (' + slot.start_time + '-' + slot.end_time + ') ist wieder frei!', slot.offer_id);
-        }
-      }
-    }
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[SlotOffer] Cancel error:', err.message);
-    res.status(500).json({ error: 'Serverfehler' });
-  }
+// Storno-Funktion fuer Schueler wurde entfernt. Endpoint bleibt als 410
+// damit alte Clients eine klare Meldung sehen statt 404.
+app.post('/api/slot-offers/cancel/:slotId', authMiddleware, function(req, res) {
+  return res.status(410).json({ error: 'Stornierung durch Schueler ist nicht moeglich. Bitte wende dich an deine Fahrschule.' });
 });
 
 // Get all offers for school (management view)

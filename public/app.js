@@ -6607,20 +6607,6 @@ var App = {
     }
   },
 
-  cancelBookedSlot: async function(slotId) {
-    try {
-      await ApiClient.post('/api/slot-offers/cancel/' + slotId);
-      this.showToast(t('absageErfolgreich'));
-      this.renderStudentTermineTab();
-    } catch (err) {
-      if (err.message && err.message.indexOf('Absagefrist') !== -1) {
-        this.showToast(t('absageFristAbgelaufen'));
-      } else {
-        this.showToast(t('fehler') + ': ' + (err.message || err));
-      }
-    }
-  },
-
   renderStudentLessonsTab: async function() {
     var stu = AppState.currentUser;
     var main = document.getElementById('student-main');
