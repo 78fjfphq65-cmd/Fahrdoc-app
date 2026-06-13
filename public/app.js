@@ -1382,11 +1382,9 @@ var App = {
     html += '<div class="form-row form-row-2 mb-3">' +
       '<div class="form-group"><label class="form-label">' + t('klasse') + '</label>' +
         '<select class="form-select" id="schedule-class">' +
-          '<option value="B"' + (cls === 'B' ? ' selected' : '') + '>B</option>' +
-          '<option value="A"' + (cls === 'A' ? ' selected' : '') + '>A</option>' +
-          '<option value="A1"' + (cls === 'A1' ? ' selected' : '') + '>A1</option>' +
-          '<option value="A2"' + (cls === 'A2' ? ' selected' : '') + '>A2</option>' +
-          '<option value="AM"' + (cls === 'AM' ? ' selected' : '') + '>AM</option>' +
+          ['B','B78','B96','B196','B197','BE','A','A1','A2','AM','BF17','C','CE','D','L','T'].map(function(k){
+            return '<option value="' + k + '"' + (cls === k ? ' selected' : '') + '>' + k + '</option>';
+          }).join('') +
         '</select></div>' +
       '<div class="form-group"><label class="form-label">' + t('dauer') + '</label>' +
         '<div class="form-input" style="background:var(--color-surface-2);border:none;" id="schedule-duration-display">—</div></div>' +
