@@ -2064,7 +2064,7 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
       if (!inst) return res.status(403).json({ error: 'Fahrlehrer gehört nicht zu dieser Fahrschule' });
     }
 
-    // Check overlap
+    // Check overlap (instructor)
     const { data: overlaps } = await supabase.from('scheduled_lessons')
       .select('id')
       .eq('instructor_id', targetInstructorId)
@@ -2073,6 +2073,26 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
       .gt('end_time', startTime);
 
     if (overlaps && overlaps.length > 0) return res.status(409).json({ error: 'Zeitüberschneidung mit bestehendem Termin' });
+
+    // Check overlap (vehicle) - prevent double-booking of same car at same time
+    if (vehicleId) {
+      const { data: vehOverlaps } = await supabase.from('scheduled_lessons')
+        .select('id, instructor_id, start_time, end_time')
+        .eq('vehicle_id', vehicleId)
+        .eq('date', date)
+        .lt('start_time', endTime)
+        .gt('end_time', startTime);
+      if (vehOverlaps && vehOverlaps.length > 0) {
+        const conflictInstId = vehOverlaps[0].instructor_id;
+        let conflictName = 'einem anderen Fahrlehrer';
+        if (conflictInstId) {
+          const { data: ci } = await supabase.from('instructors').select('name').eq('id', conflictInstId).single();
+          if (ci && ci.name) conflictName = ci.name;
+        }
+        const ct = (vehOverlaps[0].start_time || '').slice(0,5) + '–' + (vehOverlaps[0].end_time || '').slice(0,5);
+        return res.status(409).json({ error: 'Fahrzeug ist zu dieser Zeit bereits bei ' + conflictName + ' eingeplant (' + ct + ')' });
+      }
+    }
 
     // 11-hour rest period check (§5 ArbZG)
     const prevDate = new Date(date); prevDate.setDate(prevDate.getDate() - 1);
@@ -2168,8 +2188,30 @@ app.put('/api/schedule/:id', authMiddleware, async (req, res) => {
         .neq('id', req.params.id)
         .lt('start_time', newEnd)
         .gt('end_time', newStart);
-
       if (overlaps && overlaps.length > 0) return res.status(409).json({ error: 'Zeitüberschneidung mit bestehendem Termin' });
+
+      // Vehicle overlap check on update
+      const checkVehicleId = (vehicleId !== undefined) ? vehicleId : slot.vehicle_id;
+      if (checkVehicleId) {
+        const { data: vehOverlaps } = await supabase.from('scheduled_lessons')
+          .select('id, instructor_id, start_time, end_time')
+          .eq('vehicle_id', checkVehicleId)
+          .eq('date', newDate)
+          .neq('id', req.params.id)
+          .lt('start_time', newEnd)
+          .gt('end_time', newStart);
+        if (vehOverlaps && vehOverlaps.length > 0) {
+          const conflictInstId = vehOverlaps[0].instructor_id;
+          let conflictName = 'einem anderen Fahrlehrer';
+          if (conflictInstId) {
+            const { data: ci } = await supabase.from('instructors').select('name').eq('id', conflictInstId).single();
+            if (ci && ci.name) conflictName = ci.name;
+          }
+          const ct = (vehOverlaps[0].start_time || '').slice(0,5) + '–' + (vehOverlaps[0].end_time || '').slice(0,5);
+          return res.status(409).json({ error: 'Fahrzeug ist zu dieser Zeit bereits bei ' + conflictName + ' eingeplant (' + ct + ')' });
+        }
+      }
+
     }
 
     let newStatus = status;
