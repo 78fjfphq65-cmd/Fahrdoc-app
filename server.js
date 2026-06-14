@@ -238,7 +238,7 @@ async function authMiddleware(req, res, next) {
   let user = null;
   if (session.user_role === 'school') {
     const { data } = await supabase.from('schools')
-      .select('id, name, admin_name, email, phone, address, verified')
+      .select('id, name, admin_name, email, phone, address, verified, accounting_mode, accounting_mode_changed_at')
       .eq('id', session.user_id).single();
     if (data) { user = data; user.role = 'school'; }
   } else if (session.user_role === 'instructor') {
@@ -343,7 +343,7 @@ app.post('/api/auth/login', async (req, res) => {
     let fullUser = null;
     if (role === 'school') {
       const { data } = await supabase.from('schools')
-        .select('id, name, admin_name, email, phone, address, verified').eq('id', user.id).single();
+        .select('id, name, admin_name, email, phone, address, verified, accounting_mode, accounting_mode_changed_at').eq('id', user.id).single();
       const { data: sub } = await supabase.from('subscriptions').select('*').eq('school_id', user.id).single();
       fullUser = data;
       fullUser.subscription = sub;
@@ -1568,13 +1568,13 @@ app.get('/api/lesson/:id', authMiddleware, async (req, res) => {
 app.post('/api/lessons', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur Fahrlehrer können Fahrstunden erstellen' });
-    const { studentId, type, duration, notes, ratings, licenseClass, date, images, billingCategory } = req.body;
+    const { studentId, type, duration, notes, ratings, licenseClass, date, images } = req.body;
 
     if (!type || !duration) return res.status(400).json({ error: 'Pflichtfelder fehlen' });
 
-    // Verrechnungs-Kategorie validieren (regular = Standard mit Soll, free = ohne Soll, trial = Schnupperfahrt)
-    const _allowedBilling = ['regular','free','trial'];
-    const _billingCategory = _allowedBilling.indexOf(billingCategory) >= 0 ? billingCategory : 'regular';
+    // GoBD-konform: Jede Fahrstunde ist regulär. Gratis/Schnupperfahrt-Kennzeichnung
+    // wurde in Push 8 entfernt — Rabatte/Sondervereinbarungen über Korrektur-Buchungen.
+    const _billingCategory = 'regular';
 
     var schoolId = req.user.school_id;
     if (studentId) {
@@ -1620,14 +1620,17 @@ app.post('/api/lessons', authMiddleware, async (req, res) => {
     }
 
     // ── BUCHHALTUNG: Auto-Soll-Position erzeugen wenn passendes Template existiert ──
-    // Nur bei regulären Stunden — gratis/trial erzeugen KEINE Soll-Position
-    if (studentId && _billingCategory === 'regular') {
+    // Nur im GoBD-Modus — im external-Modus führt die Fahrschule die Buchhaltung extern.
+    if (studentId) {
       try {
-        await autoCreateChargeFromLesson({
-          schoolId: schoolId, studentId: studentId, lessonId: id,
-          lessonType: type, lessonDate: lessonDate,
-          createdByRole: 'instructor', createdById: req.user.id
-        });
+        const mode = await getAccountingMode(schoolId);
+        if (mode === 'gobd') {
+          await autoCreateChargeFromLesson({
+            schoolId: schoolId, studentId: studentId, lessonId: id,
+            lessonType: type, lessonDate: lessonDate,
+            createdByRole: 'instructor', createdById: req.user.id
+          });
+        }
       } catch (chargeErr) {
         // Buchhaltungs-Fehler darf Fahrstunden-Speicherung nicht blockieren
         console.warn('[Auto-Charge] Konnte Soll-Position nicht erzeugen:', chargeErr.message);
@@ -1679,67 +1682,10 @@ app.put('/api/lessons/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// PATCH /api/lessons/:id/billing — Verrechnungs-Kategorie nachträglich ändern (nur Fahrschule)
-// Body: { billing_category: 'regular' | 'free' | 'trial' }
-// Wechselt nach 'regular': autoCreateChargeFromLesson aufrufen.
-// Wechselt weg von 'regular': zugehörige Auto-Soll-Position löschen (nur source='auto').
-app.patch('/api/lessons/:id/billing', authMiddleware, async (req, res) => {
-  try {
-    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur die Fahrschule darf die Verrechnung ändern' });
-    const allowed = ['regular','free','trial'];
-    const newCat = req.body && req.body.billing_category;
-    if (allowed.indexOf(newCat) < 0) return res.status(400).json({ error: 'Ungültige Verrechnungs-Kategorie' });
-
-    // Lesson laden + Zugehörigkeit zur Schule prüfen
-    const { data: lesson } = await supabase.from('lessons')
-      .select('*').eq('id', req.params.id).eq('school_id', req.user.id).is('deleted_at', null).maybeSingle();
-    if (!lesson) return res.status(404).json({ error: 'Fahrstunde nicht gefunden' });
-
-    const oldCat = lesson.billing_category || 'regular';
-    if (oldCat === newCat) return res.json({ success: true, unchanged: true });
-
-    // Update Lesson
-    const { error: upErr } = await supabase.from('lessons')
-      .update({ billing_category: newCat }).eq('id', req.params.id);
-    if (upErr) throw upErr;
-
-    // Auto-Charge synchron halten
-    let chargeAction = 'none';
-    if (oldCat === 'regular' && newCat !== 'regular') {
-      // Auto-Soll löschen (nur source='auto', nicht manuell angelegte)
-      const { data: existing } = await supabase.from('student_charges')
-        .select('id, invoice_id').eq('lesson_id', lesson.id).eq('source', 'auto');
-      if (existing && existing.length > 0) {
-        // Nur löschen wenn nicht bereits in einer Rechnung
-        const deletable = existing.filter(function(c){ return !c.invoice_id; });
-        if (deletable.length > 0) {
-          await supabase.from('student_charges').delete().in('id', deletable.map(function(c){ return c.id; }));
-          chargeAction = 'deleted';
-        } else {
-          chargeAction = 'kept_invoiced';
-        }
-      }
-    } else if (oldCat !== 'regular' && newCat === 'regular' && lesson.student_id) {
-      // Auto-Soll erzeugen
-      try {
-        await autoCreateChargeFromLesson({
-          schoolId: lesson.school_id, studentId: lesson.student_id, lessonId: lesson.id,
-          lessonType: lesson.type, lessonDate: lesson.date,
-          createdByRole: 'school', createdById: req.user.id
-        });
-        chargeAction = 'created';
-      } catch (chargeErr) {
-        console.warn('[Billing-Patch] Auto-Charge konnte nicht erzeugt werden:', chargeErr.message);
-        chargeAction = 'create_failed';
-      }
-    }
-
-    res.json({ success: true, old: oldCat, new: newCat, charge_action: chargeAction });
-  } catch (err) {
-    console.error('[PATCH /api/lessons/:id/billing] error:', err.message);
-    res.status(500).json({ error: 'Serverfehler' });
-  }
-});
+// PATCH /api/lessons/:id/billing — ENTFERNT in Push 8.
+// GoBD-konform: Jede Fahrstunde erzeugt eine Soll-Position. Nachträgliche
+// Verrechnungsänderungen würden Aufzeichnungs-Integrität verletzen. Stattdessen
+// können Rabatte/Storni als separate Korrektur-Buchungen erfasst werden.
 
 app.delete('/api/lesson-image/:id', authMiddleware, async (req, res) => {
   try {
@@ -4549,11 +4495,175 @@ async function canAccessStudent(req, studentId) {
   return s.school_id === schoolIdOf(req.user);
 }
 
+// Helper: accounting_mode der Schule laden (Default 'gobd')
+async function getAccountingMode(schoolId) {
+  if (!schoolId) return 'gobd';
+  try {
+    const { data } = await supabase.from('schools')
+      .select('accounting_mode').eq('id', schoolId).maybeSingle();
+    return (data && data.accounting_mode) || 'gobd';
+  } catch (e) { return 'gobd'; }
+}
+
+// Middleware: Buchhaltungs-Endpoints nur im GoBD-Modus zulassen.
+// Im 'external'-Modus blockt mit 403, GET-Endpoints bleiben für Read-Only-Historie erlaubt,
+// wenn allowReadInExternal=true gesetzt ist.
+function requireGobdMode(opts) {
+  const allowReadInExternal = !!(opts && opts.allowReadInExternal);
+  return async function(req, res, next) {
+    try {
+      const schoolId = schoolIdOf(req.user);
+      if (!schoolId) return res.status(401).json({ error: 'Nicht authentifiziert' });
+      const mode = await getAccountingMode(schoolId);
+      if (mode === 'gobd') return next();
+      // external-Modus
+      if (allowReadInExternal && req.method === 'GET') return next();
+      return res.status(403).json({
+        error: 'Buchhaltung in FahrDoc ist deaktiviert',
+        code: 'ACCOUNTING_DISABLED',
+        accounting_mode: 'external'
+      });
+    } catch (e) {
+      console.error('[requireGobdMode] error:', e.message);
+      return res.status(500).json({ error: 'Serverfehler' });
+    }
+  };
+}
+
+// ============================================
+// BUCHHALTUNG: Modus-Verwaltung (GoBD vs. external)
+// ============================================
+// GET /api/school/accounting-mode — aktuellen Modus + History abfragen
+app.get('/api/school/accounting-mode', authMiddleware, async (req, res) => {
+  try {
+    const schoolId = schoolIdOf(req.user);
+    if (!schoolId) return res.status(401).json({ error: 'Nicht authentifiziert' });
+    const { data: school } = await supabase.from('schools')
+      .select('accounting_mode, accounting_mode_changed_at, accounting_mode_disclaimer_accepted_at')
+      .eq('id', schoolId).maybeSingle();
+    res.json({
+      mode: (school && school.accounting_mode) || 'gobd',
+      changed_at: school ? school.accounting_mode_changed_at : null,
+      disclaimer_accepted_at: school ? school.accounting_mode_disclaimer_accepted_at : null
+    });
+  } catch (err) {
+    console.error('[GET /api/school/accounting-mode] error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// PATCH /api/school/accounting-mode — Modus wechseln (nur Schul-Account)
+// Body: { mode: 'gobd' | 'external', disclaimer_accepted: true, disclaimer_text: '...' }
+app.patch('/api/school/accounting-mode', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur die Fahrschulleitung darf den Buchhaltungs-Modus ändern' });
+    const schoolId = schoolIdOf(req.user);
+    const b = req.body || {};
+    const newMode = b.mode;
+    if (newMode !== 'gobd' && newMode !== 'external') return res.status(400).json({ error: 'Ungültiger Modus' });
+
+    // Aktuellen Modus laden
+    const { data: school } = await supabase.from('schools')
+      .select('accounting_mode').eq('id', schoolId).maybeSingle();
+    const oldMode = (school && school.accounting_mode) || 'gobd';
+    if (oldMode === newMode) return res.json({ success: true, unchanged: true, mode: newMode });
+
+    // Beim Wechsel zu 'external' MUSS der Disclaimer bestätigt werden
+    if (newMode === 'external' && !b.disclaimer_accepted) {
+      return res.status(400).json({ error: 'Aufklärungstext muss bestätigt werden' });
+    }
+
+    const now = new Date().toISOString();
+    const updates = {
+      accounting_mode: newMode,
+      accounting_mode_changed_at: now
+    };
+    if (newMode === 'external') {
+      updates.accounting_mode_disclaimer_accepted_at = now;
+      updates.accounting_mode_disclaimer_accepted_by = req.user.id;
+    }
+    const { error: upErr } = await supabase.from('schools').update(updates).eq('id', schoolId);
+    if (upErr) throw upErr;
+
+    // Audit-Log
+    await supabase.from('accounting_mode_changes').insert({
+      id: generateId(),
+      school_id: schoolId,
+      changed_by_id: req.user.id,
+      from_mode: oldMode,
+      to_mode: newMode,
+      disclaimer_text: b.disclaimer_text || null,
+      ip_address: (req.headers['x-forwarded-for'] || req.connection.remoteAddress || '').toString().slice(0, 100),
+      user_agent: (req.headers['user-agent'] || '').toString().slice(0, 500)
+    });
+
+    res.json({ success: true, from: oldMode, to: newMode, changed_at: now });
+  } catch (err) {
+    console.error('[PATCH /api/school/accounting-mode] error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// GET /api/daily-overview?date=YYYY-MM-DD — Tätigkeitsnachweis ohne Geldbeträge
+// Liefert alle Fahrstunden des Tages mit: Schüler, Datum, Uhrzeit (falls vorhanden),
+// Dauer, Fahrlehrer, Typ, Führerscheinklasse — OHNE Preise, OHNE Summen.
+// In jedem Modus verfügbar (external-Modus: primärer Druck-Output).
+app.get('/api/daily-overview', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulleitung' });
+    const schoolId = schoolIdOf(req.user);
+    const date = (req.query && req.query.date) || new Date().toISOString().split('T')[0];
+    const dateTo = (req.query && req.query.date_to) || date;
+
+    // Lessons im Bereich laden
+    const { data: lessons } = await supabase.from('lessons')
+      .select('id, date, type, duration, license_class, student_id, instructor_id, created_at')
+      .eq('school_id', schoolId)
+      .gte('date', date).lte('date', dateTo)
+      .is('deleted_at', null)
+      .order('date', { ascending: true }).order('created_at', { ascending: true });
+
+    if (!lessons || lessons.length === 0) {
+      return res.json({ date: date, date_to: dateTo, lessons: [], total_count: 0 });
+    }
+
+    // Schueler-Namen + Fahrlehrer-Namen nachladen
+    const studentIds = Array.from(new Set(lessons.map(function(l){return l.student_id;}).filter(Boolean)));
+    const instructorIds = Array.from(new Set(lessons.map(function(l){return l.instructor_id;}).filter(Boolean)));
+    const [{ data: students }, { data: instructors }] = await Promise.all([
+      studentIds.length ? supabase.from('students').select('id, name').in('id', studentIds) : Promise.resolve({ data: [] }),
+      instructorIds.length ? supabase.from('instructors').select('id, name').in('id', instructorIds) : Promise.resolve({ data: [] })
+    ]);
+    const studentMap = {};
+    (students || []).forEach(function(s){ studentMap[s.id] = s.name || ''; });
+    const instructorMap = {};
+    (instructors || []).forEach(function(u){ instructorMap[u.id] = u.name || ''; });
+
+    const rows = lessons.map(function(l){
+      return {
+        id: l.id,
+        date: l.date,
+        time: l.created_at ? new Date(l.created_at).toISOString().substr(11, 5) : null,
+        type: l.type,
+        duration_min: l.duration,
+        license_class: l.license_class,
+        student_name: studentMap[l.student_id] || '—',
+        instructor_name: instructorMap[l.instructor_id] || '—'
+      };
+    });
+
+    res.json({ date: date, date_to: dateTo, lessons: rows, total_count: rows.length });
+  } catch (err) {
+    console.error('[GET /api/daily-overview] error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
 // ============================================
 // BUCHHALTUNG: Preisliste (pricing_templates)
 // ============================================
 // GET /api/pricing-templates — alle Templates der Schule
-app.get('/api/pricing-templates', authMiddleware, async (req, res) => {
+app.get('/api/pricing-templates', authMiddleware, requireGobdMode({allowReadInExternal:true}), async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule darf Preise sehen' });
     const schoolId = schoolIdOf(req.user);
@@ -4568,7 +4678,7 @@ app.get('/api/pricing-templates', authMiddleware, async (req, res) => {
 });
 
 // POST /api/pricing-templates — neues Template anlegen (nur Schule)
-app.post('/api/pricing-templates', authMiddleware, async (req, res) => {
+app.post('/api/pricing-templates', authMiddleware, requireGobdMode(), async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Schule darf Preise anlegen' });
     const b = req.body || {};
@@ -4595,7 +4705,7 @@ app.post('/api/pricing-templates', authMiddleware, async (req, res) => {
 });
 
 // PUT /api/pricing-templates/:id
-app.put('/api/pricing-templates/:id', authMiddleware, async (req, res) => {
+app.put('/api/pricing-templates/:id', authMiddleware, requireGobdMode(), async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Schule darf Preise ändern' });
     const { data: existing } = await supabase.from('pricing_templates')
@@ -4621,7 +4731,7 @@ app.put('/api/pricing-templates/:id', authMiddleware, async (req, res) => {
 });
 
 // DELETE /api/pricing-templates/:id
-app.delete('/api/pricing-templates/:id', authMiddleware, async (req, res) => {
+app.delete('/api/pricing-templates/:id', authMiddleware, requireGobdMode(), async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Schule darf Preise löschen' });
     const { error } = await supabase.from('pricing_templates')
@@ -4671,7 +4781,7 @@ app.get('/api/students/:id/billing', authMiddleware, async (req, res) => {
 });
 
 // POST /api/students/:id/charges — manuelle Soll-Position anlegen
-app.post('/api/students/:id/charges', authMiddleware, async (req, res) => {
+app.post('/api/students/:id/charges', authMiddleware, requireGobdMode(), async (req, res) => {
   try {
     const allowed = await canAccessStudent(req, req.params.id);
     if (!allowed) return res.status(403).json({ error: 'Keine Berechtigung' });
@@ -4707,7 +4817,7 @@ app.post('/api/students/:id/charges', authMiddleware, async (req, res) => {
 });
 
 // DELETE /api/charges/:id — Position löschen (nur Fahrschule)
-app.delete('/api/charges/:id', authMiddleware, async (req, res) => {
+app.delete('/api/charges/:id', authMiddleware, requireGobdMode(), async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule darf Positionen löschen' });
     const { data: charge } = await supabase.from('student_charges')
@@ -4725,7 +4835,7 @@ app.delete('/api/charges/:id', authMiddleware, async (req, res) => {
 });
 
 // POST /api/students/:id/payments — Zahlung erfassen (optional an Rechnung)
-app.post('/api/students/:id/payments', authMiddleware, async (req, res) => {
+app.post('/api/students/:id/payments', authMiddleware, requireGobdMode(), async (req, res) => {
   try {
     const allowed = await canAccessStudent(req, req.params.id);
     if (!allowed) return res.status(403).json({ error: 'Keine Berechtigung' });
@@ -4767,7 +4877,7 @@ app.post('/api/students/:id/payments', authMiddleware, async (req, res) => {
 });
 
 // DELETE /api/payments/:id (nur Fahrschule)
-app.delete('/api/payments/:id', authMiddleware, async (req, res) => {
+app.delete('/api/payments/:id', authMiddleware, requireGobdMode(), async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule darf Zahlungen löschen' });
     const { data: pay } = await supabase.from('student_payments')
@@ -4867,7 +4977,7 @@ async function refreshInvoiceStatus(invoiceId) {
 }
 
 // GET /api/invoices — alle Rechnungen der Schule (optional Filter ?student_id=)
-app.get('/api/invoices', authMiddleware, async (req, res) => {
+app.get('/api/invoices', authMiddleware, requireGobdMode({allowReadInExternal:true}), async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
     const schoolId = schoolIdOf(req.user);
@@ -4884,7 +4994,7 @@ app.get('/api/invoices', authMiddleware, async (req, res) => {
 });
 
 // GET /api/invoices/:id — eine Rechnung inkl. Items + Schule + Schüler + Zahlungen (für PDF)
-app.get('/api/invoices/:id', authMiddleware, async (req, res) => {
+app.get('/api/invoices/:id', authMiddleware, requireGobdMode({allowReadInExternal:true}), async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
     const schoolId = schoolIdOf(req.user);
@@ -4911,7 +5021,7 @@ app.get('/api/invoices/:id', authMiddleware, async (req, res) => {
 
 // POST /api/invoices — Rechnung aus offenen Charges erzeugen
 // body: { student_id, charge_ids: [], invoice_date?, due_date?, notes? }
-app.post('/api/invoices', authMiddleware, async (req, res) => {
+app.post('/api/invoices', authMiddleware, requireGobdMode(), async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
     const b = req.body || {};
@@ -5004,7 +5114,7 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
 });
 
 // POST /api/invoices/:id/cancel — Rechnung stornieren (GoBD: kein Löschen)
-app.post('/api/invoices/:id/cancel', authMiddleware, async (req, res) => {
+app.post('/api/invoices/:id/cancel', authMiddleware, requireGobdMode(), async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
     const schoolId = schoolIdOf(req.user);
@@ -5034,7 +5144,7 @@ app.post('/api/invoices/:id/cancel', authMiddleware, async (req, res) => {
 // inkl. Schüler-Name + optional Fahrlehrer-Name (über lesson_id) + Steueraufteilung.
 // Default ohne from/to = heute.
 // ============================================
-app.get('/api/accounting/daily-summary', authMiddleware, async (req, res) => {
+app.get('/api/accounting/daily-summary', authMiddleware, requireGobdMode({allowReadInExternal:true}), async (req, res) => {
   try {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
     const schoolId = schoolIdOf(req.user);

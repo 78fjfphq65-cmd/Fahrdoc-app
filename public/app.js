@@ -1784,15 +1784,27 @@ var App = {
       // Liste der neuen Schueler entfernt - sie sind ohnehin in der Schuelerliste weiter unten zu sehen
       html += '</div>';
 
-      // ──── TAGESÜBERSICHT-BUTTON (Buchhaltung) ────
-      html += '<button onclick="App.openDailySummary()" class="daily-summary-cta" style="width:100%;display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#fff;border:none;border-radius:var(--radius-md);margin-bottom:var(--space-4);cursor:pointer;text-align:left;box-shadow:0 2px 8px rgba(59,130,246,0.25);">' +
-        '<div style="font-size:28px;line-height:1;">📋</div>' +
-        '<div style="flex:1;">' +
-          '<div style="font-size:15px;font-weight:700;">Tagesübersicht öffnen</div>' +
-          '<div style="font-size:12px;opacity:.9;margin-top:2px;">Soll-Positionen drucken, exportieren oder abhaken</div>' +
-        '</div>' +
-        '<div style="font-size:20px;opacity:.7;">→</div>' +
-      '</button>';
+      // ──── TAGESÜBERSICHT-BUTTON (modus-abhängig) ────
+      var _accMode = (school.accounting_mode || 'gobd');
+      if (_accMode === 'gobd') {
+        html += '<button onclick="App.openDailySummary()" class="daily-summary-cta" data-accounting-feature style="width:100%;display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#fff;border:none;border-radius:var(--radius-md);margin-bottom:var(--space-4);cursor:pointer;text-align:left;box-shadow:0 2px 8px rgba(59,130,246,0.25);">' +
+          '<div style="font-size:28px;line-height:1;">📋</div>' +
+          '<div style="flex:1;">' +
+            '<div style="font-size:15px;font-weight:700;">Tagesübersicht öffnen</div>' +
+            '<div style="font-size:12px;opacity:.9;margin-top:2px;">Soll-Positionen drucken, exportieren oder abhaken</div>' +
+          '</div>' +
+          '<div style="font-size:20px;opacity:.7;">→</div>' +
+        '</button>';
+      } else {
+        html += '<button onclick="App.openActivityOverview()" class="daily-summary-cta" style="width:100%;display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:linear-gradient(135deg,#6366f1 0%,#4338ca 100%);color:#fff;border:none;border-radius:var(--radius-md);margin-bottom:var(--space-4);cursor:pointer;text-align:left;box-shadow:0 2px 8px rgba(99,102,241,0.25);">' +
+          '<div style="font-size:28px;line-height:1;">📋</div>' +
+          '<div style="flex:1;">' +
+            '<div style="font-size:15px;font-weight:700;">Tätigkeitsübersicht öffnen</div>' +
+            '<div style="font-size:12px;opacity:.9;margin-top:2px;">Gefahrene Fahrstunden des Tages / der Woche drucken</div>' +
+          '</div>' +
+          '<div style="font-size:20px;opacity:.7;">→</div>' +
+        '</button>';
+      }
 
       // ──── CLICKABLE STAT CARDS ────
       html += '<div class="stat-grid mb-4">' +
@@ -3909,6 +3921,7 @@ var App = {
         '<div class="profile-row"><span class="profile-row-label">' + t('adresse') + '</span><span class="profile-row-value">' + (u.address || '—') + '</span></div>' +
       '</div>' +
       '<div id="profile-abo-section"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>' +
+      '<div id="profile-accounting-mode-section"></div>' +
       '<div id="profile-billing-settings-section"></div>' +
       '<div id="profile-pricing-categories-section"></div>' +
       '<div class="card mb-4"><div class="section-title mb-3">' + t('supportFeedback') + '</div>' +
@@ -3927,10 +3940,166 @@ var App = {
     main.innerHTML = html;
     // Load abo data async
     this._loadProfileAbo();
+    // Load accounting mode (GoBD vs external) toggle
+    this._loadAccountingMode();
     // Load billing settings (nur Fahrschule)
     this._loadBillingSettings();
     // Load merged price categories + pricing templates (Push 7)
     this._loadPricingAndCategories();
+  },
+
+  // ============================================
+  // Push 8: Buchhaltungs-Modus (GoBD vs. external)
+  // ============================================
+  _loadAccountingMode: async function() {
+    var container = document.getElementById('profile-accounting-mode-section');
+    if (!container) return;
+    var u = AppState.currentUser;
+    if (u.role !== 'school') { container.innerHTML = ''; return; }
+    try {
+      var data = await ApiClient.get('/api/school/accounting-mode');
+      this._renderAccountingMode(data || { mode: 'gobd' });
+    } catch (err) {
+      container.innerHTML = '';
+    }
+  },
+
+  _renderAccountingMode: function(data) {
+    var container = document.getElementById('profile-accounting-mode-section');
+    if (!container) return;
+    var mode = data.mode || 'gobd';
+    var isGobd = mode === 'gobd';
+    var statusBadge = isGobd
+      ? '<span style="background:#10b981;color:#fff;padding:4px 10px;border-radius:12px;font-size:var(--text-xs);font-weight:600;">GoBD-konform aktiv</span>'
+      : '<span style="background:#f59e0b;color:#fff;padding:4px 10px;border-radius:12px;font-size:var(--text-xs);font-weight:600;">Externe Buchhaltung</span>';
+    var changedInfo = '';
+    if (data.changed_at) {
+      var d = new Date(data.changed_at);
+      changedInfo = '<div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:8px;">Zuletzt geändert: ' + d.toLocaleDateString('de-DE') + '</div>';
+    }
+    var description = isGobd
+      ? 'Jede Fahrstunde erzeugt automatisch eine Soll-Position. Rechnungen, Zahlungen und DATEV-Export sind aktiviert.'
+      : 'Buchhaltungs-Funktionen sind deaktiviert. Sie führen Ihre Buchhaltung extern (z. B. über Steuerberater oder andere Software). FahrDoc dient als Tätigkeitsnachweis.';
+    var btnLabel = isGobd ? 'Buchhaltung deaktivieren' : 'Buchhaltung aktivieren';
+    var btnStyle = isGobd ? 'background:#f59e0b;color:#fff;' : 'background:#10b981;color:#fff;';
+    container.innerHTML = '<div class="card mb-4">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+        '<div class="section-title" style="margin:0;">Buchhaltungs-Modus</div>' +
+        statusBadge +
+      '</div>' +
+      '<div style="font-size:var(--text-sm);color:var(--text-muted);margin-bottom:var(--space-3);">' + description + '</div>' +
+      changedInfo +
+      '<button class="btn btn-sm" style="margin-top:12px;' + btnStyle + '" onclick="App.openAccountingModeModal(\'' + (isGobd ? 'external' : 'gobd') + '\')">' + btnLabel + '</button>' +
+    '</div>';
+  },
+
+  openAccountingModeModal: function(targetMode) {
+    var self = this;
+    var existing = document.getElementById('accounting-mode-modal');
+    if (existing) existing.remove();
+    var modal = document.createElement('div');
+    modal.id = 'accounting-mode-modal';
+    modal.className = 'modal-overlay';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+
+    var html, btnAction;
+    if (targetMode === 'external') {
+      html = '<h3 style="margin:0 0 12px 0;color:#dc2626;">⚠️ Buchhaltung in FahrDoc deaktivieren</h3>' +
+        '<div style="font-size:var(--text-sm);line-height:1.5;color:#374151;max-height:50vh;overflow-y:auto;padding-right:8px;">' +
+        '<p><strong>Was passiert beim Deaktivieren:</strong></p>' +
+        '<ul style="padding-left:20px;margin:8px 0;">' +
+          '<li>Es werden <strong>keine Soll-Positionen</strong> mehr automatisch erzeugt</li>' +
+          '<li>Sie können <strong>keine neuen Rechnungen</strong> mehr in FahrDoc erstellen</li>' +
+          '<li>Keine neuen Zahlungseingänge mehr erfassen</li>' +
+          '<li>Kein DATEV-Export für neue Vorgänge</li>' +
+          '<li>Bestehende Rechnungen und Buchungen bleiben <strong>einsehbar</strong> (GoBD-Pflicht: 10 Jahre Aufbewahrung)</li>' +
+          '<li>Sie können weiterhin Fahrstunden erfassen und eine <strong>Tätigkeitsübersicht ausdrucken</strong></li>' +
+        '</ul>' +
+        '<p style="background:#fef3c7;padding:10px;border-radius:6px;border-left:3px solid #f59e0b;">' +
+        '<strong>Ihre Verantwortung:</strong> Sie sind verpflichtet, eine ordnungsgemäße Buchführung gemäß §§ 140 ff. AO und den Grundsätzen zur ordnungsgemäßen Führung und Aufbewahrung von Büchern (GoBD) über andere Mittel sicherzustellen — etwa über Ihren Steuerberater oder eine andere Buchhaltungs-Software.' +
+        '</p>' +
+        '<p style="background:#fee2e2;padding:10px;border-radius:6px;border-left:3px solid #dc2626;margin-top:10px;">' +
+        '<strong>Haftungsausschluss:</strong> FahrDoc übernimmt keine Haftung für steuerrechtliche Konsequenzen, die aus der Deaktivierung der integrierten Buchhaltung entstehen. Diese Entscheidung wird mit Zeitstempel und Ihrer User-ID protokolliert.' +
+        '</p>' +
+        '<label style="display:flex;align-items:flex-start;gap:8px;margin-top:14px;cursor:pointer;">' +
+          '<input type="checkbox" id="acc-mode-confirm" style="margin-top:3px;">' +
+          '<span style="font-size:var(--text-sm);">Ich habe die Hinweise gelesen und verstanden. Ich übernehme die volle Verantwortung für eine GoBD-konforme Buchführung außerhalb von FahrDoc.</span>' +
+        '</label>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:16px;">' +
+          '<button class="btn btn-secondary" style="flex:1;" onclick="document.getElementById(\'accounting-mode-modal\').remove();">Abbrechen</button>' +
+          '<button class="btn" id="acc-mode-submit" style="flex:1;background:#dc2626;color:#fff;" disabled onclick="App.confirmAccountingMode(\'external\')">Deaktivieren</button>' +
+        '</div>';
+    } else {
+      html = '<h3 style="margin:0 0 12px 0;color:#10b981;">Buchhaltung in FahrDoc aktivieren</h3>' +
+        '<div style="font-size:var(--text-sm);line-height:1.5;color:#374151;">' +
+        '<p>Ab sofort werden wieder:</p>' +
+        '<ul style="padding-left:20px;margin:8px 0;">' +
+          '<li>Soll-Positionen automatisch zu Fahrstunden erzeugt</li>' +
+          '<li>Rechnungen und Zahlungen erfasst</li>' +
+          '<li>DATEV-Export ermöglicht</li>' +
+        '</ul>' +
+        '<p>Für Fahrstunden, die während der externen Phase entstanden sind, werden <strong>keine</strong> rückwirkenden Soll-Positionen erstellt — diese müssten Sie bei Bedarf manuell als Korrektur anlegen.</p>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:16px;">' +
+          '<button class="btn btn-secondary" style="flex:1;" onclick="document.getElementById(\'accounting-mode-modal\').remove();">Abbrechen</button>' +
+          '<button class="btn btn-primary" style="flex:1;" onclick="App.confirmAccountingMode(\'gobd\')">Aktivieren</button>' +
+        '</div>';
+    }
+    modal.innerHTML = '<div style="background:#fff;border-radius:12px;max-width:560px;width:100%;padding:20px;max-height:90vh;overflow-y:auto;">' + html + '</div>';
+    document.body.appendChild(modal);
+    // Checkbox-Listener nur für external
+    if (targetMode === 'external') {
+      var cb = document.getElementById('acc-mode-confirm');
+      var btn = document.getElementById('acc-mode-submit');
+      if (cb && btn) {
+        cb.addEventListener('change', function(){ btn.disabled = !cb.checked; });
+      }
+    }
+  },
+
+  confirmAccountingMode: async function(newMode) {
+    var body = { mode: newMode };
+    if (newMode === 'external') {
+      var cb = document.getElementById('acc-mode-confirm');
+      if (!cb || !cb.checked) { Toast.error('Bitte bestätigen Sie den Aufklärungstext'); return; }
+      body.disclaimer_accepted = true;
+      body.disclaimer_text = 'Buchhaltung extern — Verantwortung beim Inhaber gemäß §§ 140 ff. AO + GoBD';
+    }
+    try {
+      await ApiClient.patch('/api/school/accounting-mode', body);
+      var modal = document.getElementById('accounting-mode-modal');
+      if (modal) modal.remove();
+      Toast.success(newMode === 'gobd' ? 'Buchhaltung aktiviert' : 'Buchhaltung deaktiviert');
+      // User-State refreshen + Tab neu rendern
+      try {
+        var me = await ApiClient.get('/api/auth/me');
+        AppState.currentUser = me;
+      } catch (e) {}
+      this.renderSchoolProfileTab();
+      // Sidebar/Tab-Sichtbarkeit aktualisieren
+      if (typeof this.applyAccountingModeVisibility === 'function') this.applyAccountingModeVisibility();
+    } catch (err) {
+      Toast.error('Fehler: ' + (err.message || err));
+    }
+  },
+
+  // Buchhaltungs-Tabs/Buttons im external-Modus ausblenden
+  applyAccountingModeVisibility: function() {
+    var u = AppState.currentUser;
+    if (!u || u.role !== 'school') return;
+    var isExternal = u.accounting_mode === 'external';
+    var selectors = [
+      '[data-tab="buchhaltung"]',
+      '[data-tab="rechnungen"]',
+      '[data-tab="umsaetze"]',
+      '[data-accounting-feature]'
+    ];
+    selectors.forEach(function(sel){
+      document.querySelectorAll(sel).forEach(function(el){
+        el.style.display = isExternal ? 'none' : '';
+      });
+    });
   },
 
   _loadBillingSettings: async function() {
@@ -7434,32 +7603,8 @@ var App = {
           '<div class="lesson-detail-row"><span class="lesson-detail-label">' + t('dauer') + '</span><span class="lesson-detail-value">' + this.formatDuration(lesson.duration) + '</span></div>' +
         '</div></div>';
 
-      // ── Verrechnung (sichtbar für Fahrschule + Fahrlehrer) ──
-      if (fromRole === 'school' || fromRole === 'instructor') {
-        var curCat = lesson.billing_category || 'regular';
-        var catLabel = { regular: 'Regul\u00e4r (mit Verrechnung)', free: 'Gratis (ohne Verrechnung)', trial: 'Schnupperfahrt (ohne Verrechnung)' };
-        var catColor = { regular: '#10b981', free: '#0ea5e9', trial: '#f59e0b' };
-        var catBg = { regular: '#d1fae5', free: '#e0f2fe', trial: '#fef3c7' };
-        var catText = { regular: '#065f46', free: '#0369a1', trial: '#92400e' };
-        html += '<div class="card mb-4" id="billing-section-' + lessonId + '">' +
-          '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-2);margin-bottom:var(--space-3);">' +
-            '<div class="section-title" style="margin:0;">\ud83d\udcb6 Verrechnung</div>' +
-            '<span id="billing-current-badge-' + lessonId + '" style="display:inline-flex;align-items:center;gap:6px;background:' + catBg[curCat] + ';color:' + catText[curCat] + ';padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;">' +
-              '<span style="width:8px;height:8px;border-radius:50%;background:' + catColor[curCat] + ';"></span>' + catLabel[curCat] +
-            '</span>' +
-          '</div>';
-        if (fromRole === 'school') {
-          html += '<p style="font-size:var(--text-xs);color:var(--text-muted);margin-bottom:var(--space-3);">\u00c4nderung wirkt sich auf die Buchhaltung aus: Wechsel zu Gratis/Schnupperfahrt l\u00f6scht die automatische Soll-Position (wenn nicht bereits in einer Rechnung). Wechsel zu Regul\u00e4r erzeugt eine neue Soll-Position aus dem passenden Preis-Template.</p>' +
-            '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-              '<button class="btn btn-sm" data-billing-cat="regular" onclick="App.changeLessonBilling(\'' + lessonId + '\', \'regular\', \'' + studentId + '\')" style="flex:1;min-width:120px;' + (curCat === 'regular' ? 'background:#10b981;color:#fff;border-color:#10b981;' : 'background:#f8fafb;') + '">Regul\u00e4r</button>' +
-              '<button class="btn btn-sm" data-billing-cat="free" onclick="App.changeLessonBilling(\'' + lessonId + '\', \'free\', \'' + studentId + '\')" style="flex:1;min-width:120px;' + (curCat === 'free' ? 'background:#0ea5e9;color:#fff;border-color:#0ea5e9;' : 'background:#f8fafb;') + '">Gratis</button>' +
-              '<button class="btn btn-sm" data-billing-cat="trial" onclick="App.changeLessonBilling(\'' + lessonId + '\', \'trial\', \'' + studentId + '\')" style="flex:1;min-width:120px;' + (curCat === 'trial' ? 'background:#f59e0b;color:#fff;border-color:#f59e0b;' : 'background:#f8fafb;') + '">Schnupperfahrt</button>' +
-            '</div>';
-        } else {
-          html += '<p style="font-size:var(--text-xs);color:var(--text-muted);margin:0;">Nur die Fahrschule kann die Verrechnungs-Kategorie nachtr\u00e4glich \u00e4ndern.</p>';
-        }
-        html += '</div>';
-      }
+      // Verrechnungs-Block entfernt (Push 8): GoBD-konform sind alle Fahrstunden regulär.
+      // Rabatte/Korrekturen erfolgen über separate Buchungen in der Buchhaltung.
       html += '<div class="card mb-4"><div class="section-title mb-3">' + t('bewertung') + '</div>';
       SKILL_TASKS.forEach(function(task) {
         var val = lesson.ratings[task] || 0; var info = getSkillLevel(val); var pct = (val / 4) * 100;
@@ -8630,6 +8775,144 @@ var App = {
     from: null, to: null, mode: 'day', // day | week | month
     instructorId: '', studentId: '',
     data: null, checked: {} // checked[chargeId] = true
+  },
+
+  // ============================================
+  // Push 8: Tätigkeitsübersicht (ohne Preise, für external-Modus)
+  // ============================================
+  _activity: { from: null, to: null, mode: 'day' },
+
+  openActivityOverview: function() {
+    var today = new Date().toISOString().split('T')[0];
+    App._activity.mode = 'day';
+    App._activity.from = today;
+    App._activity.to = today;
+    App._renderActivityOverview();
+  },
+
+  _activityShift: function(direction) {
+    var a = App._activity;
+    var from = new Date(a.from + 'T00:00:00');
+    if (a.mode === 'day') {
+      from.setDate(from.getDate() + direction);
+      a.from = from.toISOString().split('T')[0];
+      a.to = a.from;
+    } else {
+      from.setDate(from.getDate() + 7 * direction);
+      a.from = from.toISOString().split('T')[0];
+      var to = new Date(a.from + 'T00:00:00'); to.setDate(to.getDate() + 6);
+      a.to = to.toISOString().split('T')[0];
+    }
+    App._renderActivityOverview();
+  },
+
+  _activitySetMode: function(mode) {
+    App._activity.mode = mode;
+    if (mode === 'day') {
+      App._activity.to = App._activity.from;
+    } else {
+      var from = new Date(App._activity.from + 'T00:00:00');
+      var to = new Date(from); to.setDate(to.getDate() + 6);
+      App._activity.to = to.toISOString().split('T')[0];
+    }
+    App._renderActivityOverview();
+  },
+
+  _renderActivityOverview: async function() {
+    var modal = document.getElementById('activity-overview-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'activity-overview-modal';
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9000;display:flex;align-items:center;justify-content:center;padding:0;';
+      modal.innerHTML = '<div id="activity-overview-content" style="background:#fff;width:100%;max-width:780px;max-height:95vh;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;"></div>';
+      document.body.appendChild(modal);
+    }
+    var content = document.getElementById('activity-overview-content');
+    content.innerHTML = '<div style="padding:24px;text-align:center;"><div class="loading-spinner"></div></div>';
+    var a = App._activity;
+    try {
+      var qs = 'date=' + encodeURIComponent(a.from) + '&date_to=' + encodeURIComponent(a.to);
+      var data = await ApiClient.get('/api/daily-overview?' + qs);
+      App._renderActivityOverviewHtml(content, data);
+    } catch (err) {
+      content.innerHTML = '<div style="padding:24px;"><h3>Fehler</h3><p>' + (err.message || err) + '</p>' +
+        '<button class="btn btn-secondary" onclick="App.closeActivityOverview()">Schließen</button></div>';
+    }
+  },
+
+  closeActivityOverview: function() {
+    var m = document.getElementById('activity-overview-modal'); if (m) m.remove();
+  },
+
+  _renderActivityOverviewHtml: function(content, data) {
+    var a = App._activity;
+    var u = AppState.currentUser;
+    var schoolName = (u && (u.name || u.admin_name)) || 'Fahrschule';
+    var fromD = new Date(a.from + 'T00:00:00');
+    var toD = new Date(a.to + 'T00:00:00');
+    var fmt = function(d){ return d.toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',year:'numeric'}); };
+    var rangeLabel = (a.mode === 'day') ? fmt(fromD) : (fmt(fromD) + ' – ' + fmt(toD));
+    var rows = data.lessons || [];
+
+    var tbody = rows.length === 0
+      ? '<tr><td colspan="6" style="text-align:center;padding:24px;color:#6b7280;">Keine Fahrstunden in diesem Zeitraum.</td></tr>'
+      : rows.map(function(r){
+          var dStr = new Date(r.date + 'T00:00:00').toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit'});
+          return '<tr>' +
+            '<td style="padding:8px 6px;border-bottom:1px solid #e5e7eb;font-size:13px;">' + dStr + '</td>' +
+            '<td style="padding:8px 6px;border-bottom:1px solid #e5e7eb;font-size:13px;">' + (r.time || '—') + '</td>' +
+            '<td style="padding:8px 6px;border-bottom:1px solid #e5e7eb;font-size:13px;">' + (r.student_name || '—') + '</td>' +
+            '<td style="padding:8px 6px;border-bottom:1px solid #e5e7eb;font-size:13px;">' + (r.instructor_name || '—') + '</td>' +
+            '<td style="padding:8px 6px;border-bottom:1px solid #e5e7eb;font-size:13px;">' + (r.type || '—') + '</td>' +
+            '<td style="padding:8px 6px;border-bottom:1px solid #e5e7eb;font-size:13px;text-align:right;">' + (r.duration_min || 0) + ' min</td>' +
+          '</tr>';
+        }).join('');
+
+    content.innerHTML = '<div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">' +
+        '<div><h3 style="margin:0;font-size:18px;">Tätigkeitsübersicht</h3>' +
+        '<div style="font-size:13px;color:#6b7280;margin-top:2px;">' + rangeLabel + ' · ' + rows.length + ' Fahrstunde(n)</div></div>' +
+        '<button onclick="App.closeActivityOverview()" style="background:transparent;border:0;font-size:22px;cursor:pointer;color:#6b7280;">×</button>' +
+      '</div>' +
+      '<div style="padding:12px 20px;border-bottom:1px solid #e5e7eb;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
+        '<div style="display:flex;gap:4px;">' +
+          '<button class="btn btn-sm" style="' + (a.mode==='day'?'background:#1d4ed8;color:#fff;':'') + '" onclick="App._activitySetMode(\'day\')">Tag</button>' +
+          '<button class="btn btn-sm" style="' + (a.mode==='week'?'background:#1d4ed8;color:#fff;':'') + '" onclick="App._activitySetMode(\'week\')">Woche</button>' +
+        '</div>' +
+        '<div style="margin-left:auto;display:flex;gap:4px;">' +
+          '<button class="btn btn-sm" onclick="App._activityShift(-1)">‹</button>' +
+          '<button class="btn btn-sm" onclick="App._activityShift(1)">›</button>' +
+          '<button class="btn btn-primary btn-sm" onclick="App.printActivityOverview()">🖨️ Drucken</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="activity-overview-print-area" style="flex:1;overflow:auto;padding:16px 20px;">' +
+        '<div class="print-header" style="margin-bottom:16px;"><div style="font-size:18px;font-weight:700;">' + App._escapeHtml(schoolName) + '</div>' +
+        '<div style="font-size:14px;color:#374151;">Tätigkeitsnachweis — ' + rangeLabel + '</div>' +
+        '<div style="font-size:12px;color:#6b7280;margin-top:4px;">Druck am ' + new Date().toLocaleString('de-DE') + '</div></div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+          '<thead><tr style="background:#f3f4f6;">' +
+            '<th style="text-align:left;padding:8px 6px;border-bottom:2px solid #d1d5db;">Datum</th>' +
+            '<th style="text-align:left;padding:8px 6px;border-bottom:2px solid #d1d5db;">Uhrzeit</th>' +
+            '<th style="text-align:left;padding:8px 6px;border-bottom:2px solid #d1d5db;">Schüler</th>' +
+            '<th style="text-align:left;padding:8px 6px;border-bottom:2px solid #d1d5db;">Fahrlehrer</th>' +
+            '<th style="text-align:left;padding:8px 6px;border-bottom:2px solid #d1d5db;">Typ</th>' +
+            '<th style="text-align:right;padding:8px 6px;border-bottom:2px solid #d1d5db;">Dauer</th>' +
+          '</tr></thead><tbody>' + tbody + '</tbody></table>' +
+        '<div style="margin-top:24px;font-size:11px;color:#6b7280;border-top:1px solid #e5e7eb;padding-top:8px;">' +
+        'Reiner Tätigkeitsnachweis ohne Verrechnungsdaten. Die Buchhaltung erfolgt extern.' +
+        '</div>' +
+      '</div>';
+  },
+
+  printActivityOverview: function() {
+    var area = document.getElementById('activity-overview-print-area');
+    if (!area) return;
+    var w = window.open('', '_blank');
+    if (!w) { Toast.error('Bitte Pop-up-Blocker deaktivieren'); return; }
+    w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Tätigkeitsnachweis</title>' +
+      '<style>body{font-family:-apple-system,system-ui,sans-serif;margin:24px;color:#111;}table{width:100%;border-collapse:collapse;}th,td{padding:8px 6px;}</style>' +
+      '</head><body>' + area.innerHTML + '</body></html>');
+    w.document.close();
+    setTimeout(function(){ try { w.print(); } catch(e){} }, 250);
   },
 
   openDailySummary: function() {
