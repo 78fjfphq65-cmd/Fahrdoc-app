@@ -5264,6 +5264,7 @@ var App = {
             '<button class="btn btn-primary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.generateAusbildungsnachweis(\'' + studentId + '\')">' + docIcon + ' ' + t('ausbildungsnachweisGenerieren') + '</button>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openFristverkuerzungDialog(\'' + studentId + '\',\'theorie\')">' + docIcon + ' ' + t('fristverkuerzungTheorie') + '</button>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openFristverkuerzungDialog(\'' + studentId + '\',\'praxis\')">' + docIcon + ' ' + t('fristverkuerzungPraxis') + '</button>' +
+            '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openEntschuldigungDialog(\'' + studentId + '\')">' + docIcon + ' ' + t('entschuldigung') + '</button>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB196Dialog(\'' + studentId + '\',\'vertrag\')">' + docIcon + ' ' + t('b196Vertrag') + '</button>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB196Dialog(\'' + studentId + '\',\'bescheinigung\')">' + docIcon + ' ' + t('b196Bescheinigung') + '</button>' +
           '</div>' +
@@ -6374,6 +6375,256 @@ var App = {
     doc.save(fileName);
     this.showToast(t('pdfErstellt'));
   },
+  // ══════════════════════════════════════════
+  //  Schul-/Arbeitgeber-Entschuldigung
+  // ══════════════════════════════════════════
+  openEntschuldigungDialog: function(studentId) {
+    var self = this;
+    var today = new Date();
+    var todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+    var html = '<div style="padding:var(--space-2);max-width:560px;">' +
+      '<p class="text-sm text-muted" style="margin-bottom:var(--space-3);">' + t('entschuldigungHinweis') + '</p>' +
+      '<div class="form-group"><label class="form-label"><input type="checkbox" id="ent-leer" style="margin-right:var(--space-2);"> ' + t('bescheinigungLeerDrucken') + '</label>' +
+      '<div class="text-xs text-muted" style="margin-top:4px;">' + t('bescheinigungLeerHinweis') + '</div></div>' +
+      '<div id="ent-fields">' +
+        '<div class="form-group"><label class="form-label">Adressat (z.B. Schule, Arbeitgeber)</label>' +
+          '<input type="text" id="ent-adressat" class="form-input" placeholder="z.B. Gymnasium Musterstadt, Klasse 11b"></div>' +
+        '<div class="form-group"><label class="form-label">Anlass (mehrere m\u00f6glich)</label>' +
+          '<div style="display:flex;flex-direction:column;gap:6px;">' +
+            '<label><input type="checkbox" id="ent-anl-theorie" style="margin-right:6px;"> Theoretische Pr\u00fcfung</label>' +
+            '<label><input type="checkbox" id="ent-anl-praxis" style="margin-right:6px;"> Praktische Pr\u00fcfung</label>' +
+            '<label><input type="checkbox" id="ent-anl-sonder" style="margin-right:6px;"> Sonderfahrten (\u00dcberland / Autobahn / Nachtfahrt)</label>' +
+          '</div></div>' +
+        '<div class="form-group"><label class="form-label">Datum</label>' +
+          '<input type="date" id="ent-datum" class="form-input" value="' + todayStr + '"></div>' +
+        '<div class="form-group"><label class="form-label"><input type="checkbox" id="ent-ganztag" style="margin-right:var(--space-2);" checked> Ganzer Tag</label></div>' +
+        '<div class="form-row" id="ent-uhrzeit-row" style="display:none;gap:var(--space-2);">' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">Von (Uhrzeit)</label>' +
+            '<input type="time" id="ent-von" class="form-input" value="08:00"></div>' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">Bis (Uhrzeit)</label>' +
+            '<input type="time" id="ent-bis" class="form-input" value="12:00"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-top:var(--space-3);">' +
+        '<button class="btn btn-secondary" onclick="App.closeModalForce()">' + t('abbrechen') + '</button>' +
+        '<button class="btn btn-primary" onclick="App.generateEntschuldigung(\'' + studentId + '\')">' + t('pdfErstellen') + '</button>' +
+      '</div>' +
+    '</div>';
+    self.openModal(t('entschuldigung'), html);
+    setTimeout(function() {
+      var leerCb = document.getElementById('ent-leer');
+      var fields = document.getElementById('ent-fields');
+      if (leerCb && fields) {
+        leerCb.addEventListener('change', function() {
+          fields.style.opacity = leerCb.checked ? '0.4' : '1';
+          fields.style.pointerEvents = leerCb.checked ? 'none' : 'auto';
+        });
+      }
+      var ganztagCb = document.getElementById('ent-ganztag');
+      var uhrRow = document.getElementById('ent-uhrzeit-row');
+      if (ganztagCb && uhrRow) {
+        ganztagCb.addEventListener('change', function() {
+          uhrRow.style.display = ganztagCb.checked ? 'none' : 'flex';
+        });
+      }
+    }, 50);
+  },
+
+  generateEntschuldigung: async function(studentId) {
+    var self = this;
+    var leerCb = document.getElementById('ent-leer');
+    var leer = !!(leerCb && leerCb.checked);
+    var opts = { leer: leer };
+    if (!leer) {
+      opts.adressat = (document.getElementById('ent-adressat') || {}).value || '';
+      opts.datum = (document.getElementById('ent-datum') || {}).value || '';
+      opts.ganztag = !!(document.getElementById('ent-ganztag') || {}).checked;
+      opts.von = (document.getElementById('ent-von') || {}).value || '';
+      opts.bis = (document.getElementById('ent-bis') || {}).value || '';
+      opts.anlTheorie = !!(document.getElementById('ent-anl-theorie') || {}).checked;
+      opts.anlPraxis = !!(document.getElementById('ent-anl-praxis') || {}).checked;
+      opts.anlSonder = !!(document.getElementById('ent-anl-sonder') || {}).checked;
+    }
+    self.closeModalForce();
+    self.showToast(t('pdfWirdErstellt'));
+    try {
+      var data = leer
+        ? { student: { name:'', email:'', license_class:'', geburtsdatum:'', anschrift:'' }, school: { name:'', address:'', phone:'', email:'' } }
+        : await ApiClient.get('/api/ausbildungsnachweis/' + studentId);
+      if (!window.jspdf || !window.jspdf.jsPDF) {
+        self.showToast('PDF-Bibliothek wird geladen, bitte nochmal versuchen...');
+        return;
+      }
+      self.renderEntschuldigungPdf(data, opts);
+    } catch (err) {
+      self.showToast(t('fehler') + ': ' + (err.message || err));
+    }
+  },
+
+  renderEntschuldigungPdf: function(data, opts) {
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    var pw = 210;
+    var ml = 20, mr = 20, mt = 18;
+    var cw = pw - ml - mr;
+
+    var fmtDate = function(d) {
+      if (!d) return '';
+      var p = String(d).split('-');
+      return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : d;
+    };
+    var drawLine = function(x1, y1, x2, y2) { doc.setDrawColor(0); doc.setLineWidth(0.3); doc.line(x1, y1, x2, y2); };
+    var checkbox = function(x, y, checked) {
+      doc.setDrawColor(0); doc.setLineWidth(0.4);
+      doc.rect(x, y - 3.5, 3.8, 3.8);
+      if (checked) {
+        doc.setLineWidth(0.7);
+        doc.line(x + 0.6, y - 1.8, x + 1.6, y - 0.5);
+        doc.line(x + 1.6, y - 0.5, x + 3.4, y - 3.1);
+        doc.setLineWidth(0.3);
+      }
+    };
+
+    var y = mt;
+    // Briefkopf links: Fahrschule
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.setTextColor(80);
+    if (!opts.leer && data.school) {
+      var senderLine = (data.school.name || '');
+      if (data.school.address) senderLine += (senderLine ? ' \u00b7 ' : '') + data.school.address;
+      if (senderLine) {
+        var sLines = doc.splitTextToSize(senderLine, cw);
+        doc.text(sLines, ml, y);
+      }
+    } else {
+      drawLine(ml, y + 1, ml + cw * 0.7, y + 1);
+      doc.text('Absender (Fahrschule)', ml, y - 1);
+    }
+    doc.setTextColor(0);
+    y += 12;
+
+    // Adressat
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.text('An', ml, y); y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
+    if (opts.leer) {
+      drawLine(ml, y + 1, ml + cw * 0.85, y + 1); y += 7;
+      drawLine(ml, y + 1, ml + cw * 0.85, y + 1); y += 7;
+      drawLine(ml, y + 1, ml + cw * 0.85, y + 1); y += 6;
+    } else {
+      var adr = opts.adressat || '';
+      var adrLines = doc.splitTextToSize(adr || ' ', cw * 0.85);
+      // Mindesthöhe für Adressat
+      var minLines = Math.max(adrLines.length, 2);
+      for (var ai = 0; ai < minLines; ai++) {
+        if (adrLines[ai]) doc.text(adrLines[ai], ml, y);
+        drawLine(ml, y + 1, ml + cw * 0.85, y + 1);
+        y += 7;
+      }
+    }
+    y += 8;
+
+    // Datum oben rechts
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    var ort = (!opts.leer && data.school && data.school.address)
+      ? (String(data.school.address).split(',').pop() || '').trim().replace(/^\d{4,5}\s*/, '') || ''
+      : '';
+    var heute = (new Date());
+    var heuteStr = String(heute.getDate()).padStart(2,'0') + '.' + String(heute.getMonth()+1).padStart(2,'0') + '.' + heute.getFullYear();
+    var ortDatum = (ort ? (ort + ', ') : '') + heuteStr;
+    if (opts.leer) ortDatum = '';
+    doc.text(ortDatum, pw - mr, y, { align: 'right' });
+    y += 10;
+
+    // Betreff / Titel
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text('Entschuldigung / Freistellung', ml, y);
+    y += 9;
+
+    // Sch\u00fclerdaten-Block
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.text('Angaben des Fahrsch\u00fclers', ml, y); y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    var labelY = y;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+    doc.text('Name, Vorname', ml, labelY);
+    doc.text('Geburtsdatum', ml + cw * 0.65, labelY);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    var nameVal = opts.leer ? '' : (data.student.name || '');
+    var gebVal = opts.leer ? '' : fmtDate(data.student.geburtsdatum || '');
+    doc.text(nameVal, ml, labelY + 6);
+    doc.text(gebVal, ml + cw * 0.65, labelY + 6);
+    drawLine(ml, labelY + 7, ml + cw * 0.6, labelY + 7);
+    drawLine(ml + cw * 0.65, labelY + 7, ml + cw, labelY + 7);
+    y = labelY + 14;
+
+    // Haupttext
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
+    var einleitung = 'Hiermit best\u00e4tigt die oben genannte Fahrschule, dass der/die oben genannte Fahrsch\u00fcler/in am';
+    var einLines = doc.splitTextToSize(einleitung, cw);
+    doc.text(einLines, ml, y);
+    y += einLines.length * 5 + 2;
+
+    // Datum + Zeitraum-Zeile
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    var datumStr = opts.leer ? '________________' : fmtDate(opts.datum || '');
+    var zeitStr = '';
+    if (opts.leer) {
+      zeitStr = 'von _______ bis _______ Uhr';
+    } else if (opts.ganztag) {
+      zeitStr = '(ganzt\u00e4gig)';
+    } else {
+      var von = opts.von || '_____';
+      var bis = opts.bis || '_____';
+      zeitStr = 'von ' + von + ' bis ' + bis + ' Uhr';
+    }
+    doc.text(datumStr + '   ' + zeitStr, ml, y);
+    y += 8;
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
+    var hauptText = 'wegen einer verpflichtenden Ausbildungsma\u00dfnahme im Rahmen der Fahrausbildung verhindert ist und daher von der Anwesenheitspflicht in der Schule / am Arbeitsplatz entschuldigt werden m\u00f6chte.';
+    var hauptLines = doc.splitTextToSize(hauptText, cw);
+    doc.text(hauptLines, ml, y);
+    y += hauptLines.length * 5 + 6;
+
+    // Anlass-Checkboxen
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+    doc.text('Anlass', ml, y); y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    var renderCheck = function(label, checked) {
+      checkbox(ml, y, checked);
+      doc.text(label, ml + 6, y);
+      y += 6;
+    };
+    renderCheck('Theoretische F\u00fchrerscheinpr\u00fcfung', !!opts.anlTheorie);
+    renderCheck('Praktische F\u00fchrerscheinpr\u00fcfung', !!opts.anlPraxis);
+    renderCheck('Sonderfahrt (\u00dcberland-, Autobahn- oder Nachtfahrt nach \u00a7 5 FahrschAusbO)', !!opts.anlSonder);
+    y += 6;
+
+    // Hinweis
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(9);
+    doc.setTextColor(90);
+    var hinweis = 'Die Teilnahme an dieser Ma\u00dfnahme ist Voraussetzung f\u00fcr den Erwerb der Fahrerlaubnis. Wir bitten um Ihr Verst\u00e4ndnis und um Entschuldigung des Fehlens.';
+    var hLines = doc.splitTextToSize(hinweis, cw);
+    doc.text(hLines, ml, y);
+    y += hLines.length * 4 + 12;
+    doc.setTextColor(0);
+    doc.setFont('helvetica', 'normal');
+
+    // Unterschrift Fahrschule
+    doc.setFontSize(9);
+    var sigW = cw * 0.6;
+    drawLine(ml, y + 8, ml + sigW, y + 8);
+    doc.setFontSize(7);
+    doc.text('Unterschrift / Stempel der Fahrschule', ml, y + 11);
+
+    // Datei speichern
+    var nameForFile = opts.leer ? 'Blanko' : (data.student.name || 'Sch\u00fcler').replace(/\s+/g, '_');
+    var fileName = 'Entschuldigung_' + nameForFile + '.pdf';
+    doc.save(fileName);
+    this.showToast(t('pdfErstellt'));
+  },
+
   // ══════════════════════════════════════════
   //  B196 — Vereinbarung (521a) + Teilnahmebescheinigung (521 / Anlage 7b FeV)
   // ══════════════════════════════════════════
