@@ -4668,6 +4668,21 @@ var App = {
     }
   },
 
+  toggleLessonHistory: function() {
+    var extras = document.querySelectorAll('[data-lh-extra="1"]');
+    if (!extras.length) return;
+    var isHidden = extras[0].style.display === 'none';
+    extras.forEach(function(el) { el.style.display = isHidden ? '' : 'none'; });
+    var btn = document.getElementById('lh-toggle-btn');
+    if (!btn) return;
+    if (isHidden) {
+      btn.textContent = 'Weniger anzeigen';
+    } else {
+      var total = document.querySelectorAll('#lessons-list-rows tbody tr').length;
+      btn.textContent = 'Alle ' + total + ' anzeigen';
+    }
+  },
+
   viewStudentDetail: async function(studentId) {
     this.navigate('student-detail');
     var content = document.getElementById('student-detail-content');
@@ -4733,6 +4748,105 @@ var App = {
           '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + pct + '%;background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></div></div></div>';
       });
       html += '</div>';
+
+      // ── Stunden-Verlauf (Schule + Fahrlehrer) ──
+      if (AppState.currentUser && (AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor')) {
+        var _fmtMin = function(min) {
+          min = Math.round(min || 0);
+          if (min < 60) return min + ' min';
+          var h = Math.floor(min / 60), m = min % 60;
+          return m ? (h + ' h ' + m + ' min') : (h + ' h');
+        };
+        var _fmtDateShort = function(s) { if (!s) return '\u2014'; var d = new Date(s); if (isNaN(d.getTime())) return s; return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }); };
+        var _avgRatingLocal = function(rt) {
+          if (!rt) return 0;
+          var vals = Object.values(rt).filter(function(v) { return typeof v === 'number' && v > 0; });
+          if (!vals.length) return 0;
+          return vals.reduce(function(a, b) { return a + b; }, 0) / vals.length;
+        };
+        // Aggregation nach Typ
+        var typeBuckets = {};
+        lessons.forEach(function(l) {
+          var k = l.type || '\u2014';
+          if (!typeBuckets[k]) typeBuckets[k] = { count: 0, duration: 0 };
+          typeBuckets[k].count += 1;
+          typeBuckets[k].duration += (l.duration || 0);
+        });
+        var typesSorted = Object.keys(typeBuckets).sort(function(a, b) { return typeBuckets[b].duration - typeBuckets[a].duration; });
+
+        html += '<div class="card mb-4" id="lessons-history-card">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-2);margin-bottom:var(--space-3);">' +
+            '<div class="section-title" style="margin:0;">Fahrstunden-Verlauf</div>' +
+            '<div style="display:flex;gap:var(--space-3);align-items:baseline;flex-wrap:wrap;">' +
+              '<span style="font-size:var(--text-sm);color:var(--text-muted);">Gesamt:</span>' +
+              '<span style="font-weight:700;font-size:var(--text-base);">' + lessons.length + '</span>' +
+              '<span style="font-size:var(--text-sm);color:var(--text-muted);">Stunden \u00b7</span>' +
+              '<span style="font-weight:700;font-size:var(--text-base);">' + _fmtMin(totalDuration) + '</span>' +
+            '</div>' +
+          '</div>';
+
+        if (lessons.length === 0) {
+          html += '<p style="font-size:var(--text-sm);color:var(--text-muted);text-align:center;padding:var(--space-4);">Noch keine absolvierten Fahrstunden.</p>';
+        } else {
+          // Typ-Aufschluesselung
+          html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--space-2);margin-bottom:var(--space-4);">';
+          typesSorted.forEach(function(typ) {
+            var b = typeBuckets[typ];
+            html += '<div style="background:var(--bg-elevated,#f8fafb);padding:var(--space-2) var(--space-3);border-radius:var(--radius-md);">' +
+              '<div style="font-size:var(--text-xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:.3px;">' + typ + '</div>' +
+              '<div style="font-size:var(--text-sm);font-weight:600;margin-top:2px;">' + b.count + '\u00d7 \u00b7 ' + _fmtMin(b.duration) + '</div>' +
+            '</div>';
+          });
+          html += '</div>';
+
+          // Letzte Stunden Liste (default: 10, toggle: alle)
+          var maxInit = 10;
+          var showToggle = lessons.length > maxInit;
+          // Eigenen Namen aus Fahrlehrer-Spalte ausblenden (wie in Plan-Ansicht)
+          var _meIsInstr = AppState.currentUser && AppState.currentUser.role === 'instructor';
+          var _myInstrId = _meIsInstr ? AppState.currentUser.id : null;
+          html += '<div id="lessons-list-rows">';
+          html += '<table style="width:100%;border-collapse:collapse;font-size:var(--text-sm);">' +
+            '<thead><tr style="text-align:left;border-bottom:1px solid var(--border-color);color:var(--text-muted);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.3px;">' +
+              '<th style="padding:8px 6px;">Datum</th>' +
+              '<th style="padding:8px 6px;">Typ</th>' +
+              '<th style="padding:8px 6px;text-align:right;">Dauer</th>' +
+              '<th style="padding:8px 6px;">Fahrlehrer</th>' +
+              '<th style="padding:8px 6px;text-align:right;">\u2300 Bewertung</th>' +
+            '</tr></thead><tbody>';
+          lessons.forEach(function(l, idx) {
+            var hidden = (showToggle && idx >= maxInit) ? ' data-lh-extra="1" style="display:none;"' : '';
+            var rA = _avgRatingLocal(l.ratings);
+            var rCell = rA > 0
+              ? '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:' + (SKILL_COLORS[Math.round(rA) || 1] || '#94a3b8') + ';display:inline-block;"></span>' + rA.toFixed(1) + '</span>'
+              : '<span style="color:var(--text-muted);">\u2014</span>';
+            var notesIcon = (l.notes && l.notes.trim()) ? ' <span title="Notiz vorhanden" style="color:var(--text-muted);">\u270d</span>' : '';
+            var instrCell;
+            if (_meIsInstr && l.instructor_id && String(l.instructor_id) === String(_myInstrId)) {
+              instrCell = '<span style="color:var(--text-muted);font-style:italic;">ich</span>';
+            } else {
+              instrCell = l.instructor_name || '\u2014';
+            }
+            html += '<tr' + hidden + ' style="border-bottom:1px solid var(--border-color);">' +
+              '<td style="padding:8px 6px;white-space:nowrap;">' + _fmtDateShort(l.date) + '</td>' +
+              '<td style="padding:8px 6px;">' + (l.type || '\u2014') + notesIcon + '</td>' +
+              '<td style="padding:8px 6px;text-align:right;white-space:nowrap;">' + _fmtMin(l.duration) + '</td>' +
+              '<td style="padding:8px 6px;">' + instrCell + '</td>' +
+              '<td style="padding:8px 6px;text-align:right;">' + rCell + '</td>' +
+            '</tr>';
+          });
+          html += '</tbody></table>';
+          if (showToggle) {
+            html += '<div style="text-align:center;margin-top:var(--space-3);">' +
+              '<button class="btn btn-sm btn-secondary" id="lh-toggle-btn" onclick="App.toggleLessonHistory()">Alle ' + lessons.length + ' anzeigen</button>' +
+            '</div>';
+          }
+          html += '</div>';
+        }
+
+        html += '</div>';
+      }
+
       // ── Theory Progress Section ──
       html += '<div class="card mb-4 theory-progress-section"><div class="section-title mb-3">' + t('theorieFortschritt') + '</div>' +
         '<div id="theory-progress-container"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div></div>';
