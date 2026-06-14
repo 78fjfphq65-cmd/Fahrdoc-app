@@ -1679,6 +1679,68 @@ app.put('/api/lessons/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// PATCH /api/lessons/:id/billing — Verrechnungs-Kategorie nachträglich ändern (nur Fahrschule)
+// Body: { billing_category: 'regular' | 'free' | 'trial' }
+// Wechselt nach 'regular': autoCreateChargeFromLesson aufrufen.
+// Wechselt weg von 'regular': zugehörige Auto-Soll-Position löschen (nur source='auto').
+app.patch('/api/lessons/:id/billing', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur die Fahrschule darf die Verrechnung ändern' });
+    const allowed = ['regular','free','trial'];
+    const newCat = req.body && req.body.billing_category;
+    if (allowed.indexOf(newCat) < 0) return res.status(400).json({ error: 'Ungültige Verrechnungs-Kategorie' });
+
+    // Lesson laden + Zugehörigkeit zur Schule prüfen
+    const { data: lesson } = await supabase.from('lessons')
+      .select('*').eq('id', req.params.id).eq('school_id', req.user.id).is('deleted_at', null).maybeSingle();
+    if (!lesson) return res.status(404).json({ error: 'Fahrstunde nicht gefunden' });
+
+    const oldCat = lesson.billing_category || 'regular';
+    if (oldCat === newCat) return res.json({ success: true, unchanged: true });
+
+    // Update Lesson
+    const { error: upErr } = await supabase.from('lessons')
+      .update({ billing_category: newCat }).eq('id', req.params.id);
+    if (upErr) throw upErr;
+
+    // Auto-Charge synchron halten
+    let chargeAction = 'none';
+    if (oldCat === 'regular' && newCat !== 'regular') {
+      // Auto-Soll löschen (nur source='auto', nicht manuell angelegte)
+      const { data: existing } = await supabase.from('student_charges')
+        .select('id, invoice_id').eq('lesson_id', lesson.id).eq('source', 'auto');
+      if (existing && existing.length > 0) {
+        // Nur löschen wenn nicht bereits in einer Rechnung
+        const deletable = existing.filter(function(c){ return !c.invoice_id; });
+        if (deletable.length > 0) {
+          await supabase.from('student_charges').delete().in('id', deletable.map(function(c){ return c.id; }));
+          chargeAction = 'deleted';
+        } else {
+          chargeAction = 'kept_invoiced';
+        }
+      }
+    } else if (oldCat !== 'regular' && newCat === 'regular' && lesson.student_id) {
+      // Auto-Soll erzeugen
+      try {
+        await autoCreateChargeFromLesson({
+          schoolId: lesson.school_id, studentId: lesson.student_id, lessonId: lesson.id,
+          lessonType: lesson.type, lessonDate: lesson.date,
+          createdByRole: 'school', createdById: req.user.id
+        });
+        chargeAction = 'created';
+      } catch (chargeErr) {
+        console.warn('[Billing-Patch] Auto-Charge konnte nicht erzeugt werden:', chargeErr.message);
+        chargeAction = 'create_failed';
+      }
+    }
+
+    res.json({ success: true, old: oldCat, new: newCat, charge_action: chargeAction });
+  } catch (err) {
+    console.error('[PATCH /api/lessons/:id/billing] error:', err.message);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
 app.delete('/api/lesson-image/:id', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur für Fahrlehrer' });

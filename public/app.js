@@ -60,6 +60,7 @@ var ApiClient = {
   get: function(path) { return this.request('GET', path); },
   post: function(path, body) { return this.request('POST', path, body); },
   put: function(path, body) { return this.request('PUT', path, body); },
+  patch: function(path, body) { return this.request('PATCH', path, body); },
   del: function(path) { return this.request('DELETE', path); }
 };
 
@@ -5063,13 +5064,17 @@ var App = {
     var extras = document.querySelectorAll('[data-lh-extra="1"]');
     if (!extras.length) return;
     var isHidden = extras[0].style.display === 'none';
-    extras.forEach(function(el) { el.style.display = isHidden ? '' : 'none'; });
+    extras.forEach(function(el) {
+      // .lesson-history-row braucht display:flex (Card-Layout), tr/anderes braucht ''
+      var defaultDisp = el.classList && el.classList.contains('lesson-history-row') ? 'flex' : '';
+      el.style.display = isHidden ? defaultDisp : 'none';
+    });
     var btn = document.getElementById('lh-toggle-btn');
     if (!btn) return;
     if (isHidden) {
       btn.textContent = 'Weniger anzeigen';
     } else {
-      var total = document.querySelectorAll('#lessons-list-rows tbody tr').length;
+      var total = document.querySelectorAll('#lessons-list-rows .lesson-history-row').length;
       btn.textContent = 'Alle ' + total + ' anzeigen';
     }
   },
@@ -5196,37 +5201,67 @@ var App = {
           // Eigenen Namen aus Fahrlehrer-Spalte ausblenden (wie in Plan-Ansicht)
           var _meIsInstr = AppState.currentUser && AppState.currentUser.role === 'instructor';
           var _myInstrId = _meIsInstr ? AppState.currentUser.id : null;
-          html += '<div id="lessons-list-rows">';
-          html += '<table style="width:100%;border-collapse:collapse;font-size:var(--text-sm);">' +
-            '<thead><tr style="text-align:left;border-bottom:1px solid var(--border-color);color:var(--text-muted);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.3px;">' +
-              '<th style="padding:8px 6px;">Datum</th>' +
-              '<th style="padding:8px 6px;">Typ</th>' +
-              '<th style="padding:8px 6px;text-align:right;">Dauer</th>' +
-              '<th style="padding:8px 6px;">Fahrlehrer</th>' +
-              '<th style="padding:8px 6px;text-align:right;">\u2300 Bewertung</th>' +
-            '</tr></thead><tbody>';
+          // Verrechnungs-Badge Helper
+          var _billingBadge = function(cat) {
+            if (cat === 'free') return '<span style="display:inline-flex;align-items:center;gap:4px;background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;"><span style="width:6px;height:6px;border-radius:50%;background:#0ea5e9;"></span>Gratis</span>';
+            if (cat === 'trial') return '<span style="display:inline-flex;align-items:center;gap:4px;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;"><span style="width:6px;height:6px;border-radius:50%;background:#f59e0b;"></span>Schnupperfahrt</span>';
+            return ''; // regular = kein Badge (Standard)
+          };
+          html += '<div id="lessons-list-rows" style="display:flex;flex-direction:column;gap:6px;">';
           lessons.forEach(function(l, idx) {
-            var hidden = (showToggle && idx >= maxInit) ? ' data-lh-extra="1" style="display:none;"' : '';
+            var isExtra = (showToggle && idx >= maxInit);
+            var extraAttr = isExtra ? ' data-lh-extra="1"' : '';
+            var displayProp = isExtra ? 'display:none;' : 'display:flex;';
             var rA = _avgRatingLocal(l.ratings);
-            var rCell = rA > 0
-              ? '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:' + (SKILL_COLORS[Math.round(rA) || 1] || '#94a3b8') + ';display:inline-block;"></span>' + rA.toFixed(1) + '</span>'
-              : '<span style="color:var(--text-muted);">\u2014</span>';
-            var notesIcon = (l.notes && l.notes.trim()) ? ' <span title="Notiz vorhanden" style="color:var(--text-muted);">\u270d</span>' : '';
-            var instrCell;
+            var ratingDot = rA > 0
+              ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:var(--text-xs);color:var(--text-muted);"><span style="width:8px;height:8px;border-radius:50%;background:' + (SKILL_COLORS[Math.round(rA) || 1] || '#94a3b8') + ';display:inline-block;"></span>' + rA.toFixed(1) + '</span>'
+              : '';
+            var notesIcon = (l.notes && l.notes.trim()) ? '<span title="Notiz vorhanden" style="color:var(--text-muted);font-size:13px;">\u270d</span>' : '';
+            var imagesIcon = (l.images_count && l.images_count > 0) ? '<span title="Bilder" style="color:var(--text-muted);font-size:13px;">\ud83d\udcf7</span>' : '';
+            var instrName;
             if (_meIsInstr && l.instructor_id && String(l.instructor_id) === String(_myInstrId)) {
-              instrCell = '<span style="color:var(--text-muted);font-style:italic;">ich</span>';
+              instrName = 'ich';
             } else {
-              instrCell = l.instructor_name || '\u2014';
+              instrName = l.instructor_name || '\u2014';
             }
-            html += '<tr' + hidden + ' style="border-bottom:1px solid var(--border-color);">' +
-              '<td style="padding:8px 6px;white-space:nowrap;">' + _fmtDateShort(l.date) + '</td>' +
-              '<td style="padding:8px 6px;">' + (l.type || '\u2014') + notesIcon + '</td>' +
-              '<td style="padding:8px 6px;text-align:right;white-space:nowrap;">' + _fmtMin(l.duration) + '</td>' +
-              '<td style="padding:8px 6px;">' + instrCell + '</td>' +
-              '<td style="padding:8px 6px;text-align:right;">' + rCell + '</td>' +
-            '</tr>';
+            var billingBadge = _billingBadge(l.billing_category || 'regular');
+            // Datum-Block links (Tag groß, Monat klein)
+            var dParts = String(l.date || '').split('-');
+            var dDay = dParts[2] || '';
+            var dMonth = '';
+            if (dParts[1]) {
+              var monthsShort = ['Jan','Feb','M\u00e4r','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+              dMonth = monthsShort[parseInt(dParts[1],10) - 1] || '';
+            }
+            html += '<div class="lesson-history-row" data-lesson-id="' + l.id + '" data-student-id="' + studentId + '"' + extraAttr +
+              ' onclick="App.showLessonReview(\'' + l.id + '\', \'' + studentId + '\', \'' + (AppState.currentUser ? AppState.currentUser.role : 'school') + '\')"' +
+              ' style="' + displayProp + 'align-items:center;gap:var(--space-3);padding:10px 12px;background:var(--bg-elevated,#f8fafb);border:1px solid var(--border-color);border-radius:var(--radius-md);cursor:pointer;transition:all 0.15s;"' +
+              ' onmouseover="this.style.background=\'var(--bg-hover,#eef2f6)\';this.style.transform=\'translateY(-1px)\';this.style.boxShadow=\'0 2px 8px rgba(0,0,0,0.06)\';"' +
+              ' onmouseout="this.style.background=\'var(--bg-elevated,#f8fafb)\';this.style.transform=\'\';this.style.boxShadow=\'\';">' +
+              // Datum Block
+              '<div style="flex-shrink:0;text-align:center;min-width:42px;padding:4px 6px;background:#fff;border-radius:var(--radius-sm);border:1px solid var(--border-color);">' +
+                '<div style="font-size:18px;font-weight:700;line-height:1;color:var(--text-primary);">' + dDay + '</div>' +
+                '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-top:2px;">' + dMonth + '</div>' +
+              '</div>' +
+              // Mittlerer Block: Typ + Fahrlehrer
+              '<div style="flex:1;min-width:0;">' +
+                '<div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:var(--text-sm);margin-bottom:2px;">' +
+                  '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (l.type || '\u2014') + '</span>' +
+                  notesIcon + imagesIcon +
+                  (billingBadge ? ' ' + billingBadge : '') +
+                '</div>' +
+                '<div style="font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                  '<span>' + instrName + '</span>' +
+                  (ratingDot ? '<span>\u00b7</span>' + ratingDot : '') +
+                '</div>' +
+              '</div>' +
+              // Dauer rechts + Chevron
+              '<div style="flex-shrink:0;text-align:right;display:flex;align-items:center;gap:8px;">' +
+                '<div style="font-weight:700;font-size:var(--text-sm);color:var(--text-primary);white-space:nowrap;">' + _fmtMin(l.duration) + '</div>' +
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;color:var(--text-muted);flex-shrink:0;"><polyline points="9 18 15 12 9 6"/></svg>' +
+              '</div>' +
+            '</div>';
           });
-          html += '</tbody></table>';
           if (showToggle) {
             html += '<div style="text-align:center;margin-top:var(--space-3);">' +
               '<button class="btn btn-sm btn-secondary" id="lh-toggle-btn" onclick="App.toggleLessonHistory()">Alle ' + lessons.length + ' anzeigen</button>' +
@@ -7398,6 +7433,33 @@ var App = {
           '<div class="lesson-detail-row"><span class="lesson-detail-label">' + t('typ') + '</span><span class="lesson-detail-value">' + tType(lesson.type) + '</span></div>' +
           '<div class="lesson-detail-row"><span class="lesson-detail-label">' + t('dauer') + '</span><span class="lesson-detail-value">' + this.formatDuration(lesson.duration) + '</span></div>' +
         '</div></div>';
+
+      // ── Verrechnung (sichtbar für Fahrschule + Fahrlehrer) ──
+      if (fromRole === 'school' || fromRole === 'instructor') {
+        var curCat = lesson.billing_category || 'regular';
+        var catLabel = { regular: 'Regul\u00e4r (mit Verrechnung)', free: 'Gratis (ohne Verrechnung)', trial: 'Schnupperfahrt (ohne Verrechnung)' };
+        var catColor = { regular: '#10b981', free: '#0ea5e9', trial: '#f59e0b' };
+        var catBg = { regular: '#d1fae5', free: '#e0f2fe', trial: '#fef3c7' };
+        var catText = { regular: '#065f46', free: '#0369a1', trial: '#92400e' };
+        html += '<div class="card mb-4" id="billing-section-' + lessonId + '">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-2);margin-bottom:var(--space-3);">' +
+            '<div class="section-title" style="margin:0;">\ud83d\udcb6 Verrechnung</div>' +
+            '<span id="billing-current-badge-' + lessonId + '" style="display:inline-flex;align-items:center;gap:6px;background:' + catBg[curCat] + ';color:' + catText[curCat] + ';padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;">' +
+              '<span style="width:8px;height:8px;border-radius:50%;background:' + catColor[curCat] + ';"></span>' + catLabel[curCat] +
+            '</span>' +
+          '</div>';
+        if (fromRole === 'school') {
+          html += '<p style="font-size:var(--text-xs);color:var(--text-muted);margin-bottom:var(--space-3);">\u00c4nderung wirkt sich auf die Buchhaltung aus: Wechsel zu Gratis/Schnupperfahrt l\u00f6scht die automatische Soll-Position (wenn nicht bereits in einer Rechnung). Wechsel zu Regul\u00e4r erzeugt eine neue Soll-Position aus dem passenden Preis-Template.</p>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+              '<button class="btn btn-sm" data-billing-cat="regular" onclick="App.changeLessonBilling(\'' + lessonId + '\', \'regular\', \'' + studentId + '\')" style="flex:1;min-width:120px;' + (curCat === 'regular' ? 'background:#10b981;color:#fff;border-color:#10b981;' : 'background:#f8fafb;') + '">Regul\u00e4r</button>' +
+              '<button class="btn btn-sm" data-billing-cat="free" onclick="App.changeLessonBilling(\'' + lessonId + '\', \'free\', \'' + studentId + '\')" style="flex:1;min-width:120px;' + (curCat === 'free' ? 'background:#0ea5e9;color:#fff;border-color:#0ea5e9;' : 'background:#f8fafb;') + '">Gratis</button>' +
+              '<button class="btn btn-sm" data-billing-cat="trial" onclick="App.changeLessonBilling(\'' + lessonId + '\', \'trial\', \'' + studentId + '\')" style="flex:1;min-width:120px;' + (curCat === 'trial' ? 'background:#f59e0b;color:#fff;border-color:#f59e0b;' : 'background:#f8fafb;') + '">Schnupperfahrt</button>' +
+            '</div>';
+        } else {
+          html += '<p style="font-size:var(--text-xs);color:var(--text-muted);margin:0;">Nur die Fahrschule kann die Verrechnungs-Kategorie nachtr\u00e4glich \u00e4ndern.</p>';
+        }
+        html += '</div>';
+      }
       html += '<div class="card mb-4"><div class="section-title mb-3">' + t('bewertung') + '</div>';
       SKILL_TASKS.forEach(function(task) {
         var val = lesson.ratings[task] || 0; var info = getSkillLevel(val); var pct = (val / 4) * 100;
@@ -7499,6 +7561,34 @@ var App = {
         });
       }
     } catch (err) { content.innerHTML = '<p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p>'; }
+  },
+
+  // ── Verrechnungs-Kategorie nachträglich ändern (nur Fahrschule) ──
+  changeLessonBilling: async function(lessonId, newCat, studentId) {
+    var self = this;
+    if (!AppState.currentUser || AppState.currentUser.role !== 'school') {
+      self.showToast('Nur die Fahrschule darf die Verrechnung \u00e4ndern');
+      return;
+    }
+    var labels = { regular: 'Regul\u00e4r', free: 'Gratis', trial: 'Schnupperfahrt' };
+    if (!confirm('Verrechnung dieser Fahrstunde auf "' + labels[newCat] + '" \u00e4ndern?\n\n' +
+        (newCat === 'regular'
+          ? 'Es wird automatisch eine neue Soll-Position in der Buchhaltung erzeugt (falls ein passendes Preis-Template existiert).'
+          : 'Die automatische Soll-Position dieser Fahrstunde wird gel\u00f6scht (sofern sie noch nicht in einer Rechnung enthalten ist).'))) return;
+    try {
+      var res = await ApiClient.patch('/api/lessons/' + lessonId + '/billing', { billing_category: newCat });
+      if (res.charge_action === 'kept_invoiced') {
+        self.showToast('Verrechnung ge\u00e4ndert. Hinweis: Bestehende Soll-Position bleibt erhalten (bereits in Rechnung).');
+      } else if (res.charge_action === 'create_failed') {
+        self.showToast('Verrechnung ge\u00e4ndert. Hinweis: Auto-Soll konnte nicht erzeugt werden (kein passendes Preis-Template).');
+      } else {
+        self.showToast('Verrechnung aktualisiert');
+      }
+      // Lesson-Review neu rendern damit Badge + Button-Highlight stimmen
+      self.showLessonReview(lessonId, studentId, 'school');
+    } catch (err) {
+      self.showToast('Fehler: ' + (err.message || err));
+    }
   },
 
   // ── Notes translation in lesson review ──
