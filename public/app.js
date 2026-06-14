@@ -5923,8 +5923,7 @@ var App = {
     // Angaben der Fahrschule
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
     doc.text('Angaben der Fahrschule', ml, y); y += 5;
-    drawField('Name der Fahrschule', opts.leer ? '' : (data.school.name || ''), ml, y, cw * 0.6);
-    drawField('Fahrschul-Nr.', '', ml + cw * 0.65, y, cw * 0.35);
+    drawField('Name der Fahrschule', opts.leer ? '' : (data.school.name || ''), ml, y, cw);
     y += 12;
     drawField('Anschrift', opts.leer ? '' : (data.school.address || ''), ml, y, cw);
     y += 14;
