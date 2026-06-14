@@ -127,7 +127,39 @@ var SKILL_LEVELS = [
   { level: 4, name: 'Prüfungsreif', badgeClass: 'badge-success' }
 ];
 var SKILL_COLORS = { 1: 'var(--color-error)', 2: 'var(--color-warning)', 3: 'var(--color-blue)', 4: 'var(--color-success)' };
-var SKILL_TASKS = ['Abbiegen', 'Spurwechsel', 'Vorfahrt', 'Einparken', 'Geschwindigkeit', 'Verkehrszeichen', 'Schulterblick', 'Allgemeines Fahrverhalten'];
+// Bewertungskategorien je Fahrerlaubnisklasse
+// B/BE: Die 5 offiziellen Fahrkompetenzbereiche (Beobachtungskategorien) laut
+//       Prüfungsrichtlinie / Fahraufgabenkatalog (Anlage 7 FeV), die auch der
+//       Prüfer auf seinem Tablet (PFEP) sieht.
+// A/A1/A2/AM: Die 9 Grundfahraufgaben für Krafträder gemäß Fahraufgabenkatalog.
+var SKILL_TASKS_B = [
+  'Verkehrsbeobachtung',
+  'Fahrzeugpositionierung',
+  'Geschwindigkeitsanpassung',
+  'Kommunikation',
+  'Fahrzeugbedienung/Umweltbewusste Fahrweise'
+];
+var SKILL_TASKS_A = [
+  'Slalom mit Schrittgeschwindigkeit',
+  'Abbremsen mit höchstmöglicher Verzögerung',
+  'Ausweichen ohne Abbremsen',
+  'Ausweichen nach Abbremsen',
+  'Slalom',
+  'Langer Slalom',
+  'Fahren mit Schrittgeschwindigkeit geradeaus',
+  'Stop and Go',
+  'Kreisfahrt'
+];
+// Default/Fallback (z.B. C, CE, T, L oder unbekannte Klassen) – die 5 Kompetenzbereiche
+var SKILL_TASKS = SKILL_TASKS_B.slice();
+// Liefert die passende Bewertungs-Liste anhand der Fahrerlaubnisklasse des Schülers.
+// Erwartet z.B. 'B', 'BE', 'A', 'A1', 'A2', 'AM' (auch Mehrfachangaben wie 'B,A1').
+function skillTasksFor(licenseClass) {
+  var cls = String(licenseClass || '').toUpperCase();
+  // Motorrad-Klassen (auch wenn als Teil einer Liste wie 'B,A1' angegeben)
+  if (/(^|[^A-Z])A($|[^A-Z])|A1|A2|AM/.test(cls)) return SKILL_TASKS_A.slice();
+  return SKILL_TASKS_B.slice();
+}
 
 var SCHEDULE_PRESETS = {
   'Übungsfahrt': 90, 'Überlandfahrt': 225, 'Autobahnfahrt': 180,
@@ -5466,7 +5498,7 @@ var App = {
         '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);">' +
           '<div class="progress-ring-container">' + this.buildProgressRing(avg, 4, 60) + '</div>' +
           '<div><div style="font-weight:600;font-size:var(--text-sm);">' + t('gesamtdurchschnitt') + '</div>' + this.skillLevelHtml(avg) + '</div></div>';
-      SKILL_TASKS.forEach(function(task) {
+      skillTasksFor(s && s.license_class).forEach(function(task) {
         var val = latestRatings[task] || 0; var pct = (val / 4) * 100; var info = getSkillLevel(val);
         html += '<div class="skill-bar"><div class="skill-bar-header"><span>' + tSkill(task) + '</span><span class="badge ' + info.badgeClass + '" style="font-size:10px;">' + tLevel(info.name) + '</span></div>' +
           '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + pct + '%;background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></div></div></div>';
@@ -7622,7 +7654,7 @@ var App = {
       AppState.activeLesson.avgSpeedKmh = 0;
     }
     AppState.summaryRatings = {};
-    SKILL_TASKS.forEach(function(t) { AppState.summaryRatings[t] = 2; });
+    skillTasksFor(AppState.activeLesson && AppState.activeLesson.licenseClass).forEach(function(t) { AppState.summaryRatings[t] = 2; });
     this.navigate('lesson-summary');
     this.renderLessonSummary();
   },
@@ -7650,9 +7682,9 @@ var App = {
       '</div>';
 
     html += '<div class="section-title mb-3">' + t('bewertung') + '</div>';
-    SKILL_TASKS.forEach(function(task) {
+    skillTasksFor(lesson && lesson.licenseClass).forEach(function(task) {
       var current = AppState.summaryRatings[task] || 2;
-      html += '<div class="rating-card mb-3"><div style="margin-bottom:var(--space-2);"><span class="rating-card-label">' + task + '</span></div>' +
+      html += '<div class="rating-card mb-3"><div style="margin-bottom:var(--space-2);"><span class="rating-card-label">' + tSkill(task) + '</span></div>' +
         '<div class="level-selector" data-task="' + task + '">';
       SKILL_LEVELS.forEach(function(sl) {
         var isActive = sl.level === current ? ' active' : '';
@@ -7780,8 +7812,16 @@ var App = {
       // Verrechnungs-Block entfernt (Push 8): GoBD-konform sind alle Fahrstunden regulär.
       // Rabatte/Korrekturen erfolgen über separate Buchungen in der Buchhaltung.
       html += '<div class="card mb-4"><div class="section-title mb-3">' + t('bewertung') + '</div>';
-      SKILL_TASKS.forEach(function(task) {
-        var val = lesson.ratings[task] || 0; var info = getSkillLevel(val); var pct = (val / 4) * 100;
+      var _lessonTasks = skillTasksFor(lesson && (lesson.license_class || lesson.licenseClass));
+      // Falls die Lesson noch Bewertungen aus alten Kategorien enthält, diese ebenfalls anzeigen,
+      // damit historische Daten nicht verloren gehen.
+      if (lesson.ratings) {
+        Object.keys(lesson.ratings).forEach(function(k) {
+          if (_lessonTasks.indexOf(k) === -1) _lessonTasks.push(k);
+        });
+      }
+      _lessonTasks.forEach(function(task) {
+        var val = (lesson.ratings && lesson.ratings[task]) || 0; var info = getSkillLevel(val); var pct = (val / 4) * 100;
         html += '<div class="skill-bar"><div class="skill-bar-header"><span>' + tSkill(task) + '</span><span class="badge ' + info.badgeClass + '" style="font-size:10px;">' + tLevel(info.name) + '</span></div>' +
           '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + pct + '%;background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></div></div></div>';
       });
@@ -8002,9 +8042,15 @@ var App = {
           '<textarea class="form-textarea" id="edit-lesson-notes">' + this._escapeHtml(lesson.notes || '') + '</textarea>' +
           '<div class="text-xs text-muted" style="margin-top:4px;">\u{1F517} Tipp: Links (z.B. YouTube-Videos) k\u00f6nnen einfach reinkopiert werden \u2013 sie werden f\u00fcr den Sch\u00fcler klickbar.</div></div>';
       html += '<div class="section-title mb-3">' + t('bewertung') + '</div>';
-      SKILL_TASKS.forEach(function(task) {
-        var current = lesson.ratings[task] || 2;
-        html += '<div style="margin-bottom:var(--space-3);"><div class="text-xs font-medium mb-1">' + task + '</div><div class="level-selector" data-task="' + task + '">';
+      var _editTasks = skillTasksFor(lesson && (lesson.license_class || lesson.licenseClass));
+      if (lesson.ratings) {
+        Object.keys(lesson.ratings).forEach(function(k) {
+          if (_editTasks.indexOf(k) === -1) _editTasks.push(k);
+        });
+      }
+      _editTasks.forEach(function(task) {
+        var current = (lesson.ratings && lesson.ratings[task]) || 2;
+        html += '<div style="margin-bottom:var(--space-3);"><div class="text-xs font-medium mb-1">' + tSkill(task) + '</div><div class="level-selector" data-task="' + task + '">';
         SKILL_LEVELS.forEach(function(sl) {
           var isActive = sl.level === current ? ' active' : '';
           html += '<button type="button" class="level-selector-btn' + isActive + '" data-level="' + sl.level + '" onclick="App.setEditSkillRating(this, \'' + task + '\', ' + sl.level + ')">' + tLevel(sl.name) + '</button>';
@@ -8124,8 +8170,15 @@ var App = {
         '<div style="font-family:var(--font-display);font-weight:700;font-size:var(--text-lg);margin-bottom:var(--space-1);">' + Math.round(pctReady) + '% ' + t('pruefungsreif') + '</div>' +
         '<div>' + this.skillLevelHtml(avg) + '</div></div>';
     html += '<div class="card mb-4"><div class="section-title mb-3">' + t('deineSkills') + '</div>';
-    SKILL_TASKS.forEach(function(task) {
-      var val = latestRatings[task] || 0; var pct = (val / 4) * 100; var info = getSkillLevel(val);
+    var _stuTasks = skillTasksFor(stu && stu.license_class);
+    // Historische Bewertungen aus alten Kategorien ergänzen
+    if (latestRatings) {
+      Object.keys(latestRatings).forEach(function(k) {
+        if (_stuTasks.indexOf(k) === -1) _stuTasks.push(k);
+      });
+    }
+    _stuTasks.forEach(function(task) {
+      var val = (latestRatings && latestRatings[task]) || 0; var pct = (val / 4) * 100; var info = getSkillLevel(val);
       html += '<div class="skill-bar"><div class="skill-bar-header"><span>' + tSkill(task) + '</span><span class="badge ' + info.badgeClass + '" style="font-size:10px;">' + tLevel(info.name) + '</span></div>' +
         '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + pct + '%;background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></div></div></div>';
     });
