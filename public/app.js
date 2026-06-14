@@ -5401,11 +5401,13 @@ var App = {
       var html = '<div class="page-padding"><div class="student-header">' +
         this.avatarHtml(student.name, 'lg') +
         '<div class="student-header-info"><h3>' + student.name + '</h3><div class="student-header-meta">' +
-          '<span>' + t('klasse') + ' ' + student.license_class + '</span><span>' + data.instructorName + '</span><span>' + lessons.length + ' ' + t('fahrstunden') + '</span>' +
+          '<span>' + t('klasse') + ' ' + student.license_class + '</span>' +
+          (data.instructorName ? '<span>' + data.instructorName + '</span>' : '') +
+          '<span>' + lessons.length + ' ' + t('fahrstunden') + '</span>' +
         '</div></div></div>';
 
-      // ── Stammdaten-Karte (nur fuer Fahrschule sichtbar) ──
-      if (AppState.currentUser && AppState.currentUser.role === 'school') {
+      // ── Stammdaten-Karte (sichtbar fuer Fahrschule und Fahrlehrer) ──
+      if (AppState.currentUser && (AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor')) {
         var st = student;
         var fmtDate = function(s) { if (!s) return '\u2014'; var d = new Date(s); if (isNaN(d.getTime())) return s; return d.toLocaleDateString('de-DE'); };
         var rowHtml = function(label, val) {
@@ -5420,12 +5422,13 @@ var App = {
           statusBadge = '<span style="background:' + sCol + ';color:#fff;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">' + st.status + '</span>';
         }
         var pwStatus = st.password_hash ? '<span style="color:#16a34a;">\u2713 aktiviert</span>' : '<span style="color:#d97706;">noch nicht aktiviert</span>';
+        var isSchoolRole = AppState.currentUser.role === 'school';
         html += '<div class="card mb-4">' +
           '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3);gap:var(--space-2);flex-wrap:wrap;">' +
             '<div class="section-title" style="margin:0;">Stammdaten</div>' +
             '<div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap;">' + statusBadge +
-              '<button class="btn btn-sm btn-secondary" onclick="App.openEditStudentModal(\'' + st.id + '\')">Bearbeiten</button>' +
-              (!st.password_hash ? '<button class="btn btn-sm btn-primary" onclick="App.resendStudentInvite(\'' + st.id + '\')">Einladung erneut senden</button>' : '') +
+              (isSchoolRole ? '<button class="btn btn-sm btn-secondary" onclick="App.openEditStudentModal(\'' + st.id + '\')">Bearbeiten</button>' : '') +
+              (isSchoolRole && !st.password_hash ? '<button class="btn btn-sm btn-primary" onclick="App.resendStudentInvite(\'' + st.id + '\')">Einladung erneut senden</button>' : '') +
             '</div>' +
           '</div>' +
           rowHtml('E-Mail', st.email) +
