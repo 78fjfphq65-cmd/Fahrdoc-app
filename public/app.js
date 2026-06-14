@@ -5498,7 +5498,7 @@ var App = {
         '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);">' +
           '<div class="progress-ring-container">' + this.buildProgressRing(avg, 4, 60) + '</div>' +
           '<div><div style="font-weight:600;font-size:var(--text-sm);">' + t('gesamtdurchschnitt') + '</div>' + this.skillLevelHtml(avg) + '</div></div>';
-      skillTasksFor(s && s.license_class).forEach(function(task) {
+      skillTasksFor(st && st.license_class).forEach(function(task) {
         var val = latestRatings[task] || 0; var pct = (val / 4) * 100; var info = getSkillLevel(val);
         html += '<div class="skill-bar"><div class="skill-bar-header"><span>' + tSkill(task) + '</span><span class="badge ' + info.badgeClass + '" style="font-size:10px;">' + tLevel(info.name) + '</span></div>' +
           '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + pct + '%;background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></div></div></div>';
