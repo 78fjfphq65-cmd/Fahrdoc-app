@@ -958,6 +958,7 @@ function _normalizeStudentPayload(body) {
     status: orNull(body.status) || 'aktiv',
     registered_at: orNull(body.registered_at),
     bf17: !!body.bf17,
+    requires_glasses: !!body.requires_glasses,
     notes: orNull(body.notes),
     existing_licenses: existingLicenses,
     id_document_type: orNull(body.id_document_type),
@@ -1122,6 +1123,7 @@ app.put('/api/school/students/:id', authMiddleware, async (req, res) => {
     if (has('status')) updateRow.status = payload.status;
     if (has('registered_at')) updateRow.registered_at = payload.registered_at;
     if (has('bf17')) updateRow.bf17 = payload.bf17;
+    if (has('requires_glasses')) updateRow.requires_glasses = payload.requires_glasses;
     if (has('notes')) updateRow.notes = payload.notes;
     if (has('birthplace')) updateRow.birthplace = payload.birthplace;
     if (has('existing_licenses')) updateRow.existing_licenses = payload.existing_licenses || [];

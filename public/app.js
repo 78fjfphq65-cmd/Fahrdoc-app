@@ -5167,7 +5167,10 @@ var App = {
     h += '</select></div>' +
       '</div>' +
       (!isEdit ? ('<div class="form-group"><label class="form-label">Zugewiesener Fahrlehrer</label><select class="form-select" id="stf-instructor">' + instOptions + '</select></div>') : '') +
-      '<div class="form-group" style="display:flex;align-items:center;gap:var(--space-2);"><input type="checkbox" id="stf-bf17"' + (s.bf17 ? ' checked' : '') + '><label for="stf-bf17" style="margin:0;cursor:pointer;">Begleitetes Fahren ab 17 (BF17)</label></div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:var(--space-3);align-items:center;">' +
+        '<div style="display:flex;align-items:center;gap:var(--space-2);"><input type="checkbox" id="stf-bf17"' + (s.bf17 ? ' checked' : '') + '><label for="stf-bf17" style="margin:0;cursor:pointer;">Begleitetes Fahren ab 17 (BF17)</label></div>' +
+        '<div style="display:flex;align-items:center;gap:var(--space-2);"><input type="checkbox" id="stf-glasses"' + (s.requires_glasses ? ' checked' : '') + '><label for="stf-glasses" style="margin:0;cursor:pointer;">Mit Sehhilfe (Brille/Kontaktlinsen)</label></div>' +
+      '</div>' +
       '<div class="form-group"><label class="form-label">Notizen</label><textarea class="form-input" id="stf-notes" rows="3" placeholder="Interne Notizen (nur f\u00fcr die Fahrschule sichtbar)">' + (s.notes || '').replace(/</g,'&lt;') + '</textarea></div>' +
       // === Sektion: Vorhandene Fuehrerscheine ===
       '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--border-light);">Bereits vorhandene F\u00fchrerscheine</div>' +
@@ -5273,6 +5276,7 @@ var App = {
       status: v('stf-status'),
       registered_at: v('stf-registered') || null,
       bf17: c('stf-bf17'),
+      requires_glasses: c('stf-glasses'),
       notes: v('stf-notes').trim(),
       instructor_id: v('stf-instructor') || null,
       sendInvite: c('stf-sendInvite'),
@@ -5395,15 +5399,68 @@ var App = {
           rowHtml('E-Mail', st.email) +
           rowHtml('Telefon', st.phone) +
           rowHtml('Geburtsdatum', fmtDate(st.birthdate)) +
+          rowHtml('Geburtsort', st.birthplace) +
           rowHtml('Stra\u00dfe', st.street || (st.address ? st.address.split(',')[0].trim() : null)) +
           rowHtml('PLZ / Ort', (st.postal_code || st.city) ? [(st.postal_code || ''), (st.city || '')].filter(Boolean).join(' ') : (st.address && st.address.indexOf(',') > -1 ? st.address.split(',').slice(1).join(',').trim() : null)) +
           rowHtml('Klasse(n)', st.license_class) +
           rowHtml('Angemeldet am', fmtDate(st.registered_at)) +
           rowHtml('Fahrlehrer', data.instructorName) +
           rowHtml('BF17', st.bf17 ? 'Ja' : 'Nein') +
+          rowHtml('Sehhilfe', st.requires_glasses ? 'Ja (Brille/Kontaktlinsen)' : 'Nein') +
           rowHtml('Konto', pwStatus) +
           (st.notes ? ('<div style="margin-top:var(--space-3);padding:var(--space-3);background:var(--bg-elevated,#f8fafb);border-radius:var(--radius-md);font-size:var(--text-sm);white-space:pre-wrap;"><strong style="color:var(--text-muted);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.5px;">Notizen</strong><br>' + st.notes.replace(/</g,'&lt;') + '</div>') : '') +
         '</div>';
+
+        // ── Karte: Vorhandene F\u00fchrerscheine ──
+        var existLics = Array.isArray(st.existing_licenses) ? st.existing_licenses : [];
+        if (existLics.length > 0) {
+          var chipsHtml = existLics.map(function(l) {
+            return '<span style="display:inline-block;background:#eef2ff;color:#3730a3;padding:4px 10px;border-radius:999px;font-size:var(--text-xs);font-weight:600;">' + String(l).replace(/</g,'&lt;') + '</span>';
+          }).join(' ');
+          html += '<div class="card mb-4">' +
+            '<div class="section-title" style="margin-bottom:var(--space-2);">Bereits vorhandene F\u00fchrerscheine</div>' +
+            '<div style="display:flex;flex-wrap:wrap;gap:6px;">' + chipsHtml + '</div>' +
+          '</div>';
+        }
+
+        // ── Karte: Ausweisdokument ──
+        if (st.id_document_type || st.id_document_number || st.id_document_issued_by) {
+          html += '<div class="card mb-4">' +
+            '<div class="section-title" style="margin-bottom:var(--space-2);">Ausweisdokument</div>' +
+            rowHtml('Art', st.id_document_type) +
+            rowHtml('Nummer', st.id_document_number) +
+            rowHtml('Ausstellende Beh\u00f6rde', st.id_document_issued_by) +
+          '</div>';
+        }
+
+        // ── Karte: Rechnungsadresse ──
+        var billingDiffers = (st.billing_same_as_address === false) && (st.billing_name || st.billing_street || st.billing_postal_code || st.billing_city);
+        html += '<div class="card mb-4">' +
+          '<div class="section-title" style="margin-bottom:var(--space-2);">Rechnungsadresse</div>';
+        if (!billingDiffers) {
+          html += '<div style="font-size:var(--text-sm);color:var(--text-muted);">Entspricht der Wohnadresse.</div>';
+        } else {
+          var bPlzCity = [(st.billing_postal_code || ''), (st.billing_city || '')].filter(Boolean).join(' ').trim();
+          html += rowHtml('Name / Firma', st.billing_name) +
+            rowHtml('Stra\u00dfe', st.billing_street) +
+            rowHtml('PLZ / Ort', bPlzCity || null) +
+            rowHtml('Land', st.billing_country || 'Deutschland');
+        }
+        html += '</div>';
+
+        // ── Karte: Preiskategorie ──
+        if (st.price_category) {
+          var pcLabel = st.price_category;
+          try {
+            var cats = (AppState && AppState.priceCategoriesDraft) || [];
+            var found = cats.find && cats.find(function(c) { return c.id === st.price_category; });
+            if (found && found.label) pcLabel = found.label;
+          } catch (e) { /* ignore */ }
+          html += '<div class="card mb-4">' +
+            '<div class="section-title" style="margin-bottom:var(--space-2);">Preiskategorie</div>' +
+            '<div style="font-size:var(--text-sm);">' + String(pcLabel).replace(/</g,'&lt;') + '</div>' +
+          '</div>';
+        }
       }
       html += '<div class="card mb-4"><div class="section-title mb-3">' + t('aktuellesKoennen') + '</div>' +
         '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);">' +
