@@ -930,11 +930,26 @@ function _normalizeStudentPayload(body) {
     const right = [postal_code || '', city || ''].filter(Boolean).join(' ').trim();
     composedAddress = [left, right].filter(Boolean).join(', ').trim() || null;
   }
+  // Vorhandene Fuehrerscheine: Array of strings normalisieren
+  let existingLicenses = null;
+  if (Array.isArray(body.existing_licenses)) {
+    existingLicenses = body.existing_licenses
+      .map(function(x) { return typeof x === 'string' ? x.trim() : ''; })
+      .filter(function(x) { return x.length > 0; });
+  }
+  // Rechnungsadresse: nur uebernehmen, wenn billing_same_as_address ausdruecklich false
+  const billingSame = body.billing_same_as_address !== false; // default true
+  const billingName = orNull(body.billing_name);
+  const billingStreet = orNull(body.billing_street);
+  const billingPostal = orNull(body.billing_postal_code);
+  const billingCity = orNull(body.billing_city);
+  const billingCountry = orNull(body.billing_country) || 'Deutschland';
   return {
     name: fullName,
     email: trim(body.email) ? String(body.email).trim().toLowerCase() : null,
     phone: orNull(body.phone),
     birthdate: orNull(body.birthdate),
+    birthplace: orNull(body.birthplace),
     address: composedAddress,
     street,
     postal_code,
@@ -943,7 +958,18 @@ function _normalizeStudentPayload(body) {
     status: orNull(body.status) || 'aktiv',
     registered_at: orNull(body.registered_at),
     bf17: !!body.bf17,
-    notes: orNull(body.notes)
+    notes: orNull(body.notes),
+    existing_licenses: existingLicenses,
+    id_document_type: orNull(body.id_document_type),
+    id_document_number: orNull(body.id_document_number),
+    id_document_issued_by: orNull(body.id_document_issued_by),
+    billing_same_as_address: billingSame,
+    billing_name: billingSame ? null : billingName,
+    billing_street: billingSame ? null : billingStreet,
+    billing_postal_code: billingSame ? null : billingPostal,
+    billing_city: billingSame ? null : billingCity,
+    billing_country: billingSame ? null : billingCountry,
+    price_category: (body.price_category === undefined) ? undefined : (orNull(body.price_category))
   };
 }
 
@@ -991,6 +1017,8 @@ app.post('/api/school/students', authMiddleware, async (req, res) => {
       school_id: schoolId,
       verified: 0
     }, payload);
+    // undefined-Felder rausfiltern, damit DB-Defaults greifen
+    Object.keys(insertRow).forEach(function(k) { if (insertRow[k] === undefined) delete insertRow[k]; });
 
     const { data: inserted, error: insErr } = await supabase.from('students').insert(insertRow).select('*').single();
     if (insErr) {
@@ -1095,6 +1123,18 @@ app.put('/api/school/students/:id', authMiddleware, async (req, res) => {
     if (has('registered_at')) updateRow.registered_at = payload.registered_at;
     if (has('bf17')) updateRow.bf17 = payload.bf17;
     if (has('notes')) updateRow.notes = payload.notes;
+    if (has('birthplace')) updateRow.birthplace = payload.birthplace;
+    if (has('existing_licenses')) updateRow.existing_licenses = payload.existing_licenses || [];
+    if (has('id_document_type')) updateRow.id_document_type = payload.id_document_type;
+    if (has('id_document_number')) updateRow.id_document_number = payload.id_document_number;
+    if (has('id_document_issued_by')) updateRow.id_document_issued_by = payload.id_document_issued_by;
+    if (has('billing_same_as_address')) updateRow.billing_same_as_address = payload.billing_same_as_address;
+    if (has('billing_name')) updateRow.billing_name = payload.billing_name;
+    if (has('billing_street')) updateRow.billing_street = payload.billing_street;
+    if (has('billing_postal_code')) updateRow.billing_postal_code = payload.billing_postal_code;
+    if (has('billing_city')) updateRow.billing_city = payload.billing_city;
+    if (has('billing_country')) updateRow.billing_country = payload.billing_country;
+    if (has('price_category')) updateRow.price_category = payload.price_category;
     if (Object.keys(updateRow).length === 0) {
       return res.json({ ok: true, student: existing });
     }
@@ -5016,7 +5056,7 @@ app.get('/api/invoices/:id', authMiddleware, requireGobdMode({allowReadInExterna
     const [itemsRes, schoolRes, studentRes, paysRes] = await Promise.all([
       supabase.from('invoice_items').select('*').eq('invoice_id', invoice.id).order('sort_order').order('created_at'),
       supabase.from('schools').select('id, name, email, admin_name, tax_mode, tax_rate_percent, address_line1, address_line2, postal_code, city, phone, tax_id, bank_info').eq('id', schoolId).maybeSingle(),
-      supabase.from('students').select('id, name, email, license_class').eq('id', invoice.student_id).maybeSingle(),
+      supabase.from('students').select('id, name, email, license_class, street, postal_code, city, billing_same_as_address, billing_name, billing_street, billing_postal_code, billing_city, billing_country').eq('id', invoice.student_id).maybeSingle(),
       supabase.from('student_payments').select('*').eq('invoice_id', invoice.id).order('payment_date')
     ]);
     res.json({
@@ -5041,9 +5081,10 @@ app.post('/api/invoices', authMiddleware, requireGobdMode(), async (req, res) =>
     if (!b.student_id) return res.status(400).json({ error: 'student_id erforderlich' });
     if (!Array.isArray(b.charge_ids) || b.charge_ids.length === 0) return res.status(400).json({ error: 'Mindestens eine Position auswählen' });
     const schoolId = schoolIdOf(req.user);
-    // Schüler validieren
+    // Schüler validieren + Adressdaten fuer Rechnungs-Snapshot
     const { data: student } = await supabase.from('students')
-      .select('id, name, school_id').eq('id', b.student_id).maybeSingle();
+      .select('id, name, school_id, street, postal_code, city, billing_same_as_address, billing_name, billing_street, billing_postal_code, billing_city, billing_country')
+      .eq('id', b.student_id).maybeSingle();
     if (!student || student.school_id !== schoolId) return res.status(403).json({ error: 'Schüler nicht in dieser Fahrschule' });
     // Charges laden + prüfen
     const { data: charges } = await supabase.from('student_charges')
@@ -5091,8 +5132,20 @@ app.post('/api/invoices', authMiddleware, requireGobdMode(), async (req, res) =>
       total_cents: total,
       school_name_snapshot: (school && school.name) || null,
       school_address_snapshot: addrLines.join('\n') || null,
-      student_name_snapshot: student.name,
-      student_address_snapshot: null,
+      student_name_snapshot: (student.billing_same_as_address === false && student.billing_name) ? student.billing_name : student.name,
+      student_address_snapshot: (function(){
+        var useBilling = (student.billing_same_as_address === false) && (student.billing_street || student.billing_postal_code || student.billing_city);
+        var st  = useBilling ? student.billing_street       : student.street;
+        var plz = useBilling ? student.billing_postal_code  : student.postal_code;
+        var ort = useBilling ? student.billing_city         : student.city;
+        var land = useBilling ? (student.billing_country || 'Deutschland') : null;
+        var lines = [];
+        if (st) lines.push(st);
+        var line2 = [plz || '', ort || ''].filter(Boolean).join(' ').trim();
+        if (line2) lines.push(line2);
+        if (land && land !== 'Deutschland') lines.push(land);
+        return lines.length ? lines.join('\n') : null;
+      })(),
       notes: b.notes || null,
       created_by_role: req.user.role,
       created_by_id: req.user.id

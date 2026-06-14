@@ -5083,7 +5083,7 @@ var App = {
   // ════════════════════════════════════════════════════════════════
   //  SCHUELER MANUELL ANLEGEN / EDITIEREN (durch Fahrschule)
   // ════════════════════════════════════════════════════════════════
-  _studentFormHtml: function(student, instructors) {
+  _studentFormHtml: function(student, instructors, priceCategories) {
     var s = student || {};
     // name -> firstName/lastName splitten (rueckwaerts-kompatibel)
     var parts = (s.name || '').trim().split(/\s+/);
@@ -5101,6 +5101,39 @@ var App = {
       instOptions += '<option value="' + i.id + '">' + i.name + '</option>';
     });
     var isEdit = !!s.id;
+    // Vorhandene Fuehrerscheine (Array von Strings)
+    var existingLicArr = Array.isArray(s.existing_licenses) ? s.existing_licenses : [];
+    var licenseOptions = ['AM','A1','A2','A','B (alt, vor 1999)','B','BE','L','T','C1','C','D1','D','andere'];
+    var licenseCheckboxes = licenseOptions.map(function(lic) {
+      var checked = existingLicArr.indexOf(lic) >= 0 ? ' checked' : '';
+      var safeId = 'stf-lic-' + lic.replace(/[^a-zA-Z0-9]/g, '-');
+      return '<label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border-light);border-radius:var(--radius-md);font-size:var(--text-sm);cursor:pointer;background:white;">' +
+        '<input type="checkbox" class="stf-license-cb" data-license="' + lic.replace(/"/g, '&quot;') + '" id="' + safeId + '"' + checked + '>' +
+        lic.replace(/</g, '&lt;') +
+      '</label>';
+    }).join('');
+    // Ausweis-Typen
+    var idDocTypes = ['', 'Personalausweis', 'Reisepass', 'Aufenthaltstitel', 'Sonstiges'];
+    var idDocTypeOptions = idDocTypes.map(function(t) {
+      var label = t === '' ? '\u2014 keine Angabe \u2014' : t;
+      var sel = (s.id_document_type || '') === t ? ' selected' : '';
+      return '<option value="' + t.replace(/"/g, '&quot;') + '"' + sel + '>' + label + '</option>';
+    }).join('');
+    // Rechnungsadresse Defaults
+    var billingSame = (s.billing_same_as_address === false) ? false : true; // default true
+    var billingHidden = billingSame ? 'display:none;' : '';
+    var billingName = (s.billing_name || '').replace(/"/g, '&quot;');
+    var billingStreet = (s.billing_street || '').replace(/"/g, '&quot;');
+    var billingPostal = (s.billing_postal_code || '').replace(/"/g, '&quot;');
+    var billingCity = (s.billing_city || '').replace(/"/g, '&quot;');
+    var billingCountry = (s.billing_country || 'Deutschland').replace(/"/g, '&quot;');
+    // Preiskategorien-Optionen
+    var pcArr = Array.isArray(priceCategories) ? priceCategories : [];
+    var pcOptions = '<option value="">\u2014 keine Kategorie \u2014</option>';
+    pcArr.forEach(function(c) {
+      var sel = (s.price_category || '') === c.id ? ' selected' : '';
+      pcOptions += '<option value="' + String(c.id).replace(/"/g, '&quot;') + '"' + sel + '>' + String(c.label || c.id).replace(/</g, '&lt;') + '</option>';
+    });
 
     var h = '<form id="student-form" onsubmit="event.preventDefault();App.submitStudentForm();" style="display:flex;flex-direction:column;gap:var(--space-3);">' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">' +
@@ -5111,15 +5144,18 @@ var App = {
       '<div class="form-group"><label class="form-label">Telefon</label><input class="form-input" id="stf-phone" type="tel" value="' + (s.phone || '').replace(/"/g,'&quot;') + '"></div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">' +
         '<div class="form-group"><label class="form-label">Geburtsdatum</label><input class="form-input" id="stf-birthdate" type="date" value="' + birth + '"></div>' +
-        '<div class="form-group"><label class="form-label">Angemeldet am</label><input class="form-input" id="stf-registered" type="date" value="' + registered + '"></div>' +
+        '<div class="form-group"><label class="form-label">Geburtsort</label><input class="form-input" id="stf-birthplace" type="text" placeholder="z.\u202fB. Berlin" value="' + (s.birthplace || '').replace(/"/g,'&quot;') + '"></div>' +
       '</div>' +
+      '<div class="form-group"><label class="form-label">Angemeldet am</label><input class="form-input" id="stf-registered" type="date" value="' + registered + '"></div>' +
+      // === Sektion: Adresse ===
+      '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--border-light);">Wohnadresse</div>' +
       '<div class="form-group"><label class="form-label">Stra\u00dfe und Hausnummer</label><input class="form-input" id="stf-street" type="text" placeholder="Musterstra\u00dfe 12" value="' + (s.street || '').replace(/"/g,'&quot;') + '"></div>' +
       '<div style="display:grid;grid-template-columns:120px 1fr;gap:var(--space-3);">' +
         '<div class="form-group"><label class="form-label">PLZ</label><input class="form-input" id="stf-postal" type="text" inputmode="numeric" maxlength="5" placeholder="10115" value="' + (s.postal_code || '').replace(/"/g,'&quot;') + '"></div>' +
         '<div class="form-group"><label class="form-label">Ort</label><input class="form-input" id="stf-city" type="text" placeholder="Berlin" value="' + (s.city || '').replace(/"/g,'&quot;') + '"></div>' +
       '</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">' +
-        '<div class="form-group"><label class="form-label">Klasse</label><select class="form-select" id="stf-class">';
+        '<div class="form-group"><label class="form-label">Klasse (angestrebt)</label><select class="form-select" id="stf-class">';
     classes.forEach(function(c) {
       h += '<option value="' + c + '"' + (c === selectedClass ? ' selected' : '') + '>' + c + '</option>';
     });
@@ -5133,7 +5169,38 @@ var App = {
       (!isEdit ? ('<div class="form-group"><label class="form-label">Zugewiesener Fahrlehrer</label><select class="form-select" id="stf-instructor">' + instOptions + '</select></div>') : '') +
       '<div class="form-group" style="display:flex;align-items:center;gap:var(--space-2);"><input type="checkbox" id="stf-bf17"' + (s.bf17 ? ' checked' : '') + '><label for="stf-bf17" style="margin:0;cursor:pointer;">Begleitetes Fahren ab 17 (BF17)</label></div>' +
       '<div class="form-group"><label class="form-label">Notizen</label><textarea class="form-input" id="stf-notes" rows="3" placeholder="Interne Notizen (nur f\u00fcr die Fahrschule sichtbar)">' + (s.notes || '').replace(/</g,'&lt;') + '</textarea></div>' +
-      (!isEdit ? ('<div class="form-group" style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-3);background:#f0fdf4;border-radius:var(--radius-md);border:1px solid #bbf7d0;">' +
+      // === Sektion: Vorhandene Fuehrerscheine ===
+      '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--border-light);">Bereits vorhandene F\u00fchrerscheine</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;">' + licenseCheckboxes + '</div>' +
+      // === Sektion: Ausweis ===
+      '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--border-light);">Ausweisdokument</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">' +
+        '<div class="form-group"><label class="form-label">Ausweisart</label><select class="form-select" id="stf-iddoc-type">' + idDocTypeOptions + '</select></div>' +
+        '<div class="form-group"><label class="form-label">Ausweisnummer</label><input class="form-input" id="stf-iddoc-number" type="text" value="' + (s.id_document_number || '').replace(/"/g,'&quot;') + '"></div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">Ausstellende Beh\u00f6rde</label><input class="form-input" id="stf-iddoc-issuedby" type="text" placeholder="z.\u202fB. B\u00fcrgeramt Berlin-Mitte" value="' + (s.id_document_issued_by || '').replace(/"/g,'&quot;') + '"></div>' +
+      // === Sektion: Rechnungsadresse ===
+      '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--border-light);">Rechnungsadresse</div>' +
+      '<div style="display:flex;align-items:center;gap:var(--space-2);">' +
+        '<input type="checkbox" id="stf-billing-same"' + (billingSame ? ' checked' : '') + ' onchange="App._toggleBillingFields(this.checked)">' +
+        '<label for="stf-billing-same" style="margin:0;cursor:pointer;">Rechnungsadresse entspricht der Wohnadresse</label>' +
+      '</div>' +
+      '<div id="stf-billing-fields" style="' + billingHidden + 'display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-3);background:#f8fafc;border-radius:var(--radius-md);border:1px solid var(--border-light);">' +
+        '<div style="font-size:var(--text-xs);color:var(--text-muted);">Diese Daten werden bei jeder Rechnung als Empf\u00e4nger eingedruckt (z.\u202fB. f\u00fcr Eltern minderj\u00e4hriger Sch\u00fcler oder Firmenrechnungen).</div>' +
+        '<div class="form-group"><label class="form-label">Name / Firma</label><input class="form-input" id="stf-billing-name" type="text" placeholder="Vorname Nachname oder Firmenname" value="' + billingName + '"></div>' +
+        '<div class="form-group"><label class="form-label">Stra\u00dfe und Hausnummer</label><input class="form-input" id="stf-billing-street" type="text" value="' + billingStreet + '"></div>' +
+        '<div style="display:grid;grid-template-columns:120px 1fr;gap:var(--space-3);">' +
+          '<div class="form-group"><label class="form-label">PLZ</label><input class="form-input" id="stf-billing-postal" type="text" inputmode="numeric" maxlength="10" value="' + billingPostal + '"></div>' +
+          '<div class="form-group"><label class="form-label">Ort</label><input class="form-input" id="stf-billing-city" type="text" value="' + billingCity + '"></div>' +
+        '</div>' +
+        '<div class="form-group"><label class="form-label">Land</label><input class="form-input" id="stf-billing-country" type="text" value="' + billingCountry + '"></div>' +
+      '</div>' +
+      // === Sektion: Preiskategorie ===
+      '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--border-light);">Preiskategorie</div>' +
+      '<div class="form-group"><label class="form-label">Zuordnung</label><select class="form-select" id="stf-pricecat">' + pcOptions + '</select>' +
+        '<div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:4px;">Sp\u00e4ter \u00e4nderbar unter Preisverwaltung im Profil.</div>' +
+      '</div>' +
+      (!isEdit ? ('<div class="form-group" style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-3);background:#f0fdf4;border-radius:var(--radius-md);border:1px solid #bbf7d0;margin-top:var(--space-3);">' +
         '<input type="checkbox" id="stf-sendInvite" checked>' +
         '<label for="stf-sendInvite" style="margin:0;cursor:pointer;font-size:var(--text-sm);">Einladungsmail jetzt senden (Sch\u00fcler setzt selbst sein Passwort)</label>' +
       '</div>') : '') +
@@ -5149,18 +5216,33 @@ var App = {
   openCreateStudentModal: async function() {
     if (!AppState.currentUser || AppState.currentUser.role !== 'school') return;
     var insts = [];
+    var priceCats = [];
     try {
       var instData = await ApiClient.get('/api/school/instructors');
       insts = (instData && instData.instructors) || [];
     } catch (e) { /* nicht kritisch */ }
-    this.openModal('Neuer Fahrsch\u00fcler', this._studentFormHtml(null, insts));
+    try {
+      var pcData = await ApiClient.get('/api/school/price-categories');
+      priceCats = (pcData && pcData.categories) || [];
+    } catch (e) { /* nicht kritisch */ }
+    this.openModal('Neuer Fahrsch\u00fcler', this._studentFormHtml(null, insts, priceCats));
+  },
+
+  _toggleBillingFields: function(checked) {
+    var el = document.getElementById('stf-billing-fields');
+    if (el) el.style.display = checked ? 'none' : 'flex';
   },
 
   openEditStudentModal: async function(studentId) {
     if (!AppState.currentUser || AppState.currentUser.role !== 'school') return;
     try {
       var data = await ApiClient.get('/api/student-detail/' + studentId);
-      this.openModal('Fahrsch\u00fcler bearbeiten', this._studentFormHtml(data.student, []));
+      var priceCats = [];
+      try {
+        var pcData = await ApiClient.get('/api/school/price-categories');
+        priceCats = (pcData && pcData.categories) || [];
+      } catch (e) { /* nicht kritisch */ }
+      this.openModal('Fahrsch\u00fcler bearbeiten', this._studentFormHtml(data.student, [], priceCats));
     } catch (err) {
       this.showToast('Fehler beim Laden: ' + err.message);
     }
@@ -5169,12 +5251,21 @@ var App = {
   submitStudentForm: async function() {
     var v = function(id) { var el = document.getElementById(id); return el ? el.value : ''; };
     var c = function(id) { var el = document.getElementById(id); return el ? !!el.checked : false; };
+    var existingLicenses = [];
+    try {
+      var lcs = document.querySelectorAll('.stf-license-cb');
+      for (var i = 0; i < lcs.length; i++) {
+        if (lcs[i].checked) existingLicenses.push(lcs[i].getAttribute('data-license'));
+      }
+    } catch (e) { /* ignore */ }
+    var billingSame = c('stf-billing-same');
     var payload = {
       firstName: v('stf-firstName').trim(),
       lastName: v('stf-lastName').trim(),
       email: v('stf-email').trim(),
       phone: v('stf-phone').trim(),
       birthdate: v('stf-birthdate') || null,
+      birthplace: v('stf-birthplace').trim(),
       street: v('stf-street').trim(),
       postal_code: v('stf-postal').trim(),
       city: v('stf-city').trim(),
@@ -5184,7 +5275,18 @@ var App = {
       bf17: c('stf-bf17'),
       notes: v('stf-notes').trim(),
       instructor_id: v('stf-instructor') || null,
-      sendInvite: c('stf-sendInvite')
+      sendInvite: c('stf-sendInvite'),
+      existing_licenses: existingLicenses,
+      id_document_type: v('stf-iddoc-type') || null,
+      id_document_number: v('stf-iddoc-number').trim(),
+      id_document_issued_by: v('stf-iddoc-issuedby').trim(),
+      billing_same_as_address: billingSame,
+      billing_name: billingSame ? '' : v('stf-billing-name').trim(),
+      billing_street: billingSame ? '' : v('stf-billing-street').trim(),
+      billing_postal_code: billingSame ? '' : v('stf-billing-postal').trim(),
+      billing_city: billingSame ? '' : v('stf-billing-city').trim(),
+      billing_country: billingSame ? '' : (v('stf-billing-country').trim() || 'Deutschland'),
+      price_category: v('stf-pricecat') || null
     };
     var studentId = v('stf-id');
     var btn = document.getElementById('stf-submit');
@@ -5958,10 +6060,25 @@ var App = {
     if (senderLine.trim()) { doc.text(senderLine, margin, y); doc.line(margin, y + 1, pageW - margin, y + 1); }
     y += 8;
 
-    // Empfaenger
+    // Empfaenger (Snapshot bevorzugen, sonst Live-Daten)
     doc.setFontSize(11); doc.setTextColor(0);
     doc.text('An', margin, y); y += 5;
-    doc.setFontSize(12); doc.text(student.name || inv.student_name_snapshot || '', margin, y); y += 6;
+    var recName = inv.student_name_snapshot || student.name || '';
+    doc.setFontSize(12); doc.text(recName, margin, y); y += 6;
+    var recAddrLines = [];
+    if (inv.student_address_snapshot) {
+      recAddrLines = String(inv.student_address_snapshot).split('\n').filter(Boolean);
+    } else if (student) {
+      var useBilling = (student.billing_same_as_address === false) && (student.billing_street || student.billing_postal_code || student.billing_city);
+      var st = useBilling ? student.billing_street : student.street;
+      var plz = useBilling ? student.billing_postal_code : student.postal_code;
+      var ort = useBilling ? student.billing_city : student.city;
+      if (st) recAddrLines.push(st);
+      var l2 = [plz || '', ort || ''].filter(Boolean).join(' ').trim();
+      if (l2) recAddrLines.push(l2);
+    }
+    doc.setFontSize(11);
+    recAddrLines.forEach(function(line) { doc.text(line, margin, y); y += 5; });
 
     // Rechnungs-Header rechts
     doc.setFontSize(20); doc.setFont(undefined, 'bold'); doc.text('Rechnung', pageW - margin, margin + 8, { align: 'right' });
