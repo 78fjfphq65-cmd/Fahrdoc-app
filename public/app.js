@@ -3654,6 +3654,11 @@ var App = {
       var planName = plan === 'ki' ? 'ki' : 'classic';
       // Erst Plaetze-Wahl-Modal oeffnen
       App.openSeatsPickerModal(planName);
+      // Modal nach oben heben damit es ueber dem Subscription-Lock-Overlay liegt
+      setTimeout(function(){
+        var mb = document.getElementById('modal-backdrop');
+        if (mb) mb.style.zIndex = '10001';
+      }, 0);
     } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
   },
 
