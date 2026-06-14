@@ -143,7 +143,7 @@ var SCHEDULE_TYPE_CLASS = {
   'Praktische Prüfung': 'type-prakt-pruef', 'Theoretische Prüfung': 'type-theo-pruef'
 };
 var GRID_START_HOUR = 7;
-var GRID_END_HOUR = 21;
+var GRID_END_HOUR = 24;
 var PX_PER_MIN = 1; // 1 minute = 1 pixel
 var HOUR_HEIGHT = 60; // 60 min * 1px
 
@@ -929,9 +929,21 @@ var App = {
   },
 
   // Shared week grid renderer (admin + instructor)
-  renderWeekGridHtml: function(days, slots, onCellClick, onSlotClick) {
+  renderWeekGridHtml: function(days, slots, onCellClick, onSlotClick, filterInstructorId) {
     var totalMinutes = (GRID_END_HOUR - GRID_START_HOUR) * 60;
     var totalHeight = totalMinutes * PX_PER_MIN;
+    // Helper: Fahrlehrer-Name ausblenden wenn redundant
+    // - Fahrlehrer-Sicht: eigener Name immer ausblenden (eigener Plan)
+    // - Schul-Sicht mit Filter auf einen Fahrlehrer: dessen Name ausblenden
+    var _meIsInstructor = AppState.currentUser && AppState.currentUser.role === 'instructor';
+    var _myInstructorId = _meIsInstructor ? AppState.currentUser.id : null;
+    var _filterInstId = filterInstructorId || (typeof AppState !== 'undefined' && AppState.scheduleSelectedInstructor) || null;
+    function _slotInstructorName(slot) {
+      if (!slot.instructor_name) return null;
+      if (_meIsInstructor && slot.instructor_id && String(slot.instructor_id) === String(_myInstructorId)) return null;
+      if (_filterInstId && slot.instructor_id && String(slot.instructor_id) === String(_filterInstId)) return null;
+      return slot.instructor_name;
+    }
     var html = '<div class="week-grid-scroll-wrapper"><div class="week-grid' + (AppState.slotOfferMode ? ' week-grid-offer-mode' : '') + '">';
     // Header
     html += '<div class="week-grid-header"><div class="week-grid-time-gutter"></div>';
@@ -966,11 +978,13 @@ var App = {
       for (var hh = GRID_START_HOUR; hh < GRID_END_HOUR; hh++) {
         html += '<div class="week-grid-hour-line" style="top:' + ((hh - GRID_START_HOUR) * HOUR_HEIGHT) + 'px;"></div>';
       }
-      // Sunset line
+      // Sunset line + Nacht-Schraffur darunter
       var sunset = App.getSunsetTime(day);
       var sunsetMinFromStart = (sunset.hours * 60 + sunset.minutes) - GRID_START_HOUR * 60;
       if (sunsetMinFromStart > 0 && sunsetMinFromStart < totalMinutes) {
         var sunsetTopPx = sunsetMinFromStart * PX_PER_MIN;
+        var nightHeight = totalHeight - sunsetTopPx;
+        html += '<div class="night-overlay" style="top:' + sunsetTopPx + 'px;height:' + nightHeight + 'px;"></div>';
         html += '<div class="sunset-line" style="top:' + sunsetTopPx + 'px;"><span class="sunset-label">\u2600\ufe0f\u2193 ' + sunset.formatted + '</span></div>';
       }
       // Slots
@@ -1011,10 +1025,11 @@ var App = {
         if (isTheory) {
           // Theory block display
           if (height >= 40) {
+            var _instName_t = _slotInstructorName(slot);
             html += '<div class="theory-slot-label">' + t('theorieThema') + ' ' + (slot.theory_topic_number || '') + '</div>';
             html += '<div class="theory-slot-time">' + slot.start_time + '\u2013' + slot.end_time + '</div>';
-            if (slot.instructor_name) {
-              html += '<div class="theory-slot-time">' + slot.instructor_name + '</div>';
+            if (_instName_t) {
+              html += '<div class="theory-slot-time">' + _instName_t + '</div>';
             }
           } else {
             html += '<div class="theory-slot-label">' + t('theorieThema') + ' ' + (slot.theory_topic_number || '') + '</div>';
@@ -1023,9 +1038,10 @@ var App = {
           // Block display
           var bp = parseBlockNotes(slot.notes);
           if (height >= 40) {
+            var _instName_b = _slotInstructorName(slot);
             html += '<div class="week-grid-slot-time">' + slot.start_time + '\u2013' + slot.end_time + '</div>';
-            if (slot.instructor_name) {
-              html += '<div class="week-grid-slot-instructor">' + slot.instructor_name + '</div>';
+            if (_instName_b) {
+              html += '<div class="week-grid-slot-instructor">' + _instName_b + '</div>';
             }
             html += '<div class="week-grid-slot-name">' + (bp.reason || t('nichtVerfuegbar')) + '</div>';
           } else {
@@ -1034,9 +1050,10 @@ var App = {
         } else if (isOffer) {
           // Pending slot offer display
           if (height >= 40) {
+            var _instName_o = _slotInstructorName(slot);
             html += '<div class="week-grid-slot-time">' + slot.start_time + '\u2013' + slot.end_time + '</div>';
-            if (slot.instructor_name) {
-              html += '<div class="week-grid-slot-instructor">' + slot.instructor_name + '</div>';
+            if (_instName_o) {
+              html += '<div class="week-grid-slot-instructor">' + _instName_o + '</div>';
             }
             html += '<div class="week-grid-slot-name">' + t('angebotenOffen') + '</div>';
             html += '<div class="week-grid-slot-type">' + t('termineAnbieten') + '</div>';
@@ -1044,14 +1061,15 @@ var App = {
             html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + t('angebotenOffen') + '</div>';
           }
         } else if (height >= 40) {
+          var _instName_n = _slotInstructorName(slot);
           html += '<div class="week-grid-slot-time">' + slot.start_time + '\u2013' + slot.end_time + '</div>';
-          if (slot.instructor_name) {
-            html += '<div class="week-grid-slot-instructor">' + slot.instructor_name + '</div>';
+          if (_instName_n) {
+            html += '<div class="week-grid-slot-instructor">' + _instName_n + '</div>';
           }
           html += '<div class="week-grid-slot-name">' + (slot.student_name || t('offen')) + '</div>';
           html += '<div class="week-grid-slot-type">' + tType(slot.type) + (pruef ? ' \ud83c\udfc1' : '') + (isUnconfirmed ? ' \u231b' : '') + (isRecurring ? ' <span class="recurring-badge">\uD83D\uDD01</span>' : '') + '</div>';
         } else {
-          html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + (slot.instructor_name || slot.student_name || slot.type) + '</div>';
+          html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + (_slotInstructorName(slot) || slot.student_name || slot.type) + '</div>';
         }
         html += '</div>';
       });

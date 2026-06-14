@@ -1341,17 +1341,6 @@
   opacity: 0.85;
   box-shadow: 0 1px 4px rgba(0,0,0,0.15);
 }
-.week-grid-slot.slot-draggable {
-  cursor: grab;
-}
-.week-grid-slot.slot-draggable:active {
-  cursor: grabbing;
-}
-.slot-dragging-ghost {
-  transform: scale(1.03);
-  border-radius: var(--radius-sm);
-  opacity: 0.9 !important;
-}
 
 /* Slot content */
 .week-grid-slot-time {
@@ -3007,8 +2996,10 @@ html[dir="rtl"] .notif-panel {
 .password-toggle-btn svg{width:20px;height:20px}
 
 /* ══ Sunset Line ══ */
-.sunset-line{position:absolute;left:0;right:0;height:0;border-top:2px dashed #f59e0b;z-index:2;pointer-events:none}
-.sunset-label{position:absolute;right:4px;top:-18px;font-size:10px;color:#f59e0b;white-space:nowrap;background:var(--bg-primary);padding:0 4px;border-radius:4px}
+.sunset-line{position:absolute;left:0;right:0;height:0;border-top:2px dashed #f59e0b;z-index:3;pointer-events:none}
+.sunset-label{position:absolute;right:4px;top:-18px;font-size:10px;color:#f59e0b;white-space:nowrap;background:var(--bg-primary);padding:0 4px;border-radius:4px;font-weight:600}
+.night-overlay{position:absolute;left:0;right:0;background:repeating-linear-gradient(135deg,rgba(30,41,59,0.06) 0,rgba(30,41,59,0.06) 6px,rgba(30,41,59,0.10) 6px,rgba(30,41,59,0.10) 12px);pointer-events:none;z-index:0}
+[data-theme="dark"] .night-overlay,html.dark .night-overlay{background:repeating-linear-gradient(135deg,rgba(255,255,255,0.04) 0,rgba(255,255,255,0.04) 6px,rgba(255,255,255,0.08) 6px,rgba(255,255,255,0.08) 12px)}
 
 /* ══ Rest Zone ══ */
 .rest-zone{position:absolute;left:0;right:0;background:rgba(239,68,68,0.08);z-index:1;pointer-events:none;border-top:1px dashed rgba(239,68,68,0.3);border-bottom:1px dashed rgba(239,68,68,0.3)}
