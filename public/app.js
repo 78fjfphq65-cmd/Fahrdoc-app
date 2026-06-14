@@ -3888,6 +3888,7 @@ var App = {
       '<div id="profile-abo-section"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>' +
       '<div id="profile-billing-settings-section"></div>' +
       '<div id="profile-pricing-section"></div>' +
+      '<div id="profile-price-categories-section"></div>' +
       '<div class="card mb-4"><div class="section-title mb-3">' + t('supportFeedback') + '</div>' +
         '<div class="form-group mb-3"><label class="form-label">' + t('feedbackKategorie') + '</label>' +
           '<select class="form-select" id="feedback-category">' +
@@ -3908,6 +3909,8 @@ var App = {
     this._loadPricingTemplates();
     // Load billing settings (nur Fahrschule)
     this._loadBillingSettings();
+    // Load price categories (Push 6 — nur Fahrschule)
+    this._loadPriceCategories();
   },
 
   _loadBillingSettings: async function() {
@@ -4135,6 +4138,244 @@ var App = {
       App.showToast('Gel\u00f6scht', 'success');
       this._loadPricingTemplates();
     } catch (err) { App.showToast('Fehler: ' + (err.message || err), 'error'); }
+  },
+
+  // ============================================================
+  // PUSH 6: Preiskategorien (Normal / Family & Friends / Mitarbeiter / …)
+  // Nur Labels — keine automatische Preisberechnung.
+  // ============================================================
+  _loadPriceCategories: async function() {
+    var container = document.getElementById('profile-price-categories-section');
+    if (!container) return;
+    var u = AppState.currentUser;
+    if (u.role !== 'school') { container.innerHTML = ''; return; }
+    container.innerHTML = '<div class="card mb-4"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>';
+    try {
+      var res = await ApiClient.get('/api/school/price-categories');
+      AppState.priceCategoriesDraft = (res && res.categories) ? res.categories.slice() : [];
+      this._renderPriceCategories();
+    } catch (err) {
+      container.innerHTML = '<div class="card mb-4"><p class="text-sm text-muted">Preiskategorien: ' + (err.message || err) + '</p></div>';
+    }
+  },
+
+  _renderPriceCategories: function() {
+    var container = document.getElementById('profile-price-categories-section');
+    if (!container) return;
+    var cats = AppState.priceCategoriesDraft || [];
+    var esc = this._escapeHtml.bind(this);
+    var rows = '';
+    var i;
+    if (cats.length === 0) {
+      rows = '<div style="padding:var(--space-3);color:var(--text-muted);font-size:var(--text-sm);text-align:center;">Noch keine Kategorie. Lege z.\u202fB. \u201eNormal\u201c, \u201eFamily \u0026 Friends\u201c oder \u201eMitarbeiter\u201c an.</div>';
+    } else {
+      for (i = 0; i < cats.length; i++) {
+        var c = cats[i];
+        rows += '<div class="pc-row" data-idx="' + i + '" style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2);border-bottom:1px solid var(--border-light);">' +
+          '<input type="text" class="form-input pc-label" data-idx="' + i + '" value="' + esc(c.label || '') + '" maxlength="60" placeholder="Bezeichnung" style="flex:1;min-width:0;" oninput="App._onPriceCategoryEdit(' + i + ', this.value)">' +
+          '<button class="btn btn-secondary btn-sm" title="L\u00f6schen" onclick="App._removePriceCategory(' + i + ')" style="color:#c62828;">\u2715</button>' +
+          '</div>';
+      }
+    }
+    var html = '<div class="card mb-4">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin-bottom:var(--space-3);flex-wrap:wrap;">' +
+        '<div><div class="section-title" style="margin:0;">Preiskategorien</div>' +
+        '<div style="font-size:var(--text-sm);color:var(--text-muted);">Eigene Labels pro Sch\u00fcler (z.\u202fB. Normal, Family \u0026 Friends, Mitarbeiter). Reine Kennzeichnung \u2014 keine automatische Preisberechnung.</div></div>' +
+        '<button class="btn btn-secondary btn-sm" onclick="App._addPriceCategory()">+ Kategorie</button>' +
+      '</div>' +
+      '<div style="border:1px solid var(--border-light);border-radius:var(--radius-md);overflow:hidden;">' + rows + '</div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-2);margin-top:var(--space-3);flex-wrap:wrap;">' +
+        '<button class="btn btn-secondary" onclick="App.openAssignPriceCategoryDialog()">Sch\u00fcler-Kategorien zuweisen \u2026</button>' +
+        '<button class="btn btn-primary" id="pc-save-btn" onclick="App._savePriceCategories()">Speichern</button>' +
+      '</div>' +
+    '</div>';
+    container.innerHTML = html;
+  },
+
+  _onPriceCategoryEdit: function(idx, val) {
+    if (!AppState.priceCategoriesDraft || !AppState.priceCategoriesDraft[idx]) return;
+    AppState.priceCategoriesDraft[idx].label = val;
+  },
+
+  _addPriceCategory: function() {
+    if (!AppState.priceCategoriesDraft) AppState.priceCategoriesDraft = [];
+    if (AppState.priceCategoriesDraft.length >= 20) {
+      App.showToast('Maximal 20 Kategorien', 'error'); return;
+    }
+    var n = AppState.priceCategoriesDraft.length + 1;
+    AppState.priceCategoriesDraft.push({ id: 'cat_' + n, label: '' });
+    this._renderPriceCategories();
+  },
+
+  _removePriceCategory: function(idx) {
+    if (!AppState.priceCategoriesDraft) return;
+    if (AppState.priceCategoriesDraft.length <= 1) {
+      App.showToast('Mindestens eine Kategorie n\u00f6tig', 'error'); return;
+    }
+    if (!confirm('Kategorie entfernen? Sch\u00fcler in dieser Kategorie verlieren das Label.')) return;
+    AppState.priceCategoriesDraft.splice(idx, 1);
+    this._renderPriceCategories();
+  },
+
+  _savePriceCategories: async function() {
+    var btn = document.getElementById('pc-save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Speichert\u2026'; }
+    try {
+      var cats = (AppState.priceCategoriesDraft || []).map(function(c) {
+        return { id: c.id, label: (c.label || '').trim() };
+      }).filter(function(c) { return c.label.length > 0; });
+      if (cats.length === 0) { App.showToast('Mindestens eine Kategorie mit Bezeichnung n\u00f6tig', 'error'); return; }
+      var res = await ApiClient.put('/api/school/price-categories', { categories: cats });
+      AppState.priceCategoriesDraft = (res && res.categories) ? res.categories.slice() : cats;
+      App.showToast('Gespeichert' + (res.orphaned ? ' \u2014 ' + res.orphaned + ' Sch\u00fcler ohne Kategorie' : ''), 'success');
+      this._renderPriceCategories();
+    } catch (err) {
+      App.showToast('Fehler: ' + (err.message || err), 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Speichern'; }
+    }
+  },
+
+  // ---------- Schüler-Zuweisungs-Dialog ----------
+  openAssignPriceCategoryDialog: async function() {
+    // Vor Öffnen: aktuelle Kategorien sichern (falls Draft un-saved Labels enthält)
+    var cats = AppState.priceCategoriesDraft || [];
+    var savedCats = cats.filter(function(c) { return (c.label || '').trim().length > 0; });
+    if (savedCats.length === 0) {
+      App.showToast('Lege erst eine Kategorie an', 'error'); return;
+    }
+    App.openModal('Sch\u00fcler-Kategorien zuweisen', '<div style="padding:var(--space-4);text-align:center;"><div class="loading-spinner"></div></div>');
+    try {
+      var res = await ApiClient.get('/api/school/students-for-price-categories');
+      AppState.assignPcStudents = (res && res.students) ? res.students : [];
+      AppState.assignPcSelection = {};
+      AppState.assignPcSearch = '';
+      this._renderAssignPriceCategoryDialog();
+    } catch (err) {
+      App.showToast('Fehler: ' + (err.message || err), 'error');
+      App.closeModal();
+    }
+  },
+
+  _renderAssignPriceCategoryDialog: function() {
+    var cats = (AppState.priceCategoriesDraft || []).filter(function(c) { return (c.label || '').trim().length > 0; });
+    var students = AppState.assignPcStudents || [];
+    var selection = AppState.assignPcSelection || {};
+    var search = (AppState.assignPcSearch || '').toLowerCase().trim();
+    var esc = this._escapeHtml.bind(this);
+
+    // Label-Lookup
+    var labelById = {};
+    cats.forEach(function(c) { labelById[c.id] = c.label; });
+
+    // Suche anwenden
+    var filtered = students;
+    if (search) {
+      filtered = students.filter(function(s) {
+        return (s.name || '').toLowerCase().indexOf(search) >= 0;
+      });
+    }
+
+    var selectedCount = Object.keys(selection).filter(function(k) { return selection[k]; }).length;
+    var filteredAllSelected = filtered.length > 0 && filtered.every(function(s) { return !!selection[s.id]; });
+
+    var rows = '';
+    if (filtered.length === 0) {
+      rows = '<div style="padding:var(--space-4);text-align:center;color:var(--text-muted);font-size:var(--text-sm);">' +
+        (students.length === 0 ? 'Noch keine Sch\u00fcler.' : 'Keine Treffer.') + '</div>';
+    } else {
+      var i;
+      for (i = 0; i < filtered.length; i++) {
+        var s = filtered[i];
+        var checked = !!selection[s.id];
+        var currentLabel = s.price_category ? (labelById[s.price_category] || s.price_category) : '';
+        rows += '<label class="pc-stud-row" style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-light);cursor:pointer;">' +
+          '<input type="checkbox" class="pc-stud-check" ' + (checked ? 'checked' : '') + ' onchange="App._togglePcStudent(\'' + s.id + '\', this.checked)">' +
+          '<div style="flex:1;min-width:0;"><div style="font-weight:500;">' + esc(s.name) + '</div>' +
+          (currentLabel ? '<div style="font-size:var(--text-xs);color:var(--text-muted);">Aktuell: ' + esc(currentLabel) + '</div>' : '<div style="font-size:var(--text-xs);color:var(--text-muted);">\u2014 keine Kategorie \u2014</div>') +
+          '</div></label>';
+      }
+    }
+
+    // Kategorie-Optionen
+    var catOpts = '<option value="">\u2014 Auswahl\u2026 \u2014</option>';
+    cats.forEach(function(c) {
+      catOpts += '<option value="' + esc(c.id) + '">' + esc(c.label) + '</option>';
+    });
+    catOpts += '<option value="__clear__">\u2014 Kategorie entfernen \u2014</option>';
+
+    var body = '<div style="display:flex;flex-direction:column;gap:var(--space-3);max-height:70vh;">' +
+      '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:center;">' +
+        '<input type="text" class="form-input" id="pc-search" placeholder="Suche\u2026" value="' + esc(search) + '" oninput="App._setPcSearch(this.value)" style="flex:1;min-width:140px;">' +
+        '<label style="display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-sm);white-space:nowrap;">' +
+          '<input type="checkbox" id="pc-all" ' + (filteredAllSelected ? 'checked' : '') + ' onchange="App._toggleAllPcStudents(this.checked)"> Alle' +
+        '</label>' +
+      '</div>' +
+      '<div style="font-size:var(--text-xs);color:var(--text-muted);">' + selectedCount + ' ausgew\u00e4hlt \u00b7 ' + filtered.length + ' angezeigt</div>' +
+      '<div style="border:1px solid var(--border-light);border-radius:var(--radius-md);overflow-y:auto;max-height:40vh;">' + rows + '</div>' +
+      '<div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap;padding-top:var(--space-2);border-top:1px solid var(--border-light);">' +
+        '<select class="form-select" id="pc-assign-select" style="flex:1;min-width:140px;">' + catOpts + '</select>' +
+        '<button class="btn btn-primary" onclick="App._assignPriceCategoryToSelected()"' + (selectedCount === 0 ? ' disabled' : '') + '>Zuweisen (' + selectedCount + ')</button>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end;">' +
+        '<button class="btn btn-secondary" onclick="App.closeModal()">Schlie\u00dfen</button>' +
+      '</div>' +
+    '</div>';
+    App.openModal('Sch\u00fcler-Kategorien zuweisen', body);
+  },
+
+  _setPcSearch: function(v) {
+    AppState.assignPcSearch = v || '';
+    this._renderAssignPriceCategoryDialog();
+    // Fokus + Cursor wiederherstellen
+    setTimeout(function() {
+      var el = document.getElementById('pc-search');
+      if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    }, 0);
+  },
+
+  _togglePcStudent: function(id, checked) {
+    if (!AppState.assignPcSelection) AppState.assignPcSelection = {};
+    if (checked) AppState.assignPcSelection[id] = true;
+    else delete AppState.assignPcSelection[id];
+    this._renderAssignPriceCategoryDialog();
+  },
+
+  _toggleAllPcStudents: function(checked) {
+    if (!AppState.assignPcSelection) AppState.assignPcSelection = {};
+    var students = AppState.assignPcStudents || [];
+    var search = (AppState.assignPcSearch || '').toLowerCase().trim();
+    var filtered = search
+      ? students.filter(function(s) { return (s.name || '').toLowerCase().indexOf(search) >= 0; })
+      : students;
+    filtered.forEach(function(s) {
+      if (checked) AppState.assignPcSelection[s.id] = true;
+      else delete AppState.assignPcSelection[s.id];
+    });
+    this._renderAssignPriceCategoryDialog();
+  },
+
+  _assignPriceCategoryToSelected: async function() {
+    var sel = AppState.assignPcSelection || {};
+    var ids = Object.keys(sel).filter(function(k) { return sel[k]; });
+    if (ids.length === 0) { App.showToast('Keine Sch\u00fcler ausgew\u00e4hlt', 'error'); return; }
+    var selEl = document.getElementById('pc-assign-select');
+    var val = selEl ? selEl.value : '';
+    if (!val) { App.showToast('Kategorie w\u00e4hlen', 'error'); return; }
+    var categoryId = (val === '__clear__') ? null : val;
+    try {
+      var res = await ApiClient.put('/api/school/bulk/student-price-category', { studentIds: ids, categoryId: categoryId });
+      App.showToast((res.updated || 0) + ' Sch\u00fcler aktualisiert', 'success');
+      // Liste aktualisieren
+      var students = AppState.assignPcStudents || [];
+      students.forEach(function(s) {
+        if (sel[s.id]) s.price_category = categoryId;
+      });
+      AppState.assignPcSelection = {};
+      this._renderAssignPriceCategoryDialog();
+    } catch (err) {
+      App.showToast('Fehler: ' + (err.message || err), 'error');
+    }
   },
 
   _loadProfileAbo: async function() {
@@ -6312,9 +6553,11 @@ var App = {
 
     // Schüler-Kopfdaten (3 Spalten)
     var sp = cw / 3;
-    var nameParts = (opts.leer ? '' : (data.student.name || '')).split(/\s+/);
-    var nachname = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : (nameParts[0] || '');
-    var vorname  = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
+    // Convention: data.student.name is 'Vorname Nachname'
+    // Nachname = letztes Wort, Vorname = alles davor
+    var nameParts = (opts.leer ? '' : (data.student.name || '')).split(/\s+/).filter(Boolean);
+    var nachname = nameParts.length > 1 ? nameParts[nameParts.length - 1] : (nameParts[0] || '');
+    var vorname  = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
 
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
     doc.text('Name', ml, y);
@@ -6612,6 +6855,21 @@ var App = {
       '<span class="font-semibold text-sm">' + lesson.type + '</span>' +
       '<span class="badge badge-primary">' + this.formatDuration(lesson.duration) + '</span></div>' +
       '<div class="text-xs text-muted">' + lesson.studentName + '</div></div>';
+
+    // Verrechnungs-Kategorie (Standard / Gratis / Schnupperfahrt)
+    if (typeof AppState.summaryBillingCategory === 'undefined' || !AppState.summaryBillingCategory) {
+      AppState.summaryBillingCategory = 'regular';
+    }
+    var _bc = AppState.summaryBillingCategory;
+    html += '<div class="card mb-4"><div class="section-title mb-2">Verrechnung</div>' +
+      '<div class="level-selector" id="billing-category-selector" style="flex-wrap:wrap;">' +
+        '<button type="button" class="level-selector-btn' + (_bc==='regular'?' active':'') + '" onclick="App.setBillingCategory(\'regular\', this)">Regul\u00e4r</button>' +
+        '<button type="button" class="level-selector-btn' + (_bc==='free'?' active':'') + '" onclick="App.setBillingCategory(\'free\', this)">Gratis</button>' +
+        '<button type="button" class="level-selector-btn' + (_bc==='trial'?' active':'') + '" onclick="App.setBillingCategory(\'trial\', this)">Schnupperfahrt</button>' +
+      '</div>' +
+      '<div id="billing-category-hint" class="text-xs text-muted" style="margin-top:8px;">' + this._billingCategoryHint(_bc) + '</div>' +
+      '</div>';
+
     html += '<div class="section-title mb-3">' + t('bewertung') + '</div>';
     SKILL_TASKS.forEach(function(task) {
       var current = AppState.summaryRatings[task] || 2;
@@ -6656,6 +6914,21 @@ var App = {
     event.target.value = '';
   },
 
+  _billingCategoryHint: function(cat) {
+    if (cat === 'free') return 'Z\u00e4hlt f\u00fcr Ausbildungsnachweis, aber keine Rechnungsposition wird erzeugt.';
+    if (cat === 'trial') return 'Unverbindliche Schnupperfahrt \u2014 kein Ausbildungsnachweis, keine Rechnungsposition.';
+    return 'Regul\u00e4re Fahrstunde: erzeugt automatisch eine Soll-Position in der Buchhaltung (falls Preisliste hinterlegt).';
+  },
+
+  setBillingCategory: function(cat, btn) {
+    AppState.summaryBillingCategory = cat;
+    var container = btn.parentElement;
+    container.querySelectorAll('.level-selector-btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    var hint = document.getElementById('billing-category-hint');
+    if (hint) hint.textContent = this._billingCategoryHint(cat);
+  },
+
   renderPendingImages: function() {
     var container = document.getElementById('image-preview-list');
     if (!container) return;
@@ -6692,12 +6965,14 @@ var App = {
         studentId: lesson.studentId, type: lesson.type, duration: lesson.duration,
         notes: notes, ratings: AppState.summaryRatings, licenseClass: lesson.licenseClass,
         images: AppState.pendingImages,
+        billingCategory: AppState.summaryBillingCategory || 'regular',
         routeData: lesson.routeData || [],
         markers: lesson.markers || [],
         distanceKm: lesson.distanceKm || 0,
         avgSpeedKmh: lesson.avgSpeedKmh || 0
       });
       AppState.activeLesson = null; AppState.summaryRatings = {}; AppState.pendingImages = [];
+      AppState.summaryBillingCategory = 'regular';
       AppState._cachedData.instructorDash = null;
       this.navigate('instructor-dashboard'); this.switchInstructorTab('dashboard');
       this.showToast(t('fahrstundeGespeichert'));
@@ -6967,7 +7242,21 @@ var App = {
   },
 
   deleteLesson: async function(lessonId, studentId) {
-    if (!confirm(t('wirklichLoeschen'))) return;
+    // Versuch, billing_category aus dem aktuell gerenderten Review zu lesen
+    var billingCat = 'regular';
+    try {
+      var lesson = await ApiClient.get('/api/lesson/' + lessonId);
+      billingCat = (lesson && lesson.billing_category) || 'regular';
+    } catch (e) {}
+    var msg;
+    if (billingCat === 'trial') {
+      msg = 'Schnupperfahrt l\u00f6schen?\n\nDie Stunde wird vollst\u00e4ndig entfernt (keine Buchhaltungs- oder Ausbildungsdokumentation betroffen).';
+    } else if (billingCat === 'free') {
+      msg = 'Gratis-Fahrstunde l\u00f6schen?\n\nDie Stunde wird aus Ihrer Ansicht entfernt, bleibt aber im Ausbildungsnachweis des Sch\u00fclers sichtbar.';
+    } else {
+      msg = 'Fahrstunde l\u00f6schen?\n\n\u2022 Wird aus Ihrer Ansicht entfernt\n\u2022 Bleibt im Ausbildungsnachweis des Sch\u00fclers sichtbar\n\u2022 Eine evtl. erzeugte Buchhaltungs-Position bleibt unber\u00fchrt (muss separat storniert werden)';
+    }
+    if (!confirm(msg)) return;
     try {
       await ApiClient.del('/api/lessons/' + lessonId);
       AppState._cachedData.instructorDash = null;

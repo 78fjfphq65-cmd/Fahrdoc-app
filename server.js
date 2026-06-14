@@ -752,9 +752,9 @@ app.get('/api/school/dashboard', authMiddleware, async (req, res) => {
       supabase.from('instructors').select('id, name, email, phone').eq('school_id', schoolId),
       supabase.from('students').select('id, name, email, license_class, status, created_at').eq('school_id', schoolId),
       supabase.from('subscriptions').select('*').eq('school_id', schoolId).single(),
-      supabase.from('lessons').select('id', { count: 'exact', head: true }).eq('school_id', schoolId),
+      supabase.from('lessons').select('id', { count: 'exact', head: true }).eq('school_id', schoolId).is('deleted_at', null),
       supabase.from('students').select('id, name, created_at').eq('school_id', schoolId).gte('created_at', mondayStr),
-      supabase.from('lessons').select('*, students(name)').eq('school_id', schoolId).order('date', { ascending: false }).limit(5)
+      supabase.from('lessons').select('*, students(name)').eq('school_id', schoolId).is('deleted_at', null).order('date', { ascending: false }).limit(5)
     ]);
 
     const recentLessons = recentLessonsRes.data || [];
@@ -830,7 +830,7 @@ app.get('/api/school/students', authMiddleware, async (req, res) => {
     // Alles in einem Rutsch parallel laden (statt 4 Queries pro Schüler)
     const [mappingsRes, lessonsRes, theoryRes, instructorsListRes] = await Promise.all([
       supabase.from('student_instructors').select('student_id, instructor_id').in('student_id', studentIds),
-      supabase.from('lessons').select('id, student_id, date').in('student_id', studentIds).order('date', { ascending: false }),
+      supabase.from('lessons').select('id, student_id, date').in('student_id', studentIds).is('deleted_at', null).order('date', { ascending: false }),
       supabase.from('theory_attendance').select('id, student_id').in('student_id', studentIds).eq('is_present', true),
       supabase.from('instructors').select('id, name').eq('school_id', schoolId)
     ]);
@@ -1312,6 +1312,7 @@ app.get('/api/instructor/dashboard', authMiddleware, async (req, res) => {
     const { data: allLessons } = await supabase.from('lessons')
       .select('*, students(name)')
       .eq('instructor_id', instId)
+      .is('deleted_at', null)
       .order('date', { ascending: false });
 
     for (const l of (allLessons || [])) {
@@ -1358,12 +1359,12 @@ app.get('/api/instructor/students', authMiddleware, async (req, res) => {
 
     for (const st of students) {
       const { count } = await supabase.from('lessons')
-        .select('id', { count: 'exact', head: true }).eq('student_id', st.id);
+        .select('id', { count: 'exact', head: true }).eq('student_id', st.id).is('deleted_at', null);
       st.lessonCount = count || 0;
 
       if (st.lessonCount > 0) {
         const { data: latest } = await supabase.from('lessons')
-          .select('id').eq('student_id', st.id).order('date', { ascending: false }).limit(1);
+          .select('id').eq('student_id', st.id).is('deleted_at', null).order('date', { ascending: false }).limit(1);
         if (latest && latest[0]) {
           const { data: ratings } = await supabase.from('skill_ratings')
             .select('rating').eq('lesson_id', latest[0].id);
@@ -1505,6 +1506,7 @@ app.get('/api/lessons/:studentId', authMiddleware, async (req, res) => {
   try {
     const { data: lessons } = await supabase.from('lessons')
       .select('*').eq('student_id', req.params.studentId)
+      .is('deleted_at', null)
       .order('date', { ascending: false });
 
     const list = lessons || [];
@@ -1566,9 +1568,13 @@ app.get('/api/lesson/:id', authMiddleware, async (req, res) => {
 app.post('/api/lessons', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur Fahrlehrer können Fahrstunden erstellen' });
-    const { studentId, type, duration, notes, ratings, licenseClass, date, images } = req.body;
+    const { studentId, type, duration, notes, ratings, licenseClass, date, images, billingCategory } = req.body;
 
     if (!type || !duration) return res.status(400).json({ error: 'Pflichtfelder fehlen' });
+
+    // Verrechnungs-Kategorie validieren (regular = Standard mit Soll, free = ohne Soll, trial = Schnupperfahrt)
+    const _allowedBilling = ['regular','free','trial'];
+    const _billingCategory = _allowedBilling.indexOf(billingCategory) >= 0 ? billingCategory : 'regular';
 
     var schoolId = req.user.school_id;
     if (studentId) {
@@ -1584,7 +1590,8 @@ app.post('/api/lessons', authMiddleware, async (req, res) => {
 
     await supabase.from('lessons').insert({
       id, student_id: studentId || null, instructor_id: req.user.id, school_id: schoolId,
-      date: lessonDate, type, duration, notes: notes || '', license_class: licenseClass || 'B'
+      date: lessonDate, type, duration, notes: notes || '', license_class: licenseClass || 'B',
+      billing_category: _billingCategory
     });
 
     if (studentId && ratings && typeof ratings === 'object') {
@@ -1613,7 +1620,8 @@ app.post('/api/lessons', authMiddleware, async (req, res) => {
     }
 
     // ── BUCHHALTUNG: Auto-Soll-Position erzeugen wenn passendes Template existiert ──
-    if (studentId) {
+    // Nur bei regulären Stunden — gratis/trial erzeugen KEINE Soll-Position
+    if (studentId && _billingCategory === 'regular') {
       try {
         await autoCreateChargeFromLesson({
           schoolId: schoolId, studentId: studentId, lessonId: id,
@@ -1683,17 +1691,49 @@ app.delete('/api/lesson-image/:id', authMiddleware, async (req, res) => {
 
 app.delete('/api/lessons/:id', authMiddleware, async (req, res) => {
   try {
-    if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur Fahrlehrer können Fahrstunden löschen' });
-    const { data: lesson } = await supabase.from('lessons')
-      .select('*').eq('id', req.params.id).eq('instructor_id', req.user.id).single();
+    // Fahrlehrer + Fahrschule dürfen Fahrstunden löschen
+    if (req.user.role !== 'instructor' && req.user.role !== 'school') {
+      return res.status(403).json({ error: 'Keine Berechtigung' });
+    }
+
+    // Lesson laden + Berechtigung prüfen
+    var query = supabase.from('lessons').select('*').eq('id', req.params.id);
+    if (req.user.role === 'instructor') {
+      query = query.eq('instructor_id', req.user.id);
+    } else {
+      // Schule: muss eigene Stunde der Schule sein
+      query = query.eq('school_id', req.user.id);
+    }
+    const { data: lesson } = await query.single();
     if (!lesson) return res.status(404).json({ error: 'Fahrstunde nicht gefunden' });
 
-    await supabase.from('lesson_images').delete().eq('lesson_id', req.params.id);
-    await supabase.from('lesson_routes').delete().eq('lesson_id', req.params.id);
-    await supabase.from('skill_ratings').delete().eq('lesson_id', req.params.id);
-    await supabase.from('lessons').delete().eq('id', req.params.id);
-    res.json({ success: true });
+    // Bereits gelöscht?
+    if (lesson.deleted_at) {
+      return res.status(400).json({ error: 'Fahrstunde wurde bereits gelöscht' });
+    }
+
+    // Schnupperfahrten: Hard-Delete (kein Ausbildungsnachweis, kein Beleg)
+    if (lesson.billing_category === 'trial') {
+      await supabase.from('lesson_images').delete().eq('lesson_id', req.params.id);
+      await supabase.from('lesson_routes').delete().eq('lesson_id', req.params.id);
+      await supabase.from('skill_ratings').delete().eq('lesson_id', req.params.id);
+      await supabase.from('lessons').delete().eq('id', req.params.id);
+      return res.json({ success: true, mode: 'hard' });
+    }
+
+    // Reguläre + Gratis-Stunden: Soft-Delete
+    // → verschwindet aus Fahrschul/Fahrlehrer-Sicht
+    // → bleibt im Ausbildungsnachweis des Schülers sichtbar
+    // → evtl. erzeugte Buchhaltungs-Position bleibt unberührt (GoBD)
+    await supabase.from('lessons').update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: req.user.id,
+      deleted_by_role: req.user.role
+    }).eq('id', req.params.id);
+
+    res.json({ success: true, mode: 'soft' });
   } catch (err) {
+    console.error('[DELETE /api/lessons] error:', err.message);
     res.status(500).json({ error: 'Serverfehler' });
   }
 });
@@ -1710,7 +1750,7 @@ app.get('/api/student-detail/:id', authMiddleware, async (req, res) => {
     }
 
     const [lessonsRes, instructors] = await Promise.all([
-      supabase.from('lessons').select('*, instructors(name)').eq('student_id', student.id).order('date', { ascending: false }),
+      supabase.from('lessons').select('*, instructors(name)').eq('student_id', student.id).is('deleted_at', null).order('date', { ascending: false }),
       getStudentInstructors(student.id)
     ]);
     const lessons = lessonsRes.data || [];
@@ -5014,6 +5054,140 @@ app.get('/api/accounting/daily-summary', authMiddleware, async (req, res) => {
     });
   } catch (err) {
     console.error('[Daily Summary]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// PUSH 6: Preiskategorien (nur Labels, keine Preise)
+// ============================================
+// Defaults für neue Schulen / fehlende Daten
+const DEFAULT_PRICE_CATEGORIES = [
+  { id: 'normal',       label: 'Normal' },
+  { id: 'ff',           label: 'Family & Friends' },
+  { id: 'mitarbeiter',  label: 'Mitarbeiter' }
+];
+
+function _sanitizePriceCategories(input) {
+  if (!Array.isArray(input)) return null;
+  const out = [];
+  const seenIds = {};
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i] || {};
+    let id = (c.id || '').toString().trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_').slice(0, 32);
+    const label = (c.label || '').toString().trim().slice(0, 60);
+    if (!label) continue;
+    if (!id) id = 'cat_' + (i + 1);
+    if (seenIds[id]) {
+      // Eindeutigkeit erzwingen
+      let n = 2; while (seenIds[id + '_' + n]) n++;
+      id = id + '_' + n;
+    }
+    seenIds[id] = true;
+    out.push({ id: id, label: label });
+  }
+  return out;
+}
+
+app.get('/api/school/price-categories', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+    const schoolId = schoolIdOf(req.user);
+    const { data, error } = await supabase.from('schools')
+      .select('price_categories').eq('id', schoolId).maybeSingle();
+    if (error) throw error;
+    let cats = (data && data.price_categories) ? data.price_categories : null;
+    if (!Array.isArray(cats) || cats.length === 0) cats = DEFAULT_PRICE_CATEGORIES;
+    res.json({ categories: cats });
+  } catch (err) {
+    console.error('[Price Categories GET]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/school/price-categories', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+    const schoolId = schoolIdOf(req.user);
+    const cats = _sanitizePriceCategories((req.body || {}).categories);
+    if (!cats || cats.length === 0) {
+      return res.status(400).json({ error: 'Mindestens eine Kategorie mit Bezeichnung nötig.' });
+    }
+    if (cats.length > 20) {
+      return res.status(400).json({ error: 'Maximal 20 Kategorien.' });
+    }
+    const { error } = await supabase.from('schools')
+      .update({ price_categories: cats }).eq('id', schoolId);
+    if (error) throw error;
+
+    // Schüler mit ungültiger Kategorie auf NULL setzen
+    const validIds = cats.map(c => c.id);
+    const { data: orphanStuds } = await supabase.from('students')
+      .select('id, price_category').eq('school_id', schoolId).not('price_category', 'is', null);
+    const orphanIds = (orphanStuds || [])
+      .filter(s => validIds.indexOf(s.price_category) < 0)
+      .map(s => s.id);
+    if (orphanIds.length > 0) {
+      await supabase.from('students').update({ price_category: null }).in('id', orphanIds);
+    }
+    res.json({ success: true, categories: cats, orphaned: orphanIds.length });
+  } catch (err) {
+    console.error('[Price Categories PUT]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Schlanke Schülerliste nur für den Preiskategorien-Dialog
+app.get('/api/school/students-for-price-categories', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+    const schoolId = schoolIdOf(req.user);
+    const { data, error } = await supabase.from('students')
+      .select('id, name, price_category').eq('school_id', schoolId);
+    if (error) throw error;
+    const sorted = (data || []).slice().sort((a, b) =>
+      (a.name || '').localeCompare(b.name || '', 'de', { sensitivity: 'base' })
+    );
+    res.json({ students: sorted });
+  } catch (err) {
+    console.error('[Students-for-price-cats GET]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bulk-Zuweisung: setzt für N Schüler die Preiskategorie
+// Pfad über /api/school/bulk/... gewählt, damit nicht mit /students/:id kollidiert.
+app.put('/api/school/bulk/student-price-category', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
+    const schoolId = schoolIdOf(req.user);
+    const b = req.body || {};
+    const ids = Array.isArray(b.studentIds) ? b.studentIds.filter(x => typeof x === 'string') : [];
+    if (ids.length === 0) return res.status(400).json({ error: 'Keine Schüler ausgewählt.' });
+    if (ids.length > 500) return res.status(400).json({ error: 'Maximal 500 Schüler pro Vorgang.' });
+
+    // categoryId == null/'' bedeutet Kategorie entfernen
+    let categoryId = (b.categoryId === null || b.categoryId === undefined || b.categoryId === '')
+      ? null
+      : String(b.categoryId).trim();
+
+    // Wenn gesetzt: gegen aktuelle Kategorien validieren
+    if (categoryId !== null) {
+      const { data: school } = await supabase.from('schools')
+        .select('price_categories').eq('id', schoolId).maybeSingle();
+      let cats = (school && school.price_categories) ? school.price_categories : DEFAULT_PRICE_CATEGORIES;
+      const valid = cats.some(c => c.id === categoryId);
+      if (!valid) return res.status(400).json({ error: 'Kategorie existiert nicht.' });
+    }
+
+    // Nur eigene Schüler updaten (Tenant-Sicherheit)
+    const { data, error } = await supabase.from('students')
+      .update({ price_category: categoryId })
+      .eq('school_id', schoolId).in('id', ids).select('id');
+    if (error) throw error;
+    res.json({ success: true, updated: (data || []).length });
+  } catch (err) {
+    console.error('[Bulk Price-Category PUT]', err);
     res.status(500).json({ error: err.message });
   }
 });
