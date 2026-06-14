@@ -64,6 +64,19 @@ function computeSubscriptionState(sub, schoolCreatedAt) {
   return { active: false, status: 'expired', plan: null, daysRemaining: 0, lockReason: 'Testphase abgelaufen. Bitte ein Abo abschliessen.' };
 }
 
+// Helper: Supabase-Result auf Fehler pruefen + werfen, damit Fehler nicht still verschluckt werden
+function throwIfDbError(result, context) {
+  if (result && result.error) {
+    var msg = '[DB ' + (context || 'op') + '] ' + (result.error.message || JSON.stringify(result.error));
+    console.error(msg, result.error);
+    var err = new Error(result.error.message || 'Datenbankfehler');
+    err.dbError = result.error;
+    err.dbContext = context;
+    throw err;
+  }
+  return result;
+}
+
 const app = express();
 app.set('trust proxy', 1); // Railway runs behind a proxy
 const PORT = process.env.PORT || 5000;
@@ -95,7 +108,7 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
           const sub = await stripe.subscriptions.retrieve(subscriptionId);
           const priceId = sub.items.data[0]?.price?.id;
           const detectedPlan = priceId === process.env.STRIPE_PRICE_ID_KI ? 'ki' : (priceId === process.env.STRIPE_PRICE_ID_CLASSIC ? 'classic' : planFromMeta);
-          await supabase.from('subscriptions').upsert({
+          throwIfDbError(await supabase.from('subscriptions').upsert({
             school_id: schoolId,
             stripe_customer_id: session.customer,
             stripe_subscription_id: subscriptionId,
@@ -107,7 +120,7 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
             instructor_quantity: sub.items.data[0]?.quantity || 1,
             trial_end: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
             updated_at: new Date().toISOString()
-          }, { onConflict: 'school_id' });
+          }, { onConflict: 'school_id' }), 'webhook:checkout-completed');
           // Welcome-Email senden
           try {
             const { data: school } = await supabase.from('schools').select('email, name').eq('id', schoolId).single();
@@ -138,7 +151,7 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
             updated_at: new Date().toISOString()
           };
           if (detectedPlan) updateData.plan = detectedPlan;
-          await supabase.from('subscriptions').update(updateData).eq('school_id', existing.school_id);
+          throwIfDbError(await supabase.from('subscriptions').update(updateData).eq('school_id', existing.school_id), 'webhook:subscription-updated');
           // Kuendigungs-Email senden bei Cancel oder cancel_at_period_end=true (erstmaliges Kuendigen)
           if (wasCancelled || sub.cancel_at_period_end) {
             try {
@@ -157,9 +170,9 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
         const { data: existing } = await supabase.from('subscriptions')
           .select('school_id').eq('stripe_customer_id', invoice.customer).single();
         if (existing) {
-          await supabase.from('subscriptions').update({
+          throwIfDbError(await supabase.from('subscriptions').update({
             status: 'past_due', updated_at: new Date().toISOString()
-          }).eq('school_id', existing.school_id);
+          }).eq('school_id', existing.school_id), 'webhook:payment-failed');
           // Payment-Failed Email senden
           try {
             const { data: school } = await supabase.from('schools').select('email, name').eq('id', existing.school_id).single();
@@ -2690,7 +2703,7 @@ app.get('/api/stripe/subscription', authMiddleware, async (req, res) => {
           cancel_at_period_end: stripeSub.cancel_at_period_end,
           updated_at: new Date().toISOString()
         };
-        await supabase.from('subscriptions').update(updated).eq('school_id', schoolId);
+        throwIfDbError(await supabase.from('subscriptions').update(updated).eq('school_id', schoolId), 'subscription-refresh');
         Object.assign(sub, updated);
       } catch (e) { /* offline: cached */ }
     }
@@ -2853,9 +2866,9 @@ app.put('/api/admin/schools/:id/extend-trial', authMiddleware, async (req, res) 
     const base = existing?.trial_extended_until ? new Date(existing.trial_extended_until) : new Date();
     const newEnd = new Date(Math.max(base.getTime(), Date.now()) + days * 86400000);
     if (existing) {
-      await supabase.from('subscriptions').update({ trial_extended_until: newEnd.toISOString(), updated_at: new Date().toISOString() }).eq('school_id', schoolId);
+      throwIfDbError(await supabase.from('subscriptions').update({ trial_extended_until: newEnd.toISOString(), updated_at: new Date().toISOString() }).eq('school_id', schoolId), 'extend-trial:update');
     } else {
-      await supabase.from('subscriptions').insert({ id: generateId(), school_id: schoolId, trial_extended_until: newEnd.toISOString() });
+      throwIfDbError(await supabase.from('subscriptions').insert({ id: generateId(), school_id: schoolId, trial_extended_until: newEnd.toISOString() }), 'extend-trial:insert');
     }
     res.json({ success: true, trial_extended_until: newEnd.toISOString() });
   } catch (err) {
@@ -2881,11 +2894,11 @@ app.put('/api/admin/schools/:id/free-subscription', authMiddleware, async (req, 
       updated_at: new Date().toISOString()
     };
     if (existing) {
-      await supabase.from('subscriptions').update(payload).eq('school_id', schoolId);
+      throwIfDbError(await supabase.from('subscriptions').update(payload).eq('school_id', schoolId), 'free-subscription:update');
     } else {
       payload.id = generateId();
       payload.school_id = schoolId;
-      await supabase.from('subscriptions').insert(payload);
+      throwIfDbError(await supabase.from('subscriptions').insert(payload), 'free-subscription:insert');
     }
     res.json({ success: true });
   } catch (err) {
@@ -4971,7 +4984,7 @@ async function refreshInvoiceStatus(invoiceId) {
   if (paid >= inv.total_cents && inv.total_cents > 0) newStatus = 'bezahlt';
   else if (paid > 0) newStatus = 'teilbezahlt';
   if (newStatus !== inv.status) {
-    await supabase.from('invoices').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', invoiceId);
+    throwIfDbError(await supabase.from('invoices').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', invoiceId), 'invoice-status-recompute');
   }
   return Object.assign({}, inv, { status: newStatus, paid_cents: paid });
 }
@@ -5105,7 +5118,7 @@ app.post('/api/invoices', authMiddleware, requireGobdMode(), async (req, res) =>
       if (itErr) throw itErr;
     }
     // Charges mit invoice_id markieren
-    await supabase.from('student_charges').update({ invoice_id: invoiceId, updated_at: new Date().toISOString() }).in('id', b.charge_ids);
+    throwIfDbError(await supabase.from('student_charges').update({ invoice_id: invoiceId, updated_at: new Date().toISOString() }).in('id', b.charge_ids), 'charges-link-invoice');
     res.json({ invoice: invoiceRow, items: itemRows });
   } catch (err) {
     console.error('[Invoice POST]', err);
@@ -5122,14 +5135,14 @@ app.post('/api/invoices/:id/cancel', authMiddleware, requireGobdMode(), async (r
     if (!inv || inv.school_id !== schoolId) return res.status(404).json({ error: 'Rechnung nicht gefunden' });
     if (inv.status === 'storniert') return res.status(400).json({ error: 'Bereits storniert' });
     const reason = (req.body && req.body.reason) || null;
-    await supabase.from('invoices').update({
+    throwIfDbError(await supabase.from('invoices').update({
       status: 'storniert',
       cancelled_at: new Date().toISOString(),
       cancel_reason: reason,
       updated_at: new Date().toISOString()
-    }).eq('id', req.params.id);
+    }).eq('id', req.params.id), 'invoice-cancel');
     // Charges wieder freigeben → können in neue Rechnung
-    await supabase.from('student_charges').update({ invoice_id: null, updated_at: new Date().toISOString() }).eq('invoice_id', req.params.id);
+    throwIfDbError(await supabase.from('student_charges').update({ invoice_id: null, updated_at: new Date().toISOString() }).eq('invoice_id', req.params.id), 'invoice-cancel:unlink-charges');
     res.json({ success: true });
   } catch (err) {
     console.error('[Invoice CANCEL]', err);
