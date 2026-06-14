@@ -4420,12 +4420,30 @@ app.get('/api/student/lessons', authMiddleware, async (req, res) => {
 async function autoCreateChargeFromLesson(opts) {
   // opts: { schoolId, studentId, lessonId, lessonType, lessonDate, createdByRole, createdById }
   if (!opts.schoolId || !opts.studentId || !opts.lessonId || !opts.lessonType) return null;
+  // Schueler-Kategorie laden (Fallback 'normal')
+  let studentCat = 'normal';
+  try {
+    const { data: s } = await supabase.from('students')
+      .select('price_category').eq('id', opts.studentId).maybeSingle();
+    if (s && s.price_category) studentCat = s.price_category;
+  } catch (e) { /* Fallback bleibt 'normal' */ }
   // Suche passendes Template (case-insensitive Vergleich lesson_type_match == lessonType)
   const { data: templates } = await supabase.from('pricing_templates')
     .select('*').eq('school_id', opts.schoolId).eq('active', true).eq('auto_apply', true);
   if (!templates || templates.length === 0) return null;
   const lt = (opts.lessonType || '').toLowerCase().trim();
-  const match = templates.find(function(t){ return (t.lesson_type_match || '').toLowerCase().trim() === lt; });
+  // 1) Erst Match in Kategorie des Schuelers
+  let match = templates.find(function(t){
+    return (t.lesson_type_match || '').toLowerCase().trim() === lt
+      && (t.category_id || 'normal') === studentCat;
+  });
+  // 2) Fallback: Match in Kategorie 'normal'
+  if (!match && studentCat !== 'normal') {
+    match = templates.find(function(t){
+      return (t.lesson_type_match || '').toLowerCase().trim() === lt
+        && (t.category_id || 'normal') === 'normal';
+    });
+  }
   if (!match) return null;
   // Duplikat-Check (UNIQUE-Constraint deckt's auch ab, aber so vermeiden wir Fehlermeldungen)
   const { data: existing } = await supabase.from('student_charges')
@@ -4498,6 +4516,7 @@ app.post('/api/pricing-templates', authMiddleware, async (req, res) => {
       school_id: schoolIdOf(req.user),
       name: String(b.name).trim(),
       category: b.category || 'sonstiges',
+      category_id: b.category_id ? String(b.category_id).trim() : 'normal',
       price_cents: Math.max(0, parseInt(b.price_cents) || 0),
       active: b.active !== false,
       auto_apply: b.auto_apply !== false,
@@ -4524,6 +4543,7 @@ app.put('/api/pricing-templates/:id', authMiddleware, async (req, res) => {
     const updates = { updated_at: new Date().toISOString() };
     if (b.name != null) updates.name = String(b.name).trim();
     if (b.category != null) updates.category = b.category;
+    if (b.category_id !== undefined) updates.category_id = b.category_id ? String(b.category_id).trim() : 'normal';
     if (b.price_cents != null) updates.price_cents = Math.max(0, parseInt(b.price_cents) || 0);
     if (b.active != null) updates.active = !!b.active;
     if (b.auto_apply != null) updates.auto_apply = !!b.auto_apply;

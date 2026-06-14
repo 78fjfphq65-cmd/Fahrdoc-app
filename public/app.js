@@ -911,20 +911,37 @@ var App = {
     return 'KW ' + weekNum + ' · ' + mon.getDate() + '.–' + sat.getDate() + '. ' + months[mon.getMonth()] + ' ' + mon.getFullYear();
   },
 
-  // Sunset time calculator for Germany (~51°N latitude)
+  // Sunset time calculator for Berlin (52.52°N, 13.40°E)
+  // NOAA-Algorithmus mit Equation-of-Time und Refraktions-Korrektur
   getSunsetTime: function(date) {
-    var dayOfYear = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 86400000);
-    var lat = 51.0 * Math.PI / 180;
-    var decl = -23.45 * Math.cos(2 * Math.PI * (dayOfYear + 10) / 365) * Math.PI / 180;
-    var cosHA = -Math.tan(lat) * Math.tan(decl);
+    var N = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 86400000);
+    var latDeg = 52.52;
+    var lonDeg = 13.40;
+    var lat = latDeg * Math.PI / 180;
+    var gamma = 2 * Math.PI / 365 * (N - 1);
+    // Sonnen-Deklination (NOAA Fourier-Reihe)
+    var decl = 0.006918
+      - 0.399912 * Math.cos(gamma) + 0.070257 * Math.sin(gamma)
+      - 0.006758 * Math.cos(2 * gamma) + 0.000907 * Math.sin(2 * gamma)
+      - 0.002697 * Math.cos(3 * gamma) + 0.00148  * Math.sin(3 * gamma);
+    // Zeitgleichung (Minuten)
+    var eot = 229.18 * (0.000075
+      + 0.001868 * Math.cos(gamma) - 0.032077 * Math.sin(gamma)
+      - 0.014615 * Math.cos(2 * gamma) - 0.040849 * Math.sin(2 * gamma));
+    // Zenit-Winkel fuer sichtbaren Sonnenuntergang: 90.833° (Refraktion 34' + Sonnenradius 16')
+    var zenith = 90.833 * Math.PI / 180;
+    var cosHA = (Math.cos(zenith) - Math.sin(lat) * Math.sin(decl)) / (Math.cos(lat) * Math.cos(decl));
     if (cosHA < -1) cosHA = -1; if (cosHA > 1) cosHA = 1;
     var ha = Math.acos(cosHA) * 180 / Math.PI;
-    var sunsetUTC = 12 + ha / 15;
-    var sunsetLocal = sunsetUTC + 1;
+    // Sonnenuntergang in Minuten UTC: SolarNoon(720 - 4*lon - eot) + 4*HA
+    var sunsetMinUTC = 720 - 4 * lonDeg - eot + 4 * ha;
+    var sunsetUTC = sunsetMinUTC / 60;
+    var sunsetLocal = sunsetUTC + 1; // MEZ = UTC+1
     var isDST = date.getMonth() >= 2 && date.getMonth() <= 9;
-    if (isDST) sunsetLocal += 1;
+    if (isDST) sunsetLocal += 1; // MESZ = UTC+2
     var hours = Math.floor(sunsetLocal);
     var mins = Math.round((sunsetLocal - hours) * 60);
+    if (mins >= 60) { mins -= 60; hours += 1; }
     return { hours: hours, minutes: mins, formatted: String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') };
   },
 
@@ -3887,8 +3904,7 @@ var App = {
       '</div>' +
       '<div id="profile-abo-section"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>' +
       '<div id="profile-billing-settings-section"></div>' +
-      '<div id="profile-pricing-section"></div>' +
-      '<div id="profile-price-categories-section"></div>' +
+      '<div id="profile-pricing-categories-section"></div>' +
       '<div class="card mb-4"><div class="section-title mb-3">' + t('supportFeedback') + '</div>' +
         '<div class="form-group mb-3"><label class="form-label">' + t('feedbackKategorie') + '</label>' +
           '<select class="form-select" id="feedback-category">' +
@@ -3905,12 +3921,10 @@ var App = {
     main.innerHTML = html;
     // Load abo data async
     this._loadProfileAbo();
-    // Load pricing templates (nur Fahrschule sieht/aendert)
-    this._loadPricingTemplates();
     // Load billing settings (nur Fahrschule)
     this._loadBillingSettings();
-    // Load price categories (Push 6 — nur Fahrschule)
-    this._loadPriceCategories();
+    // Load merged price categories + pricing templates (Push 7)
+    this._loadPricingAndCategories();
   },
 
   _loadBillingSettings: async function() {
@@ -3995,53 +4009,289 @@ var App = {
     }
   },
 
-  _loadPricingTemplates: async function() {
-    var container = document.getElementById('profile-pricing-section');
+  // ============================================================
+  // PUSH 7: Preise & Kategorien (Matrix-UI)
+  // Eine Kategorie = mehrere pricing_templates (1 pro Fahrstundentyp).
+  // Beim Anlegen einer Fahrstunde wird Preis aus Schüler-Kategorie
+  // automatisch gezogen (Fallback auf 'normal').
+  // ============================================================
+  _loadPricingAndCategories: async function() {
+    var container = document.getElementById('profile-pricing-categories-section');
     if (!container) return;
     var u = AppState.currentUser;
     if (u.role !== 'school') { container.innerHTML = ''; return; }
     container.innerHTML = '<div class="card mb-4"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>';
     try {
-      var list = await ApiClient.get('/api/pricing-templates');
-      this._renderPricingTemplates(list || []);
+      var catsRes = await ApiClient.get('/api/school/price-categories');
+      var templates = await ApiClient.get('/api/pricing-templates');
+      AppState.priceCategoriesDraft = (catsRes && catsRes.categories) ? catsRes.categories.slice() : [];
+      AppState.pricingTemplates = templates || [];
+      // Aktive Tab: 'normal' wenn vorhanden, sonst erste
+      if (!AppState.activePriceCategoryId
+          || !AppState.priceCategoriesDraft.find(function(c){ return c.id === AppState.activePriceCategoryId; })) {
+        var first = AppState.priceCategoriesDraft.find(function(c){ return c.id === 'normal'; }) || AppState.priceCategoriesDraft[0];
+        AppState.activePriceCategoryId = first ? first.id : null;
+      }
+      this._renderPricingAndCategories();
     } catch (err) {
-      container.innerHTML = '<div class="card mb-4"><p class="text-sm text-muted">Preise: ' + (err.message || err) + '</p></div>';
+      container.innerHTML = '<div class="card mb-4"><p class="text-sm text-muted">Preise & Kategorien: ' + (err.message || err) + '</p></div>';
     }
   },
 
-  _renderPricingTemplates: function(list) {
-    var container = document.getElementById('profile-pricing-section');
+  _renderPricingAndCategories: function() {
+    var container = document.getElementById('profile-pricing-categories-section');
     if (!container) return;
-    var rowsHtml = '';
-    if (!list.length) {
-      rowsHtml = '<div style="padding:var(--space-3);color:var(--text-muted);font-size:var(--text-sm);text-align:center;">Noch keine Preise angelegt. Lege z.\u202fB. \u201eFahrstunde\u201c, \u201eTheorie\u201c oder \u201eGrundgeb\u00fchr\u201c an.</div>';
+    var cats = AppState.priceCategoriesDraft || [];
+    var templates = AppState.pricingTemplates || [];
+    var activeId = AppState.activePriceCategoryId;
+    var esc = this._escapeHtml.bind(this);
+    var self = this;
+
+    // Kategorie-Tabs
+    var tabsHtml = '';
+    var i;
+    for (i = 0; i < cats.length; i++) {
+      var c = cats[i];
+      var isActive = c.id === activeId;
+      var bg = isActive ? 'var(--color-primary)' : 'var(--bg-secondary)';
+      var fg = isActive ? '#fff' : 'var(--text-primary)';
+      var border = isActive ? 'var(--color-primary)' : 'var(--border-light)';
+      tabsHtml += '<button class="pc-tab" data-id="' + esc(c.id) + '" onclick="App._setActivePriceCategory(\'' + esc(c.id) + '\')" style="padding:6px 12px;border-radius:16px;border:1px solid ' + border + ';background:' + bg + ';color:' + fg + ';font-size:var(--text-sm);cursor:pointer;white-space:nowrap;">' + esc(c.label || '(ohne Name)') + '</button>';
+    }
+    tabsHtml += '<button class="btn btn-secondary btn-sm" onclick="App._addPriceCategory()" title="Neue Kategorie">+ Kategorie</button>';
+
+    // Aktive Kategorie
+    var activeCat = cats.find(function(c){ return c.id === activeId; });
+    var canDeleteCat = (cats.length > 1 && activeId !== 'normal');
+    var labelEdit = activeCat
+      ? '<div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap;margin-bottom:var(--space-3);">' +
+          '<label style="font-size:var(--text-sm);color:var(--text-muted);">Bezeichnung:</label>' +
+          '<input type="text" class="form-input" value="' + esc(activeCat.label || '') + '" maxlength="60" style="flex:1;min-width:140px;max-width:280px;" oninput="App._onPriceCategoryLabelEdit(this.value)">' +
+          '<button class="btn btn-secondary btn-sm" onclick="App._saveActivePriceCategoryLabel()">Name speichern</button>' +
+          (canDeleteCat ? '<button class="btn btn-secondary btn-sm" style="color:#c62828;" onclick="App._removeActivePriceCategory()">Kategorie l\u00f6schen</button>' : '') +
+        '</div>'
+      : '';
+
+    // Matrix: Pro LESSON_TYPE eine Zeile in der aktiven Kategorie
+    var matrixRows = '';
+    if (activeCat) {
+      var lessonTypes = LESSON_TYPES;
+      for (i = 0; i < lessonTypes.length; i++) {
+        var lt = lessonTypes[i];
+        // Template fuer (aktive Kategorie, lessonType)
+        var tpl = templates.find(function(t){
+          return (t.category_id || 'normal') === activeId
+            && (t.lesson_type_match || '').toLowerCase().trim() === lt.toLowerCase().trim();
+        });
+        // Fallback-Anzeige: wenn aktive Kategorie kein Template hat, was waere der Normal-Preis?
+        var normalTpl = null;
+        if (!tpl && activeId !== 'normal') {
+          normalTpl = templates.find(function(t){
+            return (t.category_id || 'normal') === 'normal'
+              && (t.lesson_type_match || '').toLowerCase().trim() === lt.toLowerCase().trim();
+          });
+        }
+        var priceVal = tpl ? (tpl.price_cents / 100).toFixed(2).replace('.', ',') : '';
+        var placeholder = normalTpl ? 'erbt: ' + (normalTpl.price_cents / 100).toFixed(2).replace('.', ',') : 'Preis in EUR';
+        var autoChecked = tpl ? (tpl.auto_apply !== false) : true;
+        var tplId = tpl ? tpl.id : '';
+        matrixRows += '<tr data-lt="' + esc(lt) + '" data-tpl="' + esc(tplId) + '">' +
+          '<td style="padding:var(--space-2) var(--space-3);font-weight:500;">' + esc(lt) + '</td>' +
+          '<td style="padding:var(--space-2) var(--space-3);"><input type="text" class="form-input pc-price-input" inputmode="decimal" value="' + esc(priceVal) + '" placeholder="' + esc(placeholder) + '" style="max-width:120px;"></td>' +
+          '<td style="padding:var(--space-2) var(--space-3);text-align:center;"><input type="checkbox" class="pc-auto-check" ' + (autoChecked ? 'checked' : '') + '></td>' +
+          '</tr>';
+      }
+    }
+    var matrixHtml = activeCat
+      ? '<div style="border:1px solid var(--border-light);border-radius:var(--radius-md);overflow:auto;">' +
+          '<table style="width:100%;border-collapse:collapse;font-size:var(--text-sm);">' +
+            '<thead><tr style="background:var(--bg-secondary);">' +
+              '<th style="padding:var(--space-2) var(--space-3);text-align:left;font-weight:600;">Fahrstundentyp</th>' +
+              '<th style="padding:var(--space-2) var(--space-3);text-align:left;font-weight:600;">Preis (EUR)</th>' +
+              '<th style="padding:var(--space-2) var(--space-3);text-align:center;font-weight:600;" title="Wenn aktiv: Preis wird beim Anlegen einer Fahrstunde dieses Typs automatisch erfasst">Auto</th>' +
+            '</tr></thead>' +
+            '<tbody>' + matrixRows + '</tbody>' +
+          '</table>' +
+        '</div>' +
+        '<div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-2);">' +
+          'Leeres Feld = Preis wird aus Kategorie \u201eNormal\u201c gezogen. \u201eAuto\u201c steuert, ob beim Erfassen einer Fahrstunde automatisch eine Soll-Position angelegt wird.' +
+        '</div>'
+      : '<div style="padding:var(--space-3);color:var(--text-muted);font-size:var(--text-sm);text-align:center;">Lege eine Kategorie an, um Preise zu definieren.</div>';
+
+    // Sonstige Preise (Templates ohne lesson_type_match, gefiltert nach aktiver Kategorie)
+    var otherTemplates = templates.filter(function(t){
+      return (!t.lesson_type_match || !t.lesson_type_match.trim())
+        && (t.category_id || 'normal') === activeId;
+    });
+    var otherRows = '';
+    if (otherTemplates.length === 0) {
+      otherRows = '<div style="padding:var(--space-3);color:var(--text-muted);font-size:var(--text-sm);text-align:center;">Keine sonstigen Preise in dieser Kategorie. Lege z.\u202fB. \u201eGrundgeb\u00fchr\u201c oder \u201eLehrmaterial\u201c an.</div>';
     } else {
-      var i;
-      for (i = 0; i < list.length; i++) {
-        var p = list[i];
-        var price = this._formatEur(p.price_cents);
-        var matchBadge = p.lesson_type_match ? '<span class="badge badge-info" style="margin-left:var(--space-2);">Auto: ' + p.lesson_type_match + '</span>' : '';
-        var autoBadge = p.auto_apply ? '<span class="badge badge-success" style="margin-left:var(--space-2);">Auto</span>' : '';
+      var j;
+      for (j = 0; j < otherTemplates.length; j++) {
+        var p = otherTemplates[j];
+        var price = self._formatEur(p.price_cents);
         var inactiveBadge = !p.active ? '<span class="badge badge-muted" style="margin-left:var(--space-2);">inaktiv</span>' : '';
-        rowsHtml += '<div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-3);border-bottom:1px solid var(--border-light);flex-wrap:wrap;">' +
-          '<div style="flex:1;min-width:200px;"><div style="font-weight:600;">' + this._escapeHtml(p.name) + matchBadge + autoBadge + inactiveBadge + '</div>' +
-          '<div style="font-size:var(--text-sm);color:var(--text-muted);">' + price + ' \u00b7 ' + (p.lesson_type_match ? 'wird automatisch f\u00fcr Fahrstunden vom Typ \u201e' + this._escapeHtml(p.lesson_type_match) + '\u201c erfasst' : 'manuell verwendbar') + '</div></div>' +
+        otherRows += '<div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-light);flex-wrap:wrap;">' +
+          '<div style="flex:1;min-width:160px;"><div style="font-weight:500;">' + esc(p.name) + inactiveBadge + '</div>' +
+          '<div style="font-size:var(--text-xs);color:var(--text-muted);">' + price + ' \u00b7 manuell verwendbar</div></div>' +
           '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">' +
             '<button class="btn btn-secondary btn-sm" onclick="App.openTemplateDialog(\'' + p.id + '\')">Bearbeiten</button>' +
-            '<button class="btn btn-secondary btn-sm" onclick="App.toggleTemplateActive(\'' + p.id + '\',' + (p.active ? 'false' : 'true') + ')">' + (p.active ? 'Deaktivieren' : 'Aktivieren') + '</button>' +
+            '<button class="btn btn-secondary btn-sm" onclick="App.toggleTemplateActive(\'' + p.id + '\',' + (p.active ? 'false' : 'true') + ')">' + (p.active ? 'Deakt.' : 'Akt.') + '</button>' +
             '<button class="btn btn-secondary btn-sm" style="color:#c62828;" onclick="App.deleteTemplate(\'' + p.id + '\')">L\u00f6schen</button>' +
           '</div></div>';
       }
     }
+
     var html = '<div class="card mb-4">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin-bottom:var(--space-3);flex-wrap:wrap;">' +
-        '<div><div class="section-title" style="margin:0;">Preise verwalten</div>' +
-        '<div style="font-size:var(--text-sm);color:var(--text-muted);">Diese Preise erscheinen in der Sch\u00fcler-Abrechnung. Mit \u201eAuto\u201c werden Fahrstunden eines Typs automatisch erfasst.</div></div>' +
-        '<button class="btn btn-primary btn-sm" onclick="App.openTemplateDialog(null)">+ Preis anlegen</button>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin-bottom:var(--space-2);flex-wrap:wrap;">' +
+        '<div><div class="section-title" style="margin:0;">Preise & Kategorien</div>' +
+        '<div style="font-size:var(--text-sm);color:var(--text-muted);">Lege Kategorien an (z.\u202fB. Normal, F\u0026F, Mitarbeiter) und definiere f\u00fcr jede Kategorie die Preise pro Fahrstundentyp. Beim Erfassen einer Fahrstunde wird der Preis aus der Kategorie des Sch\u00fclers automatisch \u00fcbernommen.</div></div>' +
+        '<button class="btn btn-secondary" onclick="App.openAssignPriceCategoryDialog()">Sch\u00fcler zuweisen \u2026</button>' +
       '</div>' +
-      '<div style="border:1px solid var(--border-light);border-radius:var(--radius-md);overflow:hidden;">' + rowsHtml + '</div>' +
+      '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--space-3);padding-bottom:var(--space-2);border-bottom:1px solid var(--border-light);">' + tabsHtml + '</div>' +
+      labelEdit +
+      matrixHtml +
+      '<div style="display:flex;justify-content:flex-end;margin-top:var(--space-3);">' +
+        '<button class="btn btn-primary" id="pc-save-prices-btn" onclick="App._savePricesForActiveCategory()">Preise speichern</button>' +
+      '</div>' +
+      '<div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--border-light);">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin-bottom:var(--space-2);flex-wrap:wrap;">' +
+          '<div><div style="font-weight:600;">Sonstige Preise (manuell)</div>' +
+          '<div style="font-size:var(--text-xs);color:var(--text-muted);">Ohne Auto-Match \u2014 nur in dieser Kategorie. F\u00fcr Pauschalen wie Grundgeb\u00fchr.</div></div>' +
+          '<button class="btn btn-secondary btn-sm" onclick="App.openTemplateDialog(null)">+ Preis</button>' +
+        '</div>' +
+        '<div style="border:1px solid var(--border-light);border-radius:var(--radius-md);overflow:hidden;">' + otherRows + '</div>' +
+      '</div>' +
     '</div>';
     container.innerHTML = html;
+  },
+
+  _setActivePriceCategory: function(catId) {
+    AppState.activePriceCategoryId = catId;
+    this._renderPricingAndCategories();
+  },
+
+  _onPriceCategoryLabelEdit: function(val) {
+    var cats = AppState.priceCategoriesDraft || [];
+    var c = cats.find(function(c){ return c.id === AppState.activePriceCategoryId; });
+    if (c) c.label = val;
+  },
+
+  _saveActivePriceCategoryLabel: async function() {
+    try {
+      var cats = (AppState.priceCategoriesDraft || []).map(function(c){
+        return { id: c.id, label: (c.label || '').trim() };
+      }).filter(function(c){ return c.label.length > 0; });
+      if (cats.length === 0) { App.showToast('Bezeichnung fehlt', 'error'); return; }
+      var res = await ApiClient.put('/api/school/price-categories', { categories: cats });
+      AppState.priceCategoriesDraft = (res && res.categories) ? res.categories.slice() : cats;
+      App.showToast('Gespeichert' + (res.orphaned ? ' \u2014 ' + res.orphaned + ' Sch\u00fcler ohne Kategorie' : ''), 'success');
+      this._renderPricingAndCategories();
+    } catch (err) {
+      App.showToast('Fehler: ' + (err.message || err), 'error');
+    }
+  },
+
+  _addPriceCategory: async function() {
+    if (!AppState.priceCategoriesDraft) AppState.priceCategoriesDraft = [];
+    if (AppState.priceCategoriesDraft.length >= 20) {
+      App.showToast('Maximal 20 Kategorien', 'error'); return;
+    }
+    var label = (prompt('Name der neuen Kategorie:') || '').trim();
+    if (!label) return;
+    // ID generieren (slug-ish)
+    var slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30);
+    if (!slug) slug = 'cat_' + (AppState.priceCategoriesDraft.length + 1);
+    // Eindeutig machen
+    var base = slug, n = 2;
+    while (AppState.priceCategoriesDraft.find(function(c){ return c.id === slug; })) {
+      slug = base + '_' + n++;
+    }
+    var newCats = AppState.priceCategoriesDraft.slice();
+    newCats.push({ id: slug, label: label });
+    try {
+      var res = await ApiClient.put('/api/school/price-categories', { categories: newCats });
+      AppState.priceCategoriesDraft = (res && res.categories) ? res.categories.slice() : newCats;
+      AppState.activePriceCategoryId = slug;
+      App.showToast('Kategorie angelegt', 'success');
+      this._renderPricingAndCategories();
+    } catch (err) {
+      App.showToast('Fehler: ' + (err.message || err), 'error');
+    }
+  },
+
+  _removeActivePriceCategory: async function() {
+    var activeId = AppState.activePriceCategoryId;
+    if (!activeId || activeId === 'normal') return;
+    if (!confirm('Kategorie wirklich l\u00f6schen? Sch\u00fcler in dieser Kategorie werden auf \u201eNormal\u201c zur\u00fcckgesetzt. Preise dieser Kategorie werden gel\u00f6scht.')) return;
+    try {
+      // 1) Alle Templates dieser Kategorie loeschen
+      var templates = AppState.pricingTemplates || [];
+      var toDelete = templates.filter(function(t){ return (t.category_id || 'normal') === activeId; });
+      var k;
+      for (k = 0; k < toDelete.length; k++) {
+        await ApiClient.del('/api/pricing-templates/' + toDelete[k].id);
+      }
+      // 2) Kategorie aus Liste entfernen (Server entfernt orphan-Refs in students automatisch)
+      var newCats = (AppState.priceCategoriesDraft || []).filter(function(c){ return c.id !== activeId; });
+      var res = await ApiClient.put('/api/school/price-categories', { categories: newCats });
+      AppState.priceCategoriesDraft = (res && res.categories) ? res.categories.slice() : newCats;
+      AppState.activePriceCategoryId = 'normal';
+      App.showToast('Kategorie gel\u00f6scht' + (res.orphaned ? ' \u2014 ' + res.orphaned + ' Sch\u00fcler zur\u00fcckgesetzt' : ''), 'success');
+      this._loadPricingAndCategories();
+    } catch (err) {
+      App.showToast('Fehler: ' + (err.message || err), 'error');
+    }
+  },
+
+  _savePricesForActiveCategory: async function() {
+    var btn = document.getElementById('pc-save-prices-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Speichert\u2026'; }
+    var activeId = AppState.activePriceCategoryId;
+    var activeCat = (AppState.priceCategoriesDraft || []).find(function(c){ return c.id === activeId; });
+    if (!activeCat) { if (btn) { btn.disabled = false; btn.textContent = 'Preise speichern'; } return; }
+    try {
+      var rows = document.querySelectorAll('#profile-pricing-categories-section tr[data-lt]');
+      var saved = 0, deleted = 0, errors = 0;
+      var r;
+      for (r = 0; r < rows.length; r++) {
+        var row = rows[r];
+        var lt = row.getAttribute('data-lt');
+        var tplId = row.getAttribute('data-tpl');
+        var priceInput = row.querySelector('.pc-price-input');
+        var autoInput = row.querySelector('.pc-auto-check');
+        var priceRaw = (priceInput.value || '').trim().replace(',', '.');
+        var auto = !!autoInput.checked;
+        if (priceRaw === '') {
+          // Leer: Template loeschen falls vorhanden (bewirkt Normal-Fallback)
+          if (tplId) {
+            try { await ApiClient.del('/api/pricing-templates/' + tplId); deleted++; } catch (e) { errors++; }
+          }
+          continue;
+        }
+        var priceNum = parseFloat(priceRaw);
+        if (isNaN(priceNum) || priceNum < 0) { errors++; continue; }
+        var cents = Math.round(priceNum * 100);
+        var name = lt + ' (' + activeCat.label + ')';
+        var payload = { name: name, price_cents: cents, lesson_type_match: lt, auto_apply: auto, category_id: activeId, active: true };
+        try {
+          if (tplId) {
+            await ApiClient.put('/api/pricing-templates/' + tplId, payload);
+          } else {
+            await ApiClient.post('/api/pricing-templates', payload);
+          }
+          saved++;
+        } catch (e) { errors++; }
+      }
+      var msg = saved + ' gespeichert' + (deleted ? ', ' + deleted + ' geleert (Fallback Normal)' : '') + (errors ? ', ' + errors + ' Fehler' : '');
+      App.showToast(msg, errors ? 'error' : 'success');
+      this._loadPricingAndCategories();
+    } catch (err) {
+      App.showToast('Fehler: ' + (err.message || err), 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Preise speichern'; }
+    }
   },
 
   _escapeHtml: function(s) {
@@ -4065,6 +4315,8 @@ var App = {
     });
   },
 
+  // Push 7: openTemplateDialog wird nur noch fuer "Sonstige Preise" (manuell) verwendet.
+  // Auto-Match-Preise kommen aus der Matrix der aktiven Kategorie.
   openTemplateDialog: async function(templateId) {
     var existing = null;
     if (templateId) {
@@ -4076,26 +4328,14 @@ var App = {
     }
     var name = existing ? existing.name : '';
     var price = existing ? (existing.price_cents / 100).toFixed(2).replace('.', ',') : '';
-    var matchVal = existing ? (existing.lesson_type_match || '') : '';
-    var autoApply = existing ? !!existing.auto_apply : true;
-    // Optionen = exakt die Fahrstunden-Typen + Leer-Option fuer reine Manuell-Vorlagen
-    var typeOptions = [''].concat(LESSON_TYPES);
-    var typeOptsHtml = '';
-    var j;
-    for (j = 0; j < typeOptions.length; j++) {
-      var v = typeOptions[j];
-      var sel = (v === matchVal) ? ' selected' : '';
-      typeOptsHtml += '<option value="' + this._escapeHtml(v) + '"' + sel + '>' + (v ? this._escapeHtml(v) : '\u2014 kein Auto-Match \u2014') + '</option>';
-    }
+    var activeCatId = AppState.activePriceCategoryId || (existing && existing.category_id) || 'normal';
+    var activeCat = (AppState.priceCategoriesDraft || []).find(function(c){ return c.id === activeCatId; });
+    var catLabel = activeCat ? activeCat.label : activeCatId;
     var body = '<div class="form-group"><label class="form-label">Bezeichnung *</label>' +
-      '<input type="text" id="tpl-name" class="form-input" value="' + this._escapeHtml(name) + '" placeholder="z.B. \u00dcbungsfahrt oder Grundbetrag"></div>' +
+      '<input type="text" id="tpl-name" class="form-input" value="' + this._escapeHtml(name) + '" placeholder="z.B. Grundgeb\u00fchr oder Lehrmaterial"></div>' +
       '<div class="form-group"><label class="form-label">Preis (EUR) *</label>' +
       '<input type="text" id="tpl-price" class="form-input" value="' + price + '" placeholder="55,00" inputmode="decimal"></div>' +
-      '<div class="form-group"><label class="form-label">Fahrstunden-Typ (Auto-Match)</label>' +
-      '<select id="tpl-match" class="form-select">' + typeOptsHtml + '</select>' +
-      '<div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-1);">Wenn eine Fahrstunde mit diesem Typ erfasst wird, wird der Preis automatisch dem Sch\u00fcler berechnet.</div></div>' +
-      '<div class="form-group"><label style="display:flex;align-items:center;gap:var(--space-2);cursor:pointer;">' +
-      '<input type="checkbox" id="tpl-auto"' + (autoApply ? ' checked' : '') + '> <span>Automatisch erfassen (nur mit Typ-Match)</span></label></div>' +
+      '<div class="form-group"><div style="font-size:var(--text-sm);color:var(--text-muted);">Kategorie: <b>' + this._escapeHtml(catLabel) + '</b> \u00b7 Manuell (kein Auto-Match)</div></div>' +
       '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-top:var(--space-4);">' +
       '<button class="btn btn-secondary" onclick="App.closeModal()">Abbrechen</button>' +
       '<button class="btn btn-primary" onclick="App._saveTemplate(' + (templateId ? "'" + templateId + "'" : 'null') + ')">Speichern</button></div>';
@@ -4105,13 +4345,12 @@ var App = {
   _saveTemplate: async function(templateId) {
     var name = (document.getElementById('tpl-name').value || '').trim();
     var priceRaw = (document.getElementById('tpl-price').value || '').trim().replace(',', '.');
-    var match = (document.getElementById('tpl-match').value || '').trim();
-    var auto = document.getElementById('tpl-auto').checked;
     if (!name) { App.showToast('Bezeichnung fehlt', 'error'); return; }
     var priceNum = parseFloat(priceRaw);
     if (isNaN(priceNum) || priceNum < 0) { App.showToast('Ung\u00fcltiger Preis', 'error'); return; }
     var cents = Math.round(priceNum * 100);
-    var payload = { name: name, price_cents: cents, lesson_type_match: match || null, auto_apply: auto };
+    var activeCatId = AppState.activePriceCategoryId || 'normal';
+    var payload = { name: name, price_cents: cents, lesson_type_match: null, auto_apply: false, category_id: activeCatId };
     try {
       if (templateId) {
         await ApiClient.put('/api/pricing-templates/' + templateId, payload);
@@ -4120,14 +4359,14 @@ var App = {
       }
       App.closeModal();
       App.showToast('Gespeichert', 'success');
-      this._loadPricingTemplates();
+      this._loadPricingAndCategories();
     } catch (err) { App.showToast('Fehler: ' + (err.message || err), 'error'); }
   },
 
   toggleTemplateActive: async function(templateId, makeActive) {
     try {
       await ApiClient.put('/api/pricing-templates/' + templateId, { active: makeActive });
-      this._loadPricingTemplates();
+      this._loadPricingAndCategories();
     } catch (err) { App.showToast('Fehler: ' + (err.message || err), 'error'); }
   },
 
@@ -4136,107 +4375,13 @@ var App = {
     try {
       await ApiClient.del('/api/pricing-templates/' + templateId);
       App.showToast('Gel\u00f6scht', 'success');
-      this._loadPricingTemplates();
+      this._loadPricingAndCategories();
     } catch (err) { App.showToast('Fehler: ' + (err.message || err), 'error'); }
   },
 
   // ============================================================
-  // PUSH 6: Preiskategorien (Normal / Family & Friends / Mitarbeiter / …)
-  // Nur Labels — keine automatische Preisberechnung.
+  // PUSH 7: Schüler-Zuweisungs-Dialog (übernommen aus Push 6)
   // ============================================================
-  _loadPriceCategories: async function() {
-    var container = document.getElementById('profile-price-categories-section');
-    if (!container) return;
-    var u = AppState.currentUser;
-    if (u.role !== 'school') { container.innerHTML = ''; return; }
-    container.innerHTML = '<div class="card mb-4"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>';
-    try {
-      var res = await ApiClient.get('/api/school/price-categories');
-      AppState.priceCategoriesDraft = (res && res.categories) ? res.categories.slice() : [];
-      this._renderPriceCategories();
-    } catch (err) {
-      container.innerHTML = '<div class="card mb-4"><p class="text-sm text-muted">Preiskategorien: ' + (err.message || err) + '</p></div>';
-    }
-  },
-
-  _renderPriceCategories: function() {
-    var container = document.getElementById('profile-price-categories-section');
-    if (!container) return;
-    var cats = AppState.priceCategoriesDraft || [];
-    var esc = this._escapeHtml.bind(this);
-    var rows = '';
-    var i;
-    if (cats.length === 0) {
-      rows = '<div style="padding:var(--space-3);color:var(--text-muted);font-size:var(--text-sm);text-align:center;">Noch keine Kategorie. Lege z.\u202fB. \u201eNormal\u201c, \u201eFamily \u0026 Friends\u201c oder \u201eMitarbeiter\u201c an.</div>';
-    } else {
-      for (i = 0; i < cats.length; i++) {
-        var c = cats[i];
-        rows += '<div class="pc-row" data-idx="' + i + '" style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2);border-bottom:1px solid var(--border-light);">' +
-          '<input type="text" class="form-input pc-label" data-idx="' + i + '" value="' + esc(c.label || '') + '" maxlength="60" placeholder="Bezeichnung" style="flex:1;min-width:0;" oninput="App._onPriceCategoryEdit(' + i + ', this.value)">' +
-          '<button class="btn btn-secondary btn-sm" title="L\u00f6schen" onclick="App._removePriceCategory(' + i + ')" style="color:#c62828;">\u2715</button>' +
-          '</div>';
-      }
-    }
-    var html = '<div class="card mb-4">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin-bottom:var(--space-3);flex-wrap:wrap;">' +
-        '<div><div class="section-title" style="margin:0;">Preiskategorien</div>' +
-        '<div style="font-size:var(--text-sm);color:var(--text-muted);">Eigene Labels pro Sch\u00fcler (z.\u202fB. Normal, Family \u0026 Friends, Mitarbeiter). Reine Kennzeichnung \u2014 keine automatische Preisberechnung.</div></div>' +
-        '<button class="btn btn-secondary btn-sm" onclick="App._addPriceCategory()">+ Kategorie</button>' +
-      '</div>' +
-      '<div style="border:1px solid var(--border-light);border-radius:var(--radius-md);overflow:hidden;">' + rows + '</div>' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-2);margin-top:var(--space-3);flex-wrap:wrap;">' +
-        '<button class="btn btn-secondary" onclick="App.openAssignPriceCategoryDialog()">Sch\u00fcler-Kategorien zuweisen \u2026</button>' +
-        '<button class="btn btn-primary" id="pc-save-btn" onclick="App._savePriceCategories()">Speichern</button>' +
-      '</div>' +
-    '</div>';
-    container.innerHTML = html;
-  },
-
-  _onPriceCategoryEdit: function(idx, val) {
-    if (!AppState.priceCategoriesDraft || !AppState.priceCategoriesDraft[idx]) return;
-    AppState.priceCategoriesDraft[idx].label = val;
-  },
-
-  _addPriceCategory: function() {
-    if (!AppState.priceCategoriesDraft) AppState.priceCategoriesDraft = [];
-    if (AppState.priceCategoriesDraft.length >= 20) {
-      App.showToast('Maximal 20 Kategorien', 'error'); return;
-    }
-    var n = AppState.priceCategoriesDraft.length + 1;
-    AppState.priceCategoriesDraft.push({ id: 'cat_' + n, label: '' });
-    this._renderPriceCategories();
-  },
-
-  _removePriceCategory: function(idx) {
-    if (!AppState.priceCategoriesDraft) return;
-    if (AppState.priceCategoriesDraft.length <= 1) {
-      App.showToast('Mindestens eine Kategorie n\u00f6tig', 'error'); return;
-    }
-    if (!confirm('Kategorie entfernen? Sch\u00fcler in dieser Kategorie verlieren das Label.')) return;
-    AppState.priceCategoriesDraft.splice(idx, 1);
-    this._renderPriceCategories();
-  },
-
-  _savePriceCategories: async function() {
-    var btn = document.getElementById('pc-save-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Speichert\u2026'; }
-    try {
-      var cats = (AppState.priceCategoriesDraft || []).map(function(c) {
-        return { id: c.id, label: (c.label || '').trim() };
-      }).filter(function(c) { return c.label.length > 0; });
-      if (cats.length === 0) { App.showToast('Mindestens eine Kategorie mit Bezeichnung n\u00f6tig', 'error'); return; }
-      var res = await ApiClient.put('/api/school/price-categories', { categories: cats });
-      AppState.priceCategoriesDraft = (res && res.categories) ? res.categories.slice() : cats;
-      App.showToast('Gespeichert' + (res.orphaned ? ' \u2014 ' + res.orphaned + ' Sch\u00fcler ohne Kategorie' : ''), 'success');
-      this._renderPriceCategories();
-    } catch (err) {
-      App.showToast('Fehler: ' + (err.message || err), 'error');
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Speichern'; }
-    }
-  },
-
-  // ---------- Schüler-Zuweisungs-Dialog ----------
   openAssignPriceCategoryDialog: async function() {
     // Vor Öffnen: aktuelle Kategorien sichern (falls Draft un-saved Labels enthält)
     var cats = AppState.priceCategoriesDraft || [];
