@@ -7021,15 +7021,11 @@ var App = {
           '<input type="text" id="b196-geburtsort" class="form-input" placeholder="Berlin"></div>' +
         '<div class="form-group"><label class="form-label">' + t('klasseBSeit') + '</label>' +
           '<input type="date" id="b196-klasseb-seit" class="form-input"></div>' +
-        '<div class="form-group"><label class="form-label">' + t('schulungsfahrzeugBereitgestelltVon') + '</label>' +
-          '<select id="b196-fahrzeug-von" class="form-input">' +
-            '<option value="fahrschule">' + t('vonFahrschule') + '</option>' +
-            '<option value="teilnehmer">' + t('vonTeilnehmer') + '</option>' +
-          '</select></div>' +
         '<div class="form-group"><label class="form-label">' + t('pauschalentgelt') + '</label>' +
           '<input type="number" id="b196-pauschalentgelt" class="form-input" placeholder="599" min="0" step="0.01"></div>' +
         '<div class="form-group"><label class="form-label">' + t('zusatzEntgelt') + '</label>' +
-          '<input type="number" id="b196-zusatzentgelt" class="form-input" placeholder="55" min="0" step="0.01"></div>';
+          '<input type="number" id="b196-zusatzentgelt" class="form-input" placeholder="55" min="0" step="0.01"></div>' +
+        '<div class="text-xs text-muted" style="margin-top:var(--space-2);padding:var(--space-2);background:#fef3c7;border-radius:var(--radius-md);">Hinweis: Die Checkbox \u201eSchulungsfahrzeug von Fahrschule / Teilnehmer\u201c bleibt im PDF leer und wird von der Fahrschule manuell angekreuzt.</div>';
     } else {
       fieldsHtml =
         '<div class="form-group"><label class="form-label">' + t('ausstellungsdatumFs') + '</label>' +
@@ -7074,7 +7070,6 @@ var App = {
       if (isVertrag) {
         opts.geburtsort = (document.getElementById('b196-geburtsort') || {}).value || '';
         opts.klasseBSeit = (document.getElementById('b196-klasseb-seit') || {}).value || '';
-        opts.fahrzeugVon = (document.getElementById('b196-fahrzeug-von') || {}).value || 'fahrschule';
         opts.pauschalentgelt = (document.getElementById('b196-pauschalentgelt') || {}).value || '';
         opts.zusatzentgelt = (document.getElementById('b196-zusatzentgelt') || {}).value || '';
       } else {
@@ -7161,9 +7156,15 @@ var App = {
     y += introLines.length * 3.4 + 4;
 
     // Vertragsparteien
+    // Convention: data.student.name ist 'Vorname Nachname'.
+    // Anlage 7b FeV trennt Name (Nachname) und Vorname in separate Felder.
+    var _vNameParts = (opts.leer ? '' : (data.student.name || '')).split(/\s+/).filter(Boolean);
+    var _vNachname = _vNameParts.length > 1 ? _vNameParts[_vNameParts.length - 1] : (_vNameParts[0] || '');
+    var _vVorname  = _vNameParts.length > 1 ? _vNameParts.slice(0, -1).join(' ') : '';
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
     doc.text('Zwischen Frau/Herr (Teilnehmer/in)', ml, y); y += 5;
-    drawField('Name, Vorname', opts.leer ? '' : (data.student.name || ''), ml, y, cw); y += 9;
+    drawField('Name', _vNachname, ml, y, cw * 0.5);
+    drawField('Vorname', _vVorname, ml + cw * 0.5, y, cw * 0.5); y += 9;
     drawField('geboren am', opts.leer ? '' : fmtDate(data.student.geburtsdatum || ''), ml, y, cw * 0.45);
     drawField('geboren in', opts.leer ? '' : (opts.geburtsort || ''), ml + cw * 0.5, y, cw * 0.5); y += 9;
     drawField('Stra\u00dfe, Hausnummer', studentAddr.street, ml, y, cw); y += 9;
@@ -7194,11 +7195,10 @@ var App = {
     doc.text(dauerLines, ml, y);
     y += dauerLines.length * 3.8 + 3;
 
-    var vonFs = !opts.leer && opts.fahrzeugVon === 'fahrschule';
-    var vonTn = !opts.leer && opts.fahrzeugVon === 'teilnehmer';
-    checkbox(ml + 4, y, vonFs);
+    // Schulungsfahrzeug-Checkboxen bleiben IMMER leer — die Fahrschule kreuzt manuell an.
+    checkbox(ml + 4, y, false);
     doc.text('von der Fahrschule bereitgestellt', ml + 9, y); y += 5;
-    checkbox(ml + 4, y, vonTn);
+    checkbox(ml + 4, y, false);
     doc.text('vom/von der Teilnehmer/in zur Verf\u00fcgung gestellt', ml + 9, y); y += 7;
 
     // Theorie/Praxis Inhaltsbeschreibung
