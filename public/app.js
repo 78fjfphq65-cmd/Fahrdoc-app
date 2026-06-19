@@ -229,6 +229,21 @@ function _groupHeaderHtml(label) {
     String(label).replace(/</g,'&lt;') + '</div>';
 }
 
+// Liefert visuelle Metadaten (Icon, CSS-Klasse) fuer eine Bewertungs-Gruppe.
+function _pfepGroupMeta(label) {
+  if (label === 'Beobachtungskategorien')        return { cls: 'obs',   icon: '\u{1F441}' };  // Auge
+  if (label === 'Grundfahraufgaben')             return { cls: 'grund', icon: '\u{1F3AF}' };  // Zielscheibe
+  if (label === 'Fahraufgaben im Stra\u00dfenverkehr') return { cls: 'verk',  icon: '\u{1F6E3}' };  // Strasse
+  return { cls: 'obs', icon: '\u{1F4DD}' }; // Fallback (z.B. 'Weitere (historisch)')
+}
+
+// Slug-Helper fuer skill-namen (eindeutige IDs fuer pfep-items im DOM)
+function _slugifyTask(name) {
+  return String(name).toLowerCase()
+    .replace(/\u00e4/g,'ae').replace(/\u00f6/g,'oe').replace(/\u00fc/g,'ue').replace(/\u00df/g,'ss')
+    .replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+}
+
 // Filtert ein ratings-Objekt: nur Items mit echtem Wert 1..4 werden behalten.
 // DB-Constraint: skill_ratings.rating CHECK (1..4) — '0' / nicht bewertet darf NICHT persistiert werden.
 function _filterValidRatings(ratings) {
@@ -5595,11 +5610,11 @@ var App = {
           var val = hasRating ? rawVal : 0;
           var pct = (val / 4) * 100;
           if (!hasRating) {
-            html += '<div class="skill-bar"><div class="skill-bar-header"><span>' + tSkill(task) + '</span><span class="badge" style="font-size:10px;background:var(--bg-elevated,#f1f5f9);color:var(--text-muted);">nicht bewertet</span></div>' +
-              '<div class="skill-bar-track"></div></div>';
+            html += '<div class="skill-bar"><div class="skill-bar-header"><span style="color:var(--text-muted);">' + tSkill(task) + '</span><span class="text-xs" style="font-size:10px;color:var(--text-muted);font-style:italic;">nicht bewertet</span></div>' +
+              '<div class="skill-bar-track unrated"></div></div>';
           } else {
             var info = getSkillLevel(val);
-            html += '<div class="skill-bar"><div class="skill-bar-header"><span>' + tSkill(task) + '</span><span class="badge ' + info.badgeClass + '" style="font-size:10px;">' + tLevel(info.name) + '</span></div>' +
+            html += '<div class="skill-bar"><div class="skill-bar-header"><span><span class="skill-bar-dot" style="background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></span>' + tSkill(task) + '</span><span class="badge ' + info.badgeClass + '" style="font-size:10px;">' + tLevel(info.name) + '</span></div>' +
               '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + pct + '%;background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></div></div></div>';
           }
         });
@@ -5662,12 +5677,8 @@ var App = {
           // Eigenen Namen aus Fahrlehrer-Spalte ausblenden (wie in Plan-Ansicht)
           var _meIsInstr = AppState.currentUser && AppState.currentUser.role === 'instructor';
           var _myInstrId = _meIsInstr ? AppState.currentUser.id : null;
-          // Verrechnungs-Badge Helper
-          var _billingBadge = function(cat) {
-            if (cat === 'free') return '<span style="display:inline-flex;align-items:center;gap:4px;background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;"><span style="width:6px;height:6px;border-radius:50%;background:#0ea5e9;"></span>Gratis</span>';
-            if (cat === 'trial') return '<span style="display:inline-flex;align-items:center;gap:4px;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;"><span style="width:6px;height:6px;border-radius:50%;background:#f59e0b;"></span>Schnupperfahrt</span>';
-            return ''; // regular = kein Badge (Standard)
-          };
+          // Verrechnungs-Badge entfernt (Push 9): Verrechnungs-Kategorie wird in der App
+          // nicht mehr verwaltet — GoBD-konform sind alle Stunden gleich.
           html += '<div id="lessons-list-rows" style="display:flex;flex-direction:column;gap:6px;">';
           lessons.forEach(function(l, idx) {
             var isExtra = (showToggle && idx >= maxInit);
@@ -5685,7 +5696,6 @@ var App = {
             } else {
               instrName = l.instructor_name || '\u2014';
             }
-            var billingBadge = _billingBadge(l.billing_category || 'regular');
             // Datum-Block links (Tag groß, Monat klein)
             var dParts = String(l.date || '').split('-');
             var dDay = dParts[2] || '';
@@ -5709,7 +5719,6 @@ var App = {
                 '<div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:var(--text-sm);margin-bottom:2px;">' +
                   '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (l.type || '\u2014') + '</span>' +
                   notesIcon + imagesIcon +
-                  (billingBadge ? ' ' + billingBadge : '') +
                 '</div>' +
                 '<div style="font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
                   '<span>' + instrName + '</span>' +
@@ -7770,28 +7779,53 @@ var App = {
       '<span class="badge badge-primary">' + this.formatDuration(lesson.duration) + '</span></div>' +
       '<div class="text-xs text-muted">' + lesson.studentName + '</div></div>';
 
-    // Verrechnungs-Kategorie (Standard / Gratis / Schnupperfahrt)
-    if (typeof AppState.summaryBillingCategory === 'undefined' || !AppState.summaryBillingCategory) {
-      AppState.summaryBillingCategory = 'regular';
-    }
-    var _bc = AppState.summaryBillingCategory;
-    html += '<div class="card mb-4"><div class="section-title mb-2">Verrechnung</div>' +
-      '<div class="level-selector" id="billing-category-selector" style="flex-wrap:wrap;">' +
-        '<button type="button" class="level-selector-btn' + (_bc==='regular'?' active':'') + '" onclick="App.setBillingCategory(\'regular\', this)">Regul\u00e4r</button>' +
-        '<button type="button" class="level-selector-btn' + (_bc==='free'?' active':'') + '" onclick="App.setBillingCategory(\'free\', this)">Gratis</button>' +
-        '<button type="button" class="level-selector-btn' + (_bc==='trial'?' active':'') + '" onclick="App.setBillingCategory(\'trial\', this)">Schnupperfahrt</button>' +
-      '</div>' +
-      '<div id="billing-category-hint" class="text-xs text-muted" style="margin-top:8px;">' + this._billingCategoryHint(_bc) + '</div>' +
-      '</div>';
+    // ── PFEP-Bewertungs-Surface (Pruefer-Optik) ──
+    var groups = evaluationGroupsFor(lesson && lesson.licenseClass);
+    var totalItems = 0;
+    groups.forEach(function(g){ totalItems += g.items.length; });
+    var ratedCount = 0;
+    groups.forEach(function(g) {
+      g.items.forEach(function(task) {
+        var v = AppState.summaryRatings[task];
+        if (typeof v === 'number' && v >= 1 && v <= 4) ratedCount++;
+      });
+    });
+    var pctTotal = totalItems > 0 ? Math.round((ratedCount / totalItems) * 100) : 0;
 
-    html += '<div class="section-title mb-3">' + t('bewertung') + '</div>';
-    html += '<div class="card" style="background:var(--color-blue-50,#eff6ff);border-left:3px solid var(--color-blue,#2563eb);margin-bottom:var(--space-3);padding:var(--space-2) var(--space-3);font-size:var(--text-sm);">' +
-      '\ud83d\udccb Bewerte wie ein TÜV-Prüfer auf dem PFEP-Tablet \u2014 nur Items mit aktiver Auswahl flie\u00dfen in den Schnitt ein.</div>';
-    evaluationGroupsFor(lesson && lesson.licenseClass).forEach(function(grp) {
-      html += _groupHeaderHtml(grp.group);
+    html += '<div class="section-title mb-2">' + t('bewertung') + '</div>';
+    html += '<div class="pfep-intro">' +
+      '<div class="pfep-intro-icon">\u{1F4CB}</div>' +
+      '<div class="pfep-intro-text"><strong>Wie ein TÜV-Prüfer bewerten.</strong> ' +
+      'Tippe pro Aufgabe auf eine Note. Nicht bewertete Items flie\u00dfen nicht in den Schnitt ein.</div>' +
+    '</div>';
+    html += '<div class="pfep-progress" id="pfep-progress">' +
+      '<span class="pfep-progress-label">Gesamt</span>' +
+      '<div class="pfep-progress-bar"><div class="pfep-progress-fill" id="pfep-progress-fill" style="width:' + pctTotal + '%;"></div></div>' +
+      '<span class="pfep-progress-count" id="pfep-progress-count">' + ratedCount + ' / ' + totalItems + '</span>' +
+    '</div>';
+
+    groups.forEach(function(grp) {
+      var meta = _pfepGroupMeta(grp.group);
+      var groupRated = 0;
+      grp.items.forEach(function(task) {
+        var v = AppState.summaryRatings[task];
+        if (typeof v === 'number' && v >= 1 && v <= 4) groupRated++;
+      });
+      var statusComplete = groupRated === grp.items.length ? ' complete' : '';
+      html += '<div class="pfep-group" data-group="' + meta.cls + '">' +
+        '<div class="pfep-group-head">' +
+          '<div class="pfep-group-title"><span class="pfep-group-icon ' + meta.cls + '">' + meta.icon + '</span>' + grp.group + '</div>' +
+          '<div class="pfep-group-status' + statusComplete + '" data-group-status="' + meta.cls + '">' + groupRated + ' / ' + grp.items.length + ' bewertet</div>' +
+        '</div>' +
+        '<div class="pfep-group-body">';
       grp.items.forEach(function(task) {
         var current = AppState.summaryRatings[task] || 0;
-        html += '<div class="rating-card mb-3"><div style="margin-bottom:var(--space-2);"><span class="rating-card-label">' + tSkill(task) + '</span></div>' +
+        var ratedCls = (current >= 1 && current <= 4) ? ' rated-' + current : '';
+        html += '<div class="pfep-item' + ratedCls + '" data-task-slug="' + _slugifyTask(task) + '" data-group="' + meta.cls + '">' +
+          '<div class="pfep-item-header">' +
+            '<span class="pfep-item-label">' + tSkill(task) + '</span>' +
+            '<button type="button" class="pfep-item-clear" title="Bewertung entfernen" onclick="App.clearSkillRating(\'' + task + '\')">\u00d7 entfernen</button>' +
+          '</div>' +
           '<div class="level-selector" data-task="' + task + '">';
         SKILL_LEVELS.forEach(function(sl) {
           var isActive = sl.level === current ? ' active' : '';
@@ -7799,6 +7833,7 @@ var App = {
         });
         html += '</div></div>';
       });
+      html += '</div></div>';
     });
     html += '<div class="form-group mb-4"><label class="form-label">' + t('notizen') + '</label>' +
       '<textarea class="form-textarea" id="lesson-notes" placeholder="' + t('anmerkungenPlaceholder') + '"></textarea>' +
@@ -7833,21 +7868,6 @@ var App = {
     event.target.value = '';
   },
 
-  _billingCategoryHint: function(cat) {
-    if (cat === 'free') return 'Z\u00e4hlt f\u00fcr Ausbildungsnachweis, aber keine Rechnungsposition wird erzeugt.';
-    if (cat === 'trial') return 'Unverbindliche Schnupperfahrt \u2014 kein Ausbildungsnachweis, keine Rechnungsposition.';
-    return 'Regul\u00e4re Fahrstunde: erzeugt automatisch eine Soll-Position in der Buchhaltung (falls Preisliste hinterlegt).';
-  },
-
-  setBillingCategory: function(cat, btn) {
-    AppState.summaryBillingCategory = cat;
-    var container = btn.parentElement;
-    container.querySelectorAll('.level-selector-btn').forEach(function(b) { b.classList.remove('active'); });
-    btn.classList.add('active');
-    var hint = document.getElementById('billing-category-hint');
-    if (hint) hint.textContent = this._billingCategoryHint(cat);
-  },
-
   renderPendingImages: function() {
     var container = document.getElementById('image-preview-list');
     if (!container) return;
@@ -7872,6 +7892,55 @@ var App = {
     var container = btn.parentElement;
     container.querySelectorAll('.level-selector-btn').forEach(function(b) { b.classList.remove('active'); });
     btn.classList.add('active');
+    // Item-State + Group-Status + Total-Progress aktualisieren
+    var item = container.closest('.pfep-item');
+    if (item) {
+      item.classList.remove('rated-1','rated-2','rated-3','rated-4');
+      if (level >= 1 && level <= 4) item.classList.add('rated-' + level);
+    }
+    this._recomputeRatingProgress();
+  },
+
+  clearSkillRating: function(task) {
+    delete AppState.summaryRatings[task];
+    var summary = document.getElementById('lesson-summary-content');
+    if (!summary) return;
+    var slug = _slugifyTask(task);
+    var item = summary.querySelector('.pfep-item[data-task-slug="' + slug + '"]');
+    if (item) {
+      item.classList.remove('rated-1','rated-2','rated-3','rated-4');
+      item.querySelectorAll('.level-selector-btn').forEach(function(b) { b.classList.remove('active'); });
+    }
+    this._recomputeRatingProgress();
+  },
+
+  _recomputeRatingProgress: function() {
+    var lesson = AppState.activeLesson;
+    if (!lesson) return;
+    var summary = document.getElementById('lesson-summary-content');
+    if (!summary) return;
+    var groups = evaluationGroupsFor(lesson && lesson.licenseClass);
+    var total = 0, rated = 0;
+    groups.forEach(function(grp) {
+      var meta = _pfepGroupMeta(grp.group);
+      var gTotal = grp.items.length;
+      var gRated = 0;
+      grp.items.forEach(function(task) {
+        var v = AppState.summaryRatings[task];
+        if (typeof v === 'number' && v >= 1 && v <= 4) gRated++;
+      });
+      total += gTotal; rated += gRated;
+      var st = summary.querySelector('[data-group-status="' + meta.cls + '"]');
+      if (st) {
+        st.textContent = gRated + ' / ' + gTotal + ' bewertet';
+        if (gRated === gTotal) st.classList.add('complete'); else st.classList.remove('complete');
+      }
+    });
+    var fill = summary.querySelector('#pfep-progress-fill');
+    var count = summary.querySelector('#pfep-progress-count');
+    var pct = total > 0 ? Math.round((rated / total) * 100) : 0;
+    if (fill) fill.style.width = pct + '%';
+    if (count) count.textContent = rated + ' / ' + total;
   },
 
   saveLessonSummary: async function() {
@@ -7884,14 +7953,12 @@ var App = {
         studentId: lesson.studentId, type: lesson.type, duration: lesson.duration,
         notes: notes, ratings: _filterValidRatings(AppState.summaryRatings), licenseClass: lesson.licenseClass,
         images: AppState.pendingImages,
-        billingCategory: AppState.summaryBillingCategory || 'regular',
         routeData: lesson.routeData || [],
         markers: lesson.markers || [],
         distanceKm: lesson.distanceKm || 0,
         avgSpeedKmh: lesson.avgSpeedKmh || 0
       });
       AppState.activeLesson = null; AppState.summaryRatings = {}; AppState.pendingImages = [];
-      AppState.summaryBillingCategory = 'regular';
       AppState._cachedData.instructorDash = null;
       this.navigate('instructor-dashboard'); this.switchInstructorTab('dashboard');
       this.showToast(t('fahrstundeGespeichert'));
@@ -7926,11 +7993,11 @@ var App = {
           var rawVal = lesson.ratings && lesson.ratings[task];
           var hasRating = typeof rawVal === 'number' && rawVal >= 1 && rawVal <= 4;
           if (!hasRating) {
-            html += '<div class="skill-bar"><div class="skill-bar-header"><span>' + tSkill(task) + '</span><span class="badge" style="font-size:10px;background:var(--bg-elevated,#f1f5f9);color:var(--text-muted);">nicht bewertet</span></div>' +
-              '<div class="skill-bar-track"></div></div>';
+            html += '<div class="skill-bar"><div class="skill-bar-header"><span style="color:var(--text-muted);">' + tSkill(task) + '</span><span class="text-xs" style="font-size:10px;color:var(--text-muted);font-style:italic;">nicht bewertet</span></div>' +
+              '<div class="skill-bar-track unrated"></div></div>';
           } else {
             var val = rawVal; var info = getSkillLevel(val); var pct = (val / 4) * 100;
-            html += '<div class="skill-bar"><div class="skill-bar-header"><span>' + tSkill(task) + '</span><span class="badge ' + info.badgeClass + '" style="font-size:10px;">' + tLevel(info.name) + '</span></div>' +
+            html += '<div class="skill-bar"><div class="skill-bar-header"><span><span class="skill-bar-dot" style="background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></span>' + tSkill(task) + '</span><span class="badge ' + info.badgeClass + '" style="font-size:10px;">' + tLevel(info.name) + '</span></div>' +
               '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + pct + '%;background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></div></div></div>';
           }
         });
@@ -8032,34 +8099,6 @@ var App = {
     } catch (err) { content.innerHTML = '<p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p>'; }
   },
 
-  // ── Verrechnungs-Kategorie nachträglich ändern (nur Fahrschule) ──
-  changeLessonBilling: async function(lessonId, newCat, studentId) {
-    var self = this;
-    if (!AppState.currentUser || AppState.currentUser.role !== 'school') {
-      self.showToast('Nur die Fahrschule darf die Verrechnung \u00e4ndern');
-      return;
-    }
-    var labels = { regular: 'Regul\u00e4r', free: 'Gratis', trial: 'Schnupperfahrt' };
-    if (!confirm('Verrechnung dieser Fahrstunde auf "' + labels[newCat] + '" \u00e4ndern?\n\n' +
-        (newCat === 'regular'
-          ? 'Es wird automatisch eine neue Soll-Position in der Buchhaltung erzeugt (falls ein passendes Preis-Template existiert).'
-          : 'Die automatische Soll-Position dieser Fahrstunde wird gel\u00f6scht (sofern sie noch nicht in einer Rechnung enthalten ist).'))) return;
-    try {
-      var res = await ApiClient.patch('/api/lessons/' + lessonId + '/billing', { billing_category: newCat });
-      if (res.charge_action === 'kept_invoiced') {
-        self.showToast('Verrechnung ge\u00e4ndert. Hinweis: Bestehende Soll-Position bleibt erhalten (bereits in Rechnung).');
-      } else if (res.charge_action === 'create_failed') {
-        self.showToast('Verrechnung ge\u00e4ndert. Hinweis: Auto-Soll konnte nicht erzeugt werden (kein passendes Preis-Template).');
-      } else {
-        self.showToast('Verrechnung aktualisiert');
-      }
-      // Lesson-Review neu rendern damit Badge + Button-Highlight stimmen
-      self.showLessonReview(lessonId, studentId, 'school');
-    } catch (err) {
-      self.showToast('Fehler: ' + (err.message || err));
-    }
-  },
-
   // ── Notes translation in lesson review ──
   translateLessonNotes: async function() {
     var notesEl = document.getElementById('lesson-notes-text');
@@ -8151,19 +8190,54 @@ var App = {
         '<div class="form-group mb-4"><label class="form-label">' + t('notizen') + '</label>' +
           '<textarea class="form-textarea" id="edit-lesson-notes">' + this._escapeHtml(lesson.notes || '') + '</textarea>' +
           '<div class="text-xs text-muted" style="margin-top:4px;">\u{1F517} Tipp: Links (z.B. YouTube-Videos) k\u00f6nnen einfach reinkopiert werden \u2013 sie werden f\u00fcr den Sch\u00fcler klickbar.</div></div>';
-      html += '<div class="section-title mb-3">' + t('bewertung') + '</div>';
-      evaluationGroupsWithLegacy(lesson && (lesson.license_class || lesson.licenseClass), lesson.ratings).forEach(function(grp) {
-        html += _groupHeaderHtml(grp.group);
+      // ── PFEP-Bewertung im Edit-Modal (gleiche Optik wie Live-Maske) ──
+      var _eGroups = evaluationGroupsWithLegacy(lesson && (lesson.license_class || lesson.licenseClass), lesson.ratings);
+      var _eTotal = 0, _eRated = 0;
+      _eGroups.forEach(function(g) {
+        _eTotal += g.items.length;
+        g.items.forEach(function(task) {
+          var v = AppState._editRatings[task];
+          if (typeof v === 'number' && v >= 1 && v <= 4) _eRated++;
+        });
+      });
+      var _ePct = _eTotal > 0 ? Math.round((_eRated / _eTotal) * 100) : 0;
+      html += '<div class="section-title mb-2">' + t('bewertung') + '</div>';
+      html += '<div class="pfep-progress" id="pfep-edit-progress">' +
+        '<span class="pfep-progress-label">Gesamt</span>' +
+        '<div class="pfep-progress-bar"><div class="pfep-progress-fill" id="pfep-edit-fill" style="width:' + _ePct + '%;"></div></div>' +
+        '<span class="pfep-progress-count" id="pfep-edit-count">' + _eRated + ' / ' + _eTotal + '</span>' +
+      '</div>';
+      _eGroups.forEach(function(grp) {
+        var meta = _pfepGroupMeta(grp.group);
+        var gRated = 0;
         grp.items.forEach(function(task) {
-          var rawCurrent = lesson.ratings && lesson.ratings[task];
+          var v = AppState._editRatings[task];
+          if (typeof v === 'number' && v >= 1 && v <= 4) gRated++;
+        });
+        var statusComplete = gRated === grp.items.length ? ' complete' : '';
+        html += '<div class="pfep-group" data-group="edit-' + meta.cls + '">' +
+          '<div class="pfep-group-head">' +
+            '<div class="pfep-group-title"><span class="pfep-group-icon ' + meta.cls + '">' + meta.icon + '</span>' + grp.group + '</div>' +
+            '<div class="pfep-group-status' + statusComplete + '" data-group-status="edit-' + meta.cls + '">' + gRated + ' / ' + grp.items.length + ' bewertet</div>' +
+          '</div>' +
+          '<div class="pfep-group-body">';
+        grp.items.forEach(function(task) {
+          var rawCurrent = AppState._editRatings[task];
           var current = (typeof rawCurrent === 'number' && rawCurrent >= 1 && rawCurrent <= 4) ? rawCurrent : 0;
-          html += '<div style="margin-bottom:var(--space-3);"><div class="text-xs font-medium mb-1">' + tSkill(task) + '</div><div class="level-selector" data-task="' + task + '">';
+          var ratedCls = (current >= 1 && current <= 4) ? ' rated-' + current : '';
+          html += '<div class="pfep-item' + ratedCls + '" data-task-slug="edit-' + _slugifyTask(task) + '" data-group="edit-' + meta.cls + '">' +
+            '<div class="pfep-item-header">' +
+              '<span class="pfep-item-label">' + tSkill(task) + '</span>' +
+              '<button type="button" class="pfep-item-clear" title="Bewertung entfernen" onclick="App.clearEditSkillRating(\'' + task + '\')">\u00d7 entfernen</button>' +
+            '</div>' +
+            '<div class="level-selector" data-task="' + task + '">';
           SKILL_LEVELS.forEach(function(sl) {
             var isActive = sl.level === current ? ' active' : '';
             html += '<button type="button" class="level-selector-btn' + isActive + '" data-level="' + sl.level + '" onclick="App.setEditSkillRating(this, \'' + task + '\', ' + sl.level + ')">' + tLevel(sl.name) + '</button>';
           });
           html += '</div></div>';
         });
+        html += '</div></div>';
       });
       // Image upload section in edit
       html += '<div class="form-group mb-4"><label class="form-label">' + t('bilder') + '</label>' +
@@ -8187,6 +8261,51 @@ var App = {
     var container = btn.parentElement;
     container.querySelectorAll('.level-selector-btn').forEach(function(b) { b.classList.remove('active'); });
     btn.classList.add('active');
+    var item = container.closest('.pfep-item');
+    if (item) {
+      item.classList.remove('rated-1','rated-2','rated-3','rated-4');
+      if (level >= 1 && level <= 4) item.classList.add('rated-' + level);
+    }
+    this._recomputeEditRatingProgress();
+  },
+
+  clearEditSkillRating: function(task) {
+    delete AppState._editRatings[task];
+    var modal = document.querySelector('.modal') || document;
+    var slug = _slugifyTask(task);
+    var item = modal.querySelector('.pfep-item[data-task-slug="edit-' + slug + '"]');
+    if (item) {
+      item.classList.remove('rated-1','rated-2','rated-3','rated-4');
+      item.querySelectorAll('.level-selector-btn').forEach(function(b) { b.classList.remove('active'); });
+    }
+    this._recomputeEditRatingProgress();
+  },
+
+  _recomputeEditRatingProgress: function() {
+    var modal = document.querySelector('.modal') || document;
+    var groupRoots = modal.querySelectorAll('.pfep-group[data-group^="edit-"]');
+    var total = 0, rated = 0;
+    groupRoots.forEach(function(gEl) {
+      var items = gEl.querySelectorAll('.pfep-item');
+      var gTotal = items.length;
+      var gRated = 0;
+      items.forEach(function(it) {
+        if (it.classList.contains('rated-1') || it.classList.contains('rated-2') ||
+            it.classList.contains('rated-3') || it.classList.contains('rated-4')) gRated++;
+      });
+      total += gTotal; rated += gRated;
+      var groupKey = gEl.getAttribute('data-group');
+      var st = modal.querySelector('[data-group-status="' + groupKey + '"]');
+      if (st) {
+        st.textContent = gRated + ' / ' + gTotal + ' bewertet';
+        if (gRated === gTotal && gTotal > 0) st.classList.add('complete'); else st.classList.remove('complete');
+      }
+    });
+    var fill = modal.querySelector('#pfep-edit-fill');
+    var count = modal.querySelector('#pfep-edit-count');
+    var pct = total > 0 ? Math.round((rated / total) * 100) : 0;
+    if (fill) fill.style.width = pct + '%';
+    if (count) count.textContent = rated + ' / ' + total;
   },
 
   saveEditedLesson: async function(e, lessonId, studentId) {
@@ -8206,20 +8325,7 @@ var App = {
   },
 
   deleteLesson: async function(lessonId, studentId) {
-    // Versuch, billing_category aus dem aktuell gerenderten Review zu lesen
-    var billingCat = 'regular';
-    try {
-      var lesson = await ApiClient.get('/api/lesson/' + lessonId);
-      billingCat = (lesson && lesson.billing_category) || 'regular';
-    } catch (e) {}
-    var msg;
-    if (billingCat === 'trial') {
-      msg = 'Schnupperfahrt l\u00f6schen?\n\nDie Stunde wird vollst\u00e4ndig entfernt (keine Buchhaltungs- oder Ausbildungsdokumentation betroffen).';
-    } else if (billingCat === 'free') {
-      msg = 'Gratis-Fahrstunde l\u00f6schen?\n\nDie Stunde wird aus Ihrer Ansicht entfernt, bleibt aber im Ausbildungsnachweis des Sch\u00fclers sichtbar.';
-    } else {
-      msg = 'Fahrstunde l\u00f6schen?\n\n\u2022 Wird aus Ihrer Ansicht entfernt\n\u2022 Bleibt im Ausbildungsnachweis des Sch\u00fclers sichtbar\n\u2022 Eine evtl. erzeugte Buchhaltungs-Position bleibt unber\u00fchrt (muss separat storniert werden)';
-    }
+    var msg = 'Fahrstunde l\u00f6schen?\n\n\u2022 Wird aus Ihrer Ansicht entfernt\n\u2022 Bleibt im Ausbildungsnachweis des Sch\u00fclers sichtbar';
     if (!confirm(msg)) return;
     try {
       await ApiClient.del('/api/lessons/' + lessonId);
@@ -8284,11 +8390,11 @@ var App = {
         var rawVal = latestRatings && latestRatings[task];
         var hasRating = typeof rawVal === 'number' && rawVal >= 1 && rawVal <= 4;
         if (!hasRating) {
-          html += '<div class="skill-bar"><div class="skill-bar-header"><span>' + tSkill(task) + '</span><span class="badge" style="font-size:10px;background:var(--bg-elevated,#f1f5f9);color:var(--text-muted);">nicht bewertet</span></div>' +
-            '<div class="skill-bar-track"></div></div>';
+          html += '<div class="skill-bar"><div class="skill-bar-header"><span style="color:var(--text-muted);">' + tSkill(task) + '</span><span class="text-xs" style="font-size:10px;color:var(--text-muted);font-style:italic;">nicht bewertet</span></div>' +
+            '<div class="skill-bar-track unrated"></div></div>';
         } else {
           var val = rawVal; var pct = (val / 4) * 100; var info = getSkillLevel(val);
-          html += '<div class="skill-bar"><div class="skill-bar-header"><span>' + tSkill(task) + '</span><span class="badge ' + info.badgeClass + '" style="font-size:10px;">' + tLevel(info.name) + '</span></div>' +
+          html += '<div class="skill-bar"><div class="skill-bar-header"><span><span class="skill-bar-dot" style="background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></span>' + tSkill(task) + '</span><span class="badge ' + info.badgeClass + '" style="font-size:10px;">' + tLevel(info.name) + '</span></div>' +
             '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + pct + '%;background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></div></div></div>';
         }
       });
