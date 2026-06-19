@@ -1655,11 +1655,22 @@ app.post('/api/lessons', authMiddleware, async (req, res) => {
     });
 
     if (studentId && ratings && typeof ratings === 'object') {
-      const ratingRows = Object.keys(ratings).map(skill => ({
-        id: generateId(), lesson_id: id, student_id: studentId,
-        skill_name: skill, rating: ratings[skill]
-      }));
-      if (ratingRows.length > 0) await supabase.from('skill_ratings').insert(ratingRows);
+      // DB CHECK-Constraint: rating IN 1..4. 'Nicht bewertet' (0 / null / undefined / out-of-range)
+      // wird hier defensiv ausgefiltert, damit ein einzelner ungueltiger Wert nicht den
+      // gesamten Bulk-Insert (und damit alle anderen Bewertungen dieser Stunde) sprengt.
+      const ratingRows = Object.keys(ratings)
+        .filter(skill => {
+          const v = ratings[skill];
+          return typeof v === 'number' && v >= 1 && v <= 4;
+        })
+        .map(skill => ({
+          id: generateId(), lesson_id: id, student_id: studentId,
+          skill_name: skill, rating: ratings[skill]
+        }));
+      if (ratingRows.length > 0) {
+        const ins = await supabase.from('skill_ratings').insert(ratingRows);
+        if (ins.error) console.error('[POST /api/lessons] skill_ratings insert error:', ins.error.message);
+      }
     }
 
     if (images && Array.isArray(images)) {
@@ -1721,11 +1732,20 @@ app.put('/api/lessons/:id', authMiddleware, async (req, res) => {
 
     if (ratings && typeof ratings === 'object') {
       await supabase.from('skill_ratings').delete().eq('lesson_id', req.params.id);
-      const ratingRows = Object.keys(ratings).map(skill => ({
-        id: generateId(), lesson_id: req.params.id, student_id: lesson.student_id,
-        skill_name: skill, rating: ratings[skill]
-      }));
-      if (ratingRows.length > 0) await supabase.from('skill_ratings').insert(ratingRows);
+      // Nur gueltige Werte 1..4 persistieren (siehe POST /api/lessons).
+      const ratingRows = Object.keys(ratings)
+        .filter(skill => {
+          const v = ratings[skill];
+          return typeof v === 'number' && v >= 1 && v <= 4;
+        })
+        .map(skill => ({
+          id: generateId(), lesson_id: req.params.id, student_id: lesson.student_id,
+          skill_name: skill, rating: ratings[skill]
+        }));
+      if (ratingRows.length > 0) {
+        const ins = await supabase.from('skill_ratings').insert(ratingRows);
+        if (ins.error) console.error('[PUT /api/lessons/:id] skill_ratings insert error:', ins.error.message);
+      }
     }
 
     if (images && Array.isArray(images)) {
