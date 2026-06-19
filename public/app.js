@@ -210,17 +210,14 @@ var SKILL_TASKS = OBSERVATION_CATEGORIES.slice();
 // 'Weitere'-Gruppe mit historischen Items, die in den aktuellen Konstanten
 // nicht mehr auftauchen (damit alte Lessons nicht plötzlich Eintraege verlieren).
 function evaluationGroupsWithLegacy(licenseClass, ratings) {
-  var groups = evaluationGroupsFor(licenseClass).map(function(g) {
+  // Historische Skill-Namen (z.B. 'autobahn', 'blick', 'gas_bremse' aus alten
+  // App-Versionen) werden bewusst NICHT mehr als 'Weitere (historisch)'-Gruppe
+  // angezeigt – sie verwirren den Lehrer und sind interne Codes ohne Bezug zum
+  // aktuellen Bewertungs-Schema. Die Daten bleiben in der DB erhalten, werden
+  // aber im UI ausgeblendet.
+  return evaluationGroupsFor(licenseClass).map(function(g) {
     return { group: g.group, items: g.items.slice() };
   });
-  if (ratings && typeof ratings === 'object') {
-    var known = {};
-    groups.forEach(function(g) { g.items.forEach(function(it) { known[it] = true; }); });
-    var extra = [];
-    Object.keys(ratings).forEach(function(k) { if (!known[k]) extra.push(k); });
-    if (extra.length > 0) groups.push({ group: 'Weitere (historisch)', items: extra });
-  }
-  return groups;
 }
 
 // HTML-Schnipsel fuer einen Gruppen-Header in einer Bewertungs-Sektion.
@@ -5757,7 +5754,15 @@ var App = {
     content.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
     try {
       var data = await ApiClient.get('/api/student-detail/' + studentId);
-      var student = data.student; var lessons = data.lessons;
+      var student = data.student; var lessons = data.lessons || [];
+      // Sortierung absichern: neueste zuerst (Datum, dann created_at).
+      lessons.sort(function(a, b) {
+        var dA = String(a.date || ''), dB = String(b.date || '');
+        if (dA !== dB) return dA < dB ? 1 : -1;
+        var cA = String(a.created_at || ''), cB = String(b.created_at || '');
+        if (cA !== cB) return cA < cB ? 1 : -1;
+        return 0;
+      });
       document.getElementById('student-detail-name').textContent = student.name;
       var latestRatings = lessons.length > 0 ? lessons[0].ratings : {};
       var avg = this.avgRating(latestRatings);
@@ -5910,27 +5915,34 @@ var App = {
         });
         var typesSorted = Object.keys(typeBuckets).sort(function(a, b) { return typeBuckets[b].duration - typeBuckets[a].duration; });
 
-        html += '<div class="card mb-4" id="lessons-history-card">' +
-          '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-2);margin-bottom:var(--space-3);">' +
-            '<div class="section-title" style="margin:0;">Fahrstunden-Verlauf</div>' +
-            '<div style="display:flex;gap:var(--space-3);align-items:baseline;flex-wrap:wrap;">' +
-              '<span style="font-size:var(--text-sm);color:var(--text-muted);">Gesamt:</span>' +
-              '<span style="font-weight:700;font-size:var(--text-base);">' + lessons.length + '</span>' +
-              '<span style="font-size:var(--text-sm);color:var(--text-muted);">Stunden \u00b7</span>' +
-              '<span style="font-weight:700;font-size:var(--text-base);">' + _fmtMin(totalDuration) + '</span>' +
-            '</div>' +
+        html += '<div class="card mb-4 lessons-history" id="lessons-history-card">' +
+          '<div class="lessons-history-head">' +
+            '<div class="lessons-history-title"><span class="lessons-history-icon" aria-hidden="true">\u{1F4D6}</span>Fahrstunden-Verlauf</div>' +
           '</div>';
 
         if (lessons.length === 0) {
           html += '<p style="font-size:var(--text-sm);color:var(--text-muted);text-align:center;padding:var(--space-4);">Noch keine absolvierten Fahrstunden.</p>';
         } else {
+          // Gesamt-Statistik prominent
+          html += '<div class="lessons-history-stats">' +
+            '<div class="lessons-history-stat">' +
+              '<div class="lessons-history-stat-label">Stunden</div>' +
+              '<div class="lessons-history-stat-value">' + lessons.length + '</div>' +
+            '</div>' +
+            '<div class="lessons-history-stat-divider" aria-hidden="true"></div>' +
+            '<div class="lessons-history-stat">' +
+              '<div class="lessons-history-stat-label">Gesamt-Dauer</div>' +
+              '<div class="lessons-history-stat-value">' + _fmtMin(totalDuration) + '</div>' +
+            '</div>' +
+          '</div>';
+
           // Typ-Aufschluesselung
-          html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--space-2);margin-bottom:var(--space-4);">';
+          html += '<div class="lessons-history-types">';
           typesSorted.forEach(function(typ) {
             var b = typeBuckets[typ];
-            html += '<div style="background:var(--bg-elevated,#f8fafb);padding:var(--space-2) var(--space-3);border-radius:var(--radius-md);">' +
-              '<div style="font-size:var(--text-xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:.3px;">' + typ + '</div>' +
-              '<div style="font-size:var(--text-sm);font-weight:600;margin-top:2px;">' + b.count + '\u00d7 \u00b7 ' + _fmtMin(b.duration) + '</div>' +
+            html += '<div class="lessons-history-type">' +
+              '<div class="lessons-history-type-label">' + typ + '</div>' +
+              '<div class="lessons-history-type-value"><strong>' + b.count + '\u00d7</strong> <span class="lessons-history-type-dot">\u00b7</span> ' + _fmtMin(b.duration) + '</div>' +
             '</div>';
           });
           html += '</div>';
@@ -5970,29 +5982,27 @@ var App = {
             }
             html += '<div class="lesson-history-row" data-lesson-id="' + l.id + '" data-student-id="' + studentId + '"' + extraAttr +
               ' onclick="App.showLessonReview(\'' + l.id + '\', \'' + studentId + '\', \'' + (AppState.currentUser ? AppState.currentUser.role : 'school') + '\')"' +
-              ' style="' + displayProp + 'align-items:center;gap:var(--space-3);padding:10px 12px;background:var(--bg-elevated,#f8fafb);border:1px solid var(--border-color);border-radius:var(--radius-md);cursor:pointer;transition:all 0.15s;"' +
-              ' onmouseover="this.style.background=\'var(--bg-hover,#eef2f6)\';this.style.transform=\'translateY(-1px)\';this.style.boxShadow=\'0 2px 8px rgba(0,0,0,0.06)\';"' +
-              ' onmouseout="this.style.background=\'var(--bg-elevated,#f8fafb)\';this.style.transform=\'\';this.style.boxShadow=\'\';">' +
+              ' style="' + displayProp + '">' +
               // Datum Block
-              '<div style="flex-shrink:0;text-align:center;min-width:42px;padding:4px 6px;background:#fff;border-radius:var(--radius-sm);border:1px solid var(--border-color);">' +
-                '<div style="font-size:18px;font-weight:700;line-height:1;color:var(--text-primary);">' + dDay + '</div>' +
-                '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-top:2px;">' + dMonth + '</div>' +
+              '<div class="lesson-history-date">' +
+                '<div class="lesson-history-date-day">' + dDay + '</div>' +
+                '<div class="lesson-history-date-month">' + dMonth + '</div>' +
               '</div>' +
               // Mittlerer Block: Typ + Fahrlehrer
-              '<div style="flex:1;min-width:0;">' +
-                '<div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:var(--text-sm);margin-bottom:2px;">' +
-                  '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (l.type || '\u2014') + '</span>' +
+              '<div class="lesson-history-main">' +
+                '<div class="lesson-history-type">' +
+                  '<span class="lesson-history-type-text">' + (l.type || '\u2014') + '</span>' +
                   notesIcon + imagesIcon +
                 '</div>' +
-                '<div style="font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                '<div class="lesson-history-meta">' +
                   '<span>' + instrName + '</span>' +
-                  (ratingDot ? '<span>\u00b7</span>' + ratingDot : '') +
+                  (ratingDot ? '<span class="lesson-history-meta-sep">\u00b7</span>' + ratingDot : '') +
                 '</div>' +
               '</div>' +
               // Dauer rechts + Chevron
-              '<div style="flex-shrink:0;text-align:right;display:flex;align-items:center;gap:8px;">' +
-                '<div style="font-weight:700;font-size:var(--text-sm);color:var(--text-primary);white-space:nowrap;">' + _fmtMin(l.duration) + '</div>' +
-                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;color:var(--text-muted);flex-shrink:0;"><polyline points="9 18 15 12 9 6"/></svg>' +
+              '<div class="lesson-history-right">' +
+                '<div class="lesson-history-duration">' + _fmtMin(l.duration) + '</div>' +
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="lesson-history-chev"><polyline points="9 18 15 12 9 6"/></svg>' +
               '</div>' +
             '</div>';
           });
@@ -6007,9 +6017,11 @@ var App = {
         html += '</div>';
       }
 
-      // ── Theory Progress Section ──
-      html += '<div class="card mb-4 theory-progress-section"><div class="section-title mb-3">' + t('theorieFortschritt') + '</div>' +
-        '<div id="theory-progress-container"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div></div>';
+      // ── Theory Progress Section (nur Plus, Solo verwaltet keine Theorie) ──
+      if (!this.isSolo()) {
+        html += '<div class="card mb-4 theory-progress-section"><div class="section-title mb-3">' + t('theorieFortschritt') + '</div>' +
+          '<div id="theory-progress-container"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div></div>';
+      }
 
       // ── KI-Briefing (nur fuer school + instructor wenn KI-Tarif) ──
       if (AppState.currentUser && (AppState.currentUser.role === 'school' || AppState.currentUser.role === 'instructor')) {

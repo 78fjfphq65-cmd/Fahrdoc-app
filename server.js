@@ -2026,7 +2026,7 @@ app.get('/api/student-detail/:id', authMiddleware, async (req, res) => {
     }
 
     const [lessonsRes, instructors] = await Promise.all([
-      supabase.from('lessons').select('*, instructors(name)').eq('student_id', student.id).is('deleted_at', null).order('date', { ascending: false }),
+      supabase.from('lessons').select('*, instructors(name)').eq('student_id', student.id).is('deleted_at', null).order('date', { ascending: false }).order('created_at', { ascending: false }),
       getStudentInstructors(student.id)
     ]);
     const lessons = lessonsRes.data || [];

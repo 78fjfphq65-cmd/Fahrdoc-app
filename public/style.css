@@ -4430,3 +4430,184 @@ html[dir="rtl"] .notif-panel {
   flex-direction: column;
   gap: 12px;
 }
+
+/* ============================================
+   FAHRSTUNDEN-VERLAUF (Student Detail)
+   ============================================ */
+.lessons-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.lessons-history-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  margin: 0;
+}
+.lessons-history-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  font-size: 15px;
+}
+
+.lessons-history-stats {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.lessons-history-stat { flex: 1; min-width: 0; }
+.lessons-history-stat-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.lessons-history-stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.15;
+}
+.lessons-history-stat-divider {
+  width: 1px;
+  background: color-mix(in srgb, var(--color-primary) 22%, transparent);
+  margin: 0 var(--space-4);
+}
+
+.lessons-history-types {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.lessons-history-type {
+  background: var(--color-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--color-primary) 50%, transparent);
+}
+.lessons-history-type-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .35px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.lessons-history-type-value {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.lessons-history-type-value strong { font-weight: 700; }
+.lessons-history-type-dot {
+  color: var(--text-muted);
+  margin: 0 2px;
+}
+
+.lesson-history-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms, transform 150ms, box-shadow 150ms;
+}
+.lesson-history-row:hover {
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-primary) 30%, var(--border-color));
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.lesson-history-date {
+  flex-shrink: 0;
+  text-align: center;
+  min-width: 46px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
+  border-radius: var(--radius-sm);
+}
+.lesson-history-date-day {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--color-primary, var(--text-primary));
+}
+.lesson-history-date-month {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  margin-top: 2px;
+  font-weight: 600;
+}
+.lesson-history-main { flex: 1; min-width: 0; }
+.lesson-history-type {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  margin-bottom: 3px;
+}
+.lesson-history-type-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lesson-history-meta {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lesson-history-meta-sep { opacity: .6; }
+.lesson-history-right {
+  flex-shrink: 0;
+  text-align: right;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lesson-history-duration {
+  font-weight: 700;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.lesson-history-chev {
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+@media (max-width: 480px) {
+  .lessons-history-stat-value { font-size: 18px; }
+  .lessons-history-stat-divider { margin: 0 var(--space-3); }
+}
