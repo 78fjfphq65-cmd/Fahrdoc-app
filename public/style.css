@@ -1027,9 +1027,19 @@
   border: 1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
   transition: border-color 200ms, background 200ms, box-shadow 200ms;
 }
+/* Zebra-Streifen: jede 2. unbewertete Karte bekommt einen wärmeren Cream-Ton,
+   damit die lange Liste nicht monoton wirkt. Bewertete Items behalten ihre Farb-Codierung. */
+.pfep-item:nth-of-type(even):not(.rated-1):not(.rated-2):not(.rated-3):not(.rated-4) {
+  background: color-mix(in srgb, #f5e9d4 55%, var(--color-surface));
+  border-color: color-mix(in srgb, #c9a96b 22%, transparent);
+}
 [data-theme="dark"] .pfep-item {
   background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
   border-color: color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+[data-theme="dark"] .pfep-item:nth-of-type(even):not(.rated-1):not(.rated-2):not(.rated-3):not(.rated-4) {
+  background: color-mix(in srgb, #c9a96b 12%, var(--color-surface));
+  border-color: color-mix(in srgb, #c9a96b 28%, transparent);
 }
 .pfep-item.rated-1 { border-color: color-mix(in srgb, var(--color-success) 55%, transparent); background: color-mix(in srgb, var(--color-success) 9%, var(--color-surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-success) 15%, transparent); }
 .pfep-item.rated-2 { border-color: color-mix(in srgb, var(--color-blue) 55%, transparent);    background: color-mix(in srgb, var(--color-blue) 9%, var(--color-surface));    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-blue) 15%, transparent); }
