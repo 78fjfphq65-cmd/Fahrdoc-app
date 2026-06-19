@@ -5838,20 +5838,22 @@ var App = {
           '</div>';
         }
 
-        // ── Karte: Rechnungsadresse ──
-        var billingDiffers = (st.billing_same_as_address === false) && (st.billing_name || st.billing_street || st.billing_postal_code || st.billing_city);
-        html += '<div class="card mb-4">' +
-          '<div class="section-title" style="margin-bottom:var(--space-2);">Rechnungsadresse</div>';
-        if (!billingDiffers) {
-          html += '<div style="font-size:var(--text-sm);color:var(--text-muted);">Entspricht der Wohnadresse.</div>';
-        } else {
-          var bPlzCity = [(st.billing_postal_code || ''), (st.billing_city || '')].filter(Boolean).join(' ').trim();
-          html += rowHtml('Name / Firma', st.billing_name) +
-            rowHtml('Stra\u00dfe', st.billing_street) +
-            rowHtml('PLZ / Ort', bPlzCity || null) +
-            rowHtml('Land', st.billing_country || 'Deutschland');
+        // ── Karte: Rechnungsadresse (nur Plus – Solo stellt keine Rechnungen aus) ──
+        if (!this.isSolo()) {
+          var billingDiffers = (st.billing_same_as_address === false) && (st.billing_name || st.billing_street || st.billing_postal_code || st.billing_city);
+          html += '<div class="card mb-4">' +
+            '<div class="section-title" style="margin-bottom:var(--space-2);">Rechnungsadresse</div>';
+          if (!billingDiffers) {
+            html += '<div style="font-size:var(--text-sm);color:var(--text-muted);">Entspricht der Wohnadresse.</div>';
+          } else {
+            var bPlzCity = [(st.billing_postal_code || ''), (st.billing_city || '')].filter(Boolean).join(' ').trim();
+            html += rowHtml('Name / Firma', st.billing_name) +
+              rowHtml('Stra\u00dfe', st.billing_street) +
+              rowHtml('PLZ / Ort', bPlzCity || null) +
+              rowHtml('Land', st.billing_country || 'Deutschland');
+          }
+          html += '</div>';
         }
-        html += '</div>';
 
         // ── Karte: Preiskategorie ──
         if (st.price_category) {
