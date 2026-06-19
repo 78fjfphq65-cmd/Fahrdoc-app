@@ -3171,39 +3171,68 @@ app.post('/api/ai/briefing/:studentId', authMiddleware, async (req, res) => {
     return res.status(403).json({ error: 'Nur für Fahrlehrer/Schule' });
   }
   try {
-    const schoolId = req.user.role === 'school' ? req.user.id : req.user.school_id;
-
-    // Plan-Check
-    const { data: sub } = await supabase.from('subscriptions').select('*').eq('school_id', schoolId).maybeSingle();
-    const { data: school } = await supabase.from('schools').select('created_at').eq('id', schoolId).maybeSingle();
-    const state = computeSubscriptionState(sub, school?.created_at);
-    if (!state.active) return res.status(402).json({ error: 'Testphase abgelaufen', lock: true });
-    if (state.plan !== 'ki') return res.status(402).json({ error: 'KI-Briefing nur im FahrDoc KI Tarif verfügbar', upgrade: true });
-
-    // Schueler-Daten laden
+    const isSolo = req.user.role === 'instructor' && req.user.account_type === 'solo';
     const studentId = req.params.studentId;
-    const { data: student } = await supabase.from('students')
-      .select('id, name, license_class, school_id').eq('id', studentId).maybeSingle();
-    if (!student || student.school_id !== schoolId) return res.status(404).json({ error: 'Schüler nicht gefunden' });
 
-    // Letzte 10 Fahrstunden (abgeschlossen) mit Markierungen + Notizen
+    // --- Berechtigung + Plan-Check ---
+    let schoolId = null;
+    let student = null;
+    if (isSolo) {
+      // Solo: Trial- oder aktive Subscription muss laufen
+      const trialEnd = req.user.solo_trial_ends_at;
+      const inTrial = trialEnd ? (new Date() <= new Date(trialEnd)) : false;
+      const active = req.user.subscription_status === 'active' || inTrial;
+      if (!active) return res.status(402).json({ error: 'Testphase abgelaufen', lock: true });
+      // KI-Briefing ist in der Solo-Edition immer enthalten (kein separater KI-Tarif).
+      const { data: s } = await supabase.from('students')
+        .select('id, name, license_class, school_id, owner_instructor_id')
+        .eq('id', studentId).eq('owner_instructor_id', req.user.id).maybeSingle();
+      if (!s) return res.status(404).json({ error: 'Schüler nicht gefunden' });
+      student = s;
+    } else {
+      schoolId = req.user.role === 'school' ? req.user.id : req.user.school_id;
+      const { data: sub } = await supabase.from('subscriptions').select('*').eq('school_id', schoolId).maybeSingle();
+      const { data: school } = await supabase.from('schools').select('created_at').eq('id', schoolId).maybeSingle();
+      const state = computeSubscriptionState(sub, school?.created_at);
+      if (!state.active) return res.status(402).json({ error: 'Testphase abgelaufen', lock: true });
+      if (state.plan !== 'ki') return res.status(402).json({ error: 'KI-Briefing nur im FahrDoc KI Tarif verfügbar', upgrade: true });
+      const { data: s } = await supabase.from('students')
+        .select('id, name, license_class, school_id').eq('id', studentId).maybeSingle();
+      if (!s || s.school_id !== schoolId) return res.status(404).json({ error: 'Schüler nicht gefunden' });
+      student = s;
+    }
+
+    // --- Letzte 10 Fahrstunden (mit Skill-Ratings + Notizen) ---
     const { data: lessons } = await supabase.from('lessons')
-      .select('id, date, lesson_type, duration_minutes, notes, markers, status')
+      .select('id, date, type, duration, notes')
       .eq('student_id', studentId)
-      .in('status', ['completed', 'abgeschlossen'])
+      .is('deleted_at', null)
       .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(10);
 
     if (!lessons || lessons.length === 0) {
-      return res.json({ briefing: 'Noch keine abgeschlossenen Fahrstunden vorhanden. Beim ersten Termin bitte Grundlagen besprechen: Lenkrad, Pedalerie, Spiegel, erste Fahrt.', empty: true });
+      return res.json({ briefing: 'Noch keine abgeschlossenen Fahrstunden vorhanden. Beim ersten Termin bitte Grundlagen besprechen: Lenkrad, Pedalerie, Spiegel, erste Fahrt.', empty: true, lesson_count: 0 });
     }
 
-    // Prompt zusammenbauen
-    var ctx = '';
-    lessons.slice().reverse().forEach(function(l, i){
-      ctx += '\nFahrstunde ' + (i+1) + ' (' + (l.date || '') + ', ' + (l.lesson_type || 'Standard') + ', ' + (l.duration_minutes || 45) + ' Min):';
-      if (l.markers) {
-        try { var m = typeof l.markers === 'string' ? JSON.parse(l.markers) : l.markers; if (Array.isArray(m) && m.length) ctx += '\n  Markierungen: ' + m.map(function(x){ return x.text || x.type || x; }).join('; '); } catch(e){}
+    // Ratings dazuladen (gleicher Pfad wie student-detail)
+    const lessonIds = lessons.map(l => l.id);
+    const { data: ratings } = await supabase.from('skill_ratings')
+      .select('lesson_id, skill_name, rating').in('lesson_id', lessonIds);
+    const ratingsByLesson = {};
+    (ratings || []).forEach(r => {
+      if (!ratingsByLesson[r.lesson_id]) ratingsByLesson[r.lesson_id] = [];
+      ratingsByLesson[r.lesson_id].push({ skill: r.skill_name, rating: r.rating });
+    });
+    const ratingLabel = (n) => ({1:'sehr gut',2:'gut',3:'ausreichend',4:'ungenügend'})[n] || String(n);
+
+    // Prompt zusammenbauen – älteste zuerst, damit Verlauf chronologisch ist
+    let ctx = '';
+    lessons.slice().reverse().forEach((l, i) => {
+      ctx += '\nFahrstunde ' + (i + 1) + ' (' + (l.date || '') + ', ' + (l.type || 'Standard') + ', ' + (l.duration || 45) + ' Min):';
+      const rs = ratingsByLesson[l.id] || [];
+      if (rs.length) {
+        ctx += '\n  Bewertungen: ' + rs.map(r => r.skill + ' = ' + ratingLabel(r.rating)).join('; ');
       }
       if (l.notes) ctx += '\n  Notizen: ' + l.notes;
     });
@@ -3214,15 +3243,19 @@ app.post('/api/ai/briefing/:studentId', authMiddleware, async (req, res) => {
     const result = await model.generateContent(prompt);
     const briefing = result.response.text();
 
-    // Speichern
-    await supabase.from('ai_briefings').insert({
-      id: generateId(),
-      student_id: studentId,
-      school_id: schoolId,
-      instructor_id: req.user.role === 'instructor' ? req.user.id : null,
-      content: briefing,
-      lesson_count: lessons.length
-    });
+    // Speichern (ai_briefings.school_id ist evtl. NOT NULL – bei Solo defensiv abfangen)
+    try {
+      await supabase.from('ai_briefings').insert({
+        id: generateId(),
+        student_id: studentId,
+        school_id: schoolId,
+        instructor_id: req.user.role === 'instructor' ? req.user.id : null,
+        content: briefing,
+        lesson_count: lessons.length
+      });
+    } catch (logErr) {
+      console.warn('[AI Briefing] Log-Insert fehlgeschlagen (nicht kritisch):', logErr.message);
+    }
 
     res.json({ briefing: briefing, lesson_count: lessons.length });
   } catch (err) {

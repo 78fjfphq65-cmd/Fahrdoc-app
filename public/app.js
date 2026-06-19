@@ -7909,7 +7909,63 @@ var App = {
       sel.innerHTML = '<option value="">' + t('schuelerWaehlen') + '...</option>' +
         '<option value="__probe__">' + t('probefahrt') + ' (' + t('ohneSchueler') + ')</option>';
       students.forEach(function(st) { sel.innerHTML += '<option value="' + st.id + '">' + st.name + ' (Klasse ' + st.license_class + ')</option>'; });
+      // Briefing-Card unter Schueler-Dropdown bei Auswahl einblenden
+      var briefingBox = document.getElementById('lesson-setup-briefing');
+      var self = this;
+      sel.onchange = function() {
+        var v = sel.value;
+        if (!briefingBox) return;
+        if (!v || v === '__probe__') { briefingBox.style.display = 'none'; briefingBox.innerHTML = ''; return; }
+        var name = (sel.selectedOptions[0] && sel.selectedOptions[0].textContent.split(' (')[0]) || '';
+        briefingBox.innerHTML = self._renderSetupBriefingCard(v, name);
+        briefingBox.style.display = 'block';
+      };
     } catch (e) {}
+  },
+
+  _renderSetupBriefingCard: function(studentId, studentName) {
+    var safeName = String(studentName || '').replace(/</g, '&lt;');
+    return '<div class="setup-briefing-card" id="setup-briefing-card">' +
+        '<div class="setup-briefing-head">' +
+          '<div class="setup-briefing-icon" aria-hidden="true">\u2728</div>' +
+          '<div class="setup-briefing-textcol">' +
+            '<div class="setup-briefing-title">KI-Briefing f\u00fcr ' + safeName + '</div>' +
+            '<div class="setup-briefing-sub">Zusammenfassung der letzten Stunden, Empfehlung f\u00fcr heute.</div>' +
+          '</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn-secondary btn-full setup-briefing-btn" id="setup-briefing-btn" onclick="App.generateSetupBriefing(\'' + studentId + '\')">' +
+          'Briefing erstellen' +
+        '</button>' +
+        '<div class="setup-briefing-output" id="setup-briefing-output" style="display:none;"></div>' +
+      '</div>';
+  },
+
+  generateSetupBriefing: async function(studentId) {
+    var btn = document.getElementById('setup-briefing-btn');
+    var out = document.getElementById('setup-briefing-output');
+    if (!btn || !out) return;
+    var oldHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading-spinner" style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:8px;"></span>KI denkt nach\u2026';
+    out.style.display = 'none';
+    out.innerHTML = '';
+    try {
+      var result = await ApiClient.post('/api/ai/briefing/' + studentId, {});
+      var briefingHtml = (result.briefing || '').replace(/\n/g, '<br>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      out.innerHTML = '<div class="setup-briefing-result">' + briefingHtml +
+        '<div class="setup-briefing-meta">Basierend auf ' + (result.lesson_count || 0) + ' Fahrstunden \u00b7 Google Gemini</div>' +
+      '</div>';
+      out.style.display = 'block';
+      // Button auf "Neu generieren" umstellen
+      btn.innerHTML = '\u21bb Neu generieren';
+    } catch (err) {
+      var msg = err && err.message ? err.message : String(err);
+      out.innerHTML = '<div class="setup-briefing-error">' + msg + '</div>';
+      out.style.display = 'block';
+      btn.innerHTML = oldHtml;
+    } finally {
+      btn.disabled = false;
+    }
   },
 
   startLesson: function(e) {
