@@ -1052,6 +1052,100 @@
 .pfep-item.rated-4 .pfep-item-clear { opacity: 1; }
 .pfep-item-clear:hover { background: var(--color-surface-offset-2, #e5e7eb); color: var(--color-text-primary); }
 
+/* ── Notiz pro Bewertung: Bubble + Editor ── */
+.pfep-note {
+  margin-top: 8px;
+  font-size: var(--text-xs);
+}
+.pfep-note-add {
+  background: none;
+  border: 1px dashed var(--border-color);
+  color: var(--color-text-muted);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 150ms;
+}
+.pfep-note-add:hover {
+  background: var(--color-surface-offset, #f8fafb);
+  color: var(--color-text-primary);
+  border-color: var(--color-blue, #2563eb);
+}
+.pfep-note-bubble {
+  background: #fefce8;
+  border: 1px solid #fde68a;
+  border-radius: 12px;
+  padding: 6px 10px 6px 28px;
+  position: relative;
+  cursor: pointer;
+  color: #78350f;
+  line-height: 1.35;
+  font-size: 12px;
+  display: block;
+  transition: background 150ms;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+.pfep-note-bubble:hover { background: #fef3c7; }
+.pfep-note-readonly .pfep-note-bubble { cursor: default; }
+.pfep-note-readonly .pfep-note-bubble:hover { background: #fefce8; }
+.pfep-note-bubble::before {
+  content: "\1F4DD"; /* memo emoji */
+  position: absolute;
+  left: 8px;
+  top: 5px;
+  font-size: 13px;
+}
+.pfep-note-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.pfep-note-editor textarea {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  background: #fefce8;
+  color: #78350f;
+  box-sizing: border-box;
+}
+.pfep-note-editor textarea:focus {
+  outline: none;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+}
+.pfep-note-editor-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.pfep-note-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--color-text-muted);
+}
+.pfep-note-btn.primary {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+  font-weight: 600;
+}
+.pfep-note-btn:hover { filter: brightness(0.95); }
+
 /* Skill-Bar Verbesserungen (Detail- und Review-Anzeige) */
 .skill-bar {
   margin-bottom: var(--space-3);

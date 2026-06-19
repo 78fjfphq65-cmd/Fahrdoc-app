@@ -1596,9 +1596,13 @@ app.get('/api/lesson/:id', authMiddleware, async (req, res) => {
     if (!lesson) return res.status(404).json({ error: 'Fahrstunde nicht gefunden' });
 
     const { data: ratings } = await supabase.from('skill_ratings')
-      .select('skill_name, rating').eq('lesson_id', lesson.id);
+      .select('skill_name, rating, note').eq('lesson_id', lesson.id);
     lesson.ratings = {};
-    (ratings || []).forEach(r => { lesson.ratings[r.skill_name] = r.rating; });
+    lesson.ratingNotes = {};
+    (ratings || []).forEach(r => {
+      lesson.ratings[r.skill_name] = r.rating;
+      if (r.note) lesson.ratingNotes[r.skill_name] = r.note;
+    });
 
     const { data: student } = await supabase.from('students')
       .select('name').eq('id', lesson.student_id).single();
@@ -1628,7 +1632,7 @@ app.get('/api/lesson/:id', authMiddleware, async (req, res) => {
 app.post('/api/lessons', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur Fahrlehrer können Fahrstunden erstellen' });
-    const { studentId, type, duration, notes, ratings, licenseClass, date, images } = req.body;
+    const { studentId, type, duration, notes, ratings, ratingNotes, licenseClass, date, images } = req.body;
 
     if (!type || !duration) return res.status(400).json({ error: 'Pflichtfelder fehlen' });
 
@@ -1658,15 +1662,20 @@ app.post('/api/lessons', authMiddleware, async (req, res) => {
       // DB CHECK-Constraint: rating IN 1..4. 'Nicht bewertet' (0 / null / undefined / out-of-range)
       // wird hier defensiv ausgefiltert, damit ein einzelner ungueltiger Wert nicht den
       // gesamten Bulk-Insert (und damit alle anderen Bewertungen dieser Stunde) sprengt.
+      const _notes = (ratingNotes && typeof ratingNotes === 'object') ? ratingNotes : {};
       const ratingRows = Object.keys(ratings)
         .filter(skill => {
           const v = ratings[skill];
           return typeof v === 'number' && v >= 1 && v <= 4;
         })
-        .map(skill => ({
-          id: generateId(), lesson_id: id, student_id: studentId,
-          skill_name: skill, rating: ratings[skill]
-        }));
+        .map(skill => {
+          const noteRaw = _notes[skill];
+          const note = (typeof noteRaw === 'string' && noteRaw.trim()) ? noteRaw.trim().slice(0, 1000) : null;
+          return {
+            id: generateId(), lesson_id: id, student_id: studentId,
+            skill_name: skill, rating: ratings[skill], note: note
+          };
+        });
       if (ratingRows.length > 0) {
         const ins = await supabase.from('skill_ratings').insert(ratingRows);
         if (ins.error) console.error('[POST /api/lessons] skill_ratings insert error:', ins.error.message);
@@ -1722,7 +1731,7 @@ app.put('/api/lessons/:id', authMiddleware, async (req, res) => {
       .select('*').eq('id', req.params.id).eq('instructor_id', req.user.id).single();
     if (!lesson) return res.status(404).json({ error: 'Fahrstunde nicht gefunden' });
 
-    const { type, notes, ratings, images } = req.body;
+    const { type, notes, ratings, ratingNotes, images } = req.body;
     const updates = {};
     if (type) updates.type = type;
     if (notes !== undefined) updates.notes = notes;
@@ -1733,15 +1742,20 @@ app.put('/api/lessons/:id', authMiddleware, async (req, res) => {
     if (ratings && typeof ratings === 'object') {
       await supabase.from('skill_ratings').delete().eq('lesson_id', req.params.id);
       // Nur gueltige Werte 1..4 persistieren (siehe POST /api/lessons).
+      const _notes = (ratingNotes && typeof ratingNotes === 'object') ? ratingNotes : {};
       const ratingRows = Object.keys(ratings)
         .filter(skill => {
           const v = ratings[skill];
           return typeof v === 'number' && v >= 1 && v <= 4;
         })
-        .map(skill => ({
-          id: generateId(), lesson_id: req.params.id, student_id: lesson.student_id,
-          skill_name: skill, rating: ratings[skill]
-        }));
+        .map(skill => {
+          const noteRaw = _notes[skill];
+          const note = (typeof noteRaw === 'string' && noteRaw.trim()) ? noteRaw.trim().slice(0, 1000) : null;
+          return {
+            id: generateId(), lesson_id: req.params.id, student_id: lesson.student_id,
+            skill_name: skill, rating: ratings[skill], note: note
+          };
+        });
       if (ratingRows.length > 0) {
         const ins = await supabase.from('skill_ratings').insert(ratingRows);
         if (ins.error) console.error('[PUT /api/lessons/:id] skill_ratings insert error:', ins.error.message);

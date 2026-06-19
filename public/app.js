@@ -181,8 +181,8 @@ function evaluationGroupsFor(licenseClass) {
   var grund = _isMotorradClass(licenseClass) ? GRUNDFAHRAUFGABEN_A : GRUNDFAHRAUFGABEN_B;
   return [
     { group: 'Beobachtungskategorien', items: OBSERVATION_CATEGORIES.slice() },
-    { group: 'Grundfahraufgaben',       items: grund.slice() },
-    { group: 'Fahraufgaben im Straßenverkehr', items: FAHRAUFGABEN_VERKEHR.slice() }
+    { group: 'Fahraufgaben im Straßenverkehr', items: FAHRAUFGABEN_VERKEHR.slice() },
+    { group: 'Grundfahraufgaben',       items: grund.slice() }
   ];
 }
 
@@ -242,6 +242,24 @@ function _slugifyTask(name) {
   return String(name).toLowerCase()
     .replace(/\u00e4/g,'ae').replace(/\u00f6/g,'oe').replace(/\u00fc/g,'ue').replace(/\u00df/g,'ss')
     .replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+}
+
+function _escapeAttr(s) {
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Rendert das Notiz-UI fuer ein einzelnes Bewertungs-Item.
+// mode: 'live' (renderLessonSummary) | 'edit' (editLesson Modal)
+function _renderItemNoteHtml(task, currentNote, mode) {
+  var prefix = mode === 'edit' ? 'edit-' : '';
+  var handlerPrefix = mode === 'edit' ? 'Edit' : '';
+  var has = !!(currentNote && String(currentNote).trim());
+  var safeJsTask = String(task).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  var addBtn = '<button type="button" class="pfep-note-add" onclick="App.openItemNote' + handlerPrefix + '(\'' + safeJsTask + '\')">+ Notiz</button>';
+  var bubble = '<div class="pfep-note-bubble" onclick="App.openItemNote' + handlerPrefix + '(\'' + safeJsTask + '\')">' + _escapeAttr(currentNote || '') + '</div>';
+  return '<div class="pfep-note" id="' + prefix + 'note-' + _slugifyTask(task) + '">' +
+    (has ? bubble : addBtn) +
+    '</div>';
 }
 
 // Filtert ein ratings-Objekt: nur Items mit echtem Wert 1..4 werden behalten.
@@ -385,7 +403,7 @@ function parseBlockNotes(notes) {
 var AppState = {
   currentUser: null, currentScreen: 'welcome', signupRole: 'student',
   signupUserId: null, activeLesson: null, lessonTimer: null, lessonStartTime: null,
-  charts: {}, navHistory: [], summaryRatings: {}, theme: 'light', language: 'de',
+  charts: {}, navHistory: [], summaryRatings: {}, summaryRatingNotes: {}, theme: 'light', language: 'de',
   _cachedData: {},
   // Schedule
   scheduleWeekStart: null, scheduleData: null, scheduleSelectedDay: 0,
@@ -7764,6 +7782,7 @@ var App = {
       AppState.activeLesson.avgSpeedKmh = 0;
     }
     AppState.summaryRatings = {};
+    AppState.summaryRatingNotes = {};
     // PFEP-konform: Standardwert 0 = 'nicht bewertet'. Der Fahrlehrer setzt aktiv
     // nur die Items, die in dieser Fahrstunde tatsaechlich beobachtet wurden.
     skillTasksFor(AppState.activeLesson && AppState.activeLesson.licenseClass).forEach(function(t) { AppState.summaryRatings[t] = 0; });
@@ -7821,6 +7840,7 @@ var App = {
       grp.items.forEach(function(task) {
         var current = AppState.summaryRatings[task] || 0;
         var ratedCls = (current >= 1 && current <= 4) ? ' rated-' + current : '';
+        var currentNote = AppState.summaryRatingNotes[task] || '';
         html += '<div class="pfep-item' + ratedCls + '" data-task-slug="' + _slugifyTask(task) + '" data-group="' + meta.cls + '">' +
           '<div class="pfep-item-header">' +
             '<span class="pfep-item-label">' + tSkill(task) + '</span>' +
@@ -7831,7 +7851,9 @@ var App = {
           var isActive = sl.level === current ? ' active' : '';
           html += '<button type="button" class="level-selector-btn' + isActive + '" data-level="' + sl.level + '" onclick="App.setSkillRating(\'' + task + '\', ' + sl.level + ', this)">' + tLevel(sl.name) + '</button>';
         });
-        html += '</div></div>';
+        html += '</div>';
+        html += _renderItemNoteHtml(task, currentNote, 'live');
+        html += '</div>';
       });
       html += '</div></div>';
     });
@@ -7943,6 +7965,36 @@ var App = {
     if (count) count.textContent = rated + ' / ' + total;
   },
 
+  // ── Notiz pro Bewertung: Live-Maske ──
+  openItemNote: function(task) {
+    var wrap = document.getElementById('note-' + _slugifyTask(task));
+    if (!wrap) return;
+    var current = AppState.summaryRatingNotes[task] || '';
+    wrap.innerHTML = '<div class="pfep-note-editor">' +
+      '<textarea maxlength="1000" placeholder="Notiz zu dieser Bewertung\u2026">' + _escapeAttr(current) + '</textarea>' +
+      '<div class="pfep-note-editor-actions">' +
+        '<button type="button" class="pfep-note-btn" onclick="App.cancelItemNote(\'' + task + '\')">Abbrechen</button>' +
+        '<button type="button" class="pfep-note-btn primary" onclick="App.saveItemNote(\'' + task + '\')">Speichern</button>' +
+      '</div></div>';
+    var ta = wrap.querySelector('textarea');
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  },
+  saveItemNote: function(task) {
+    var wrap = document.getElementById('note-' + _slugifyTask(task));
+    if (!wrap) return;
+    var ta = wrap.querySelector('textarea');
+    var val = ta ? ta.value.trim() : '';
+    if (val) AppState.summaryRatingNotes[task] = val;
+    else delete AppState.summaryRatingNotes[task];
+    wrap.outerHTML = _renderItemNoteHtml(task, val, 'live');
+  },
+  cancelItemNote: function(task) {
+    var wrap = document.getElementById('note-' + _slugifyTask(task));
+    if (!wrap) return;
+    var existing = AppState.summaryRatingNotes[task] || '';
+    wrap.outerHTML = _renderItemNoteHtml(task, existing, 'live');
+  },
+
   saveLessonSummary: async function() {
     var lesson = AppState.activeLesson;
     if (!lesson) return;
@@ -7951,14 +8003,16 @@ var App = {
       this.showLoading(true);
       await ApiClient.post('/api/lessons', {
         studentId: lesson.studentId, type: lesson.type, duration: lesson.duration,
-        notes: notes, ratings: _filterValidRatings(AppState.summaryRatings), licenseClass: lesson.licenseClass,
+        notes: notes, ratings: _filterValidRatings(AppState.summaryRatings),
+        ratingNotes: AppState.summaryRatingNotes || {},
+        licenseClass: lesson.licenseClass,
         images: AppState.pendingImages,
         routeData: lesson.routeData || [],
         markers: lesson.markers || [],
         distanceKm: lesson.distanceKm || 0,
         avgSpeedKmh: lesson.avgSpeedKmh || 0
       });
-      AppState.activeLesson = null; AppState.summaryRatings = {}; AppState.pendingImages = [];
+      AppState.activeLesson = null; AppState.summaryRatings = {}; AppState.summaryRatingNotes = {}; AppState.pendingImages = [];
       AppState._cachedData.instructorDash = null;
       this.navigate('instructor-dashboard'); this.switchInstructorTab('dashboard');
       this.showToast(t('fahrstundeGespeichert'));
@@ -7997,8 +8051,13 @@ var App = {
               '<div class="skill-bar-track unrated"></div></div>';
           } else {
             var val = rawVal; var info = getSkillLevel(val); var pct = (val / 4) * 100;
+            var note = lesson.ratingNotes && lesson.ratingNotes[task];
+            var noteHtml = '';
+            if (note && String(note).trim()) {
+              noteHtml = '<div class="pfep-note pfep-note-readonly"><div class="pfep-note-bubble" title="Notiz">' + App._escapeHtml(note) + '</div></div>';
+            }
             html += '<div class="skill-bar"><div class="skill-bar-header"><span><span class="skill-bar-dot" style="background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></span>' + tSkill(task) + '</span><span class="badge ' + info.badgeClass + '" style="font-size:10px;">' + tLevel(info.name) + '</span></div>' +
-              '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + pct + '%;background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></div></div></div>';
+              '<div class="skill-bar-track"><div class="skill-bar-fill" style="width:' + pct + '%;background:' + SKILL_COLORS[Math.round(val) || 1] + ';"></div></div>' + noteHtml + '</div>';
           }
         });
       });
@@ -8179,6 +8238,7 @@ var App = {
     try {
       var lesson = await ApiClient.get('/api/lesson/' + lessonId);
       AppState._editRatings = Object.assign({}, lesson.ratings);
+      AppState._editRatingNotes = Object.assign({}, lesson.ratingNotes || {});
       var html = '<form id="edit-lesson-form" onsubmit="App.saveEditedLesson(event, \'' + lessonId + '\', \'' + studentId + '\')">' +
         '<div class="form-group mb-4"><label class="form-label">' + t('fahrstundentyp') + '</label><select class="form-select" id="edit-lesson-type">' +
           '<option value="Übungsfahrt"' + (lesson.type === 'Übungsfahrt' ? ' selected' : '') + '>' + tType('Übungsfahrt') + '</option>' +
@@ -8225,6 +8285,7 @@ var App = {
           var rawCurrent = AppState._editRatings[task];
           var current = (typeof rawCurrent === 'number' && rawCurrent >= 1 && rawCurrent <= 4) ? rawCurrent : 0;
           var ratedCls = (current >= 1 && current <= 4) ? ' rated-' + current : '';
+          var currentNote = AppState._editRatingNotes[task] || '';
           html += '<div class="pfep-item' + ratedCls + '" data-task-slug="edit-' + _slugifyTask(task) + '" data-group="edit-' + meta.cls + '">' +
             '<div class="pfep-item-header">' +
               '<span class="pfep-item-label">' + tSkill(task) + '</span>' +
@@ -8235,7 +8296,9 @@ var App = {
             var isActive = sl.level === current ? ' active' : '';
             html += '<button type="button" class="level-selector-btn' + isActive + '" data-level="' + sl.level + '" onclick="App.setEditSkillRating(this, \'' + task + '\', ' + sl.level + ')">' + tLevel(sl.name) + '</button>';
           });
-          html += '</div></div>';
+          html += '</div>';
+          html += _renderItemNoteHtml(task, currentNote, 'edit');
+          html += '</div>';
         });
         html += '</div></div>';
       });
@@ -8281,6 +8344,37 @@ var App = {
     this._recomputeEditRatingProgress();
   },
 
+  // ── Notiz pro Bewertung: Edit-Modal ──
+  openItemNoteEdit: function(task) {
+    var wrap = document.getElementById('edit-note-' + _slugifyTask(task));
+    if (!wrap) return;
+    var current = (AppState._editRatingNotes && AppState._editRatingNotes[task]) || '';
+    wrap.innerHTML = '<div class="pfep-note-editor">' +
+      '<textarea maxlength="1000" placeholder="Notiz zu dieser Bewertung\u2026">' + _escapeAttr(current) + '</textarea>' +
+      '<div class="pfep-note-editor-actions">' +
+        '<button type="button" class="pfep-note-btn" onclick="App.cancelItemNoteEdit(\'' + task + '\')">Abbrechen</button>' +
+        '<button type="button" class="pfep-note-btn primary" onclick="App.saveItemNoteEdit(\'' + task + '\')">Speichern</button>' +
+      '</div></div>';
+    var ta = wrap.querySelector('textarea');
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  },
+  saveItemNoteEdit: function(task) {
+    var wrap = document.getElementById('edit-note-' + _slugifyTask(task));
+    if (!wrap) return;
+    var ta = wrap.querySelector('textarea');
+    var val = ta ? ta.value.trim() : '';
+    if (!AppState._editRatingNotes) AppState._editRatingNotes = {};
+    if (val) AppState._editRatingNotes[task] = val;
+    else delete AppState._editRatingNotes[task];
+    wrap.outerHTML = _renderItemNoteHtml(task, val, 'edit');
+  },
+  cancelItemNoteEdit: function(task) {
+    var wrap = document.getElementById('edit-note-' + _slugifyTask(task));
+    if (!wrap) return;
+    var existing = (AppState._editRatingNotes && AppState._editRatingNotes[task]) || '';
+    wrap.outerHTML = _renderItemNoteHtml(task, existing, 'edit');
+  },
+
   _recomputeEditRatingProgress: function() {
     var modal = document.querySelector('.modal') || document;
     var groupRoots = modal.querySelectorAll('.pfep-group[data-group^="edit-"]');
@@ -8316,9 +8410,10 @@ var App = {
         type: document.getElementById('edit-lesson-type').value,
         notes: document.getElementById('edit-lesson-notes').value,
         ratings: _filterValidRatings(AppState._editRatings),
+        ratingNotes: AppState._editRatingNotes || {},
         images: editImages
       });
-      this.closeModalForce(); AppState._cachedData.instructorDash = null;
+      this.closeModalForce(); AppState._editRatingNotes = {}; AppState._cachedData.instructorDash = null;
       this.showToast(t('fahrstundeAktualisiert'));
       this.showLessonReview(lessonId, studentId, 'instructor');
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
