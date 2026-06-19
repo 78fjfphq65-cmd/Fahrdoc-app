@@ -7683,7 +7683,10 @@ var App = {
     }, 1000);
     // Reset pause button
     var pauseBtn = document.getElementById('lesson-pause-btn');
-    if (pauseBtn) pauseBtn.innerHTML = '\u23f8 ' + t('pause');
+    if (pauseBtn) {
+      pauseBtn.classList.remove('is-resume');
+      pauseBtn.innerHTML = '<span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg></span><span class="lesson-action-label">' + t('pause') + '</span>';
+    }
     var overlay = document.getElementById('lesson-paused-overlay');
     if (overlay) overlay.classList.remove('visible');
     // Initialize route tracking
@@ -7697,7 +7700,10 @@ var App = {
       AppState.pauseStartTime = Date.now();
       if (AppState.gpsWatchId) { navigator.geolocation.clearWatch(AppState.gpsWatchId); AppState.gpsWatchId = null; }
       var btn = document.getElementById('lesson-pause-btn');
-      if (btn) { btn.innerHTML = '\u25b6 ' + t('fortsetzen'); btn.classList.remove('btn-warning'); btn.classList.add('btn-primary'); }
+      if (btn) {
+        btn.classList.add('is-resume');
+        btn.innerHTML = '<span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7L8 5z"/></svg></span><span class="lesson-action-label">' + t('fortsetzen') + '</span>';
+      }
       var overlay = document.getElementById('lesson-paused-overlay');
       if (overlay) overlay.classList.add('visible');
     } else {
@@ -7706,7 +7712,10 @@ var App = {
       AppState.pauseStartTime = null;
       this.startGPS();
       var btn = document.getElementById('lesson-pause-btn');
-      if (btn) { btn.innerHTML = '\u23f8 ' + t('pause'); btn.classList.remove('btn-primary'); btn.classList.add('btn-warning'); }
+      if (btn) {
+        btn.classList.remove('is-resume');
+        btn.innerHTML = '<span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg></span><span class="lesson-action-label">' + t('pause') + '</span>';
+      }
       var overlay = document.getElementById('lesson-paused-overlay');
       if (overlay) overlay.classList.remove('visible');
     }

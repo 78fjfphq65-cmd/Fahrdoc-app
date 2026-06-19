@@ -3,7 +3,7 @@
    Caching strategy: Network-first for API calls,
    Cache-first for static assets.
    ============================================ */
-const CACHE_NAME = 'fahrdoc-v61-pfep-notes';
+const CACHE_NAME = 'fahrdoc-v62-tracking-ui';
 const STATIC_ASSETS = [
   './',
   './index.html',

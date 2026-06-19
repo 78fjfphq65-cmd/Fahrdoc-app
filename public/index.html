@@ -389,24 +389,49 @@
       <div id="lesson-map" style="flex:1;min-height:0;"></div>
       <!-- GPS status indicator -->
       <div id="gps-status" class="gps-status">
-        <span class="gps-status-dot"></span>
-        <span id="gps-status-text">GPS wird gesucht...</span>
+        <span class="gps-status-dot" aria-hidden="true"></span>
+        <span id="gps-status-text">GPS wird gesucht…</span>
       </div>
       <!-- Bottom panel over the map -->
       <div id="lesson-map-panel">
-        <div id="lesson-timer" style="font-family:var(--font-display);font-size:clamp(1.8rem,5vw,2.5rem);font-weight:700;text-align:center;margin-bottom:var(--space-2);font-variant-numeric:tabular-nums;">00:00:00</div>
+        <div class="lesson-panel-handle" aria-hidden="true"></div>
+        <div class="lesson-timer-hero">
+          <div id="lesson-timer" class="lesson-timer-display">00:00:00</div>
+          <div class="lesson-timer-pulse" aria-hidden="true"><span></span><span data-i18n="laeuft">läuft</span></div>
+        </div>
         <div class="lesson-stats-row">
-          <div class="lesson-stat"><span class="lesson-stat-value" id="lesson-distance">0,0 km</span><span class="lesson-stat-label">Strecke</span></div>
-          <div class="lesson-stat"><span class="lesson-stat-value" id="lesson-speed">0 km/h</span><span class="lesson-stat-label">Speed</span></div>
-          <div class="lesson-stat"><span class="lesson-stat-value" id="lesson-marker-count">0</span><span class="lesson-stat-label">Marker</span></div>
+          <div class="lesson-stat">
+            <div class="lesson-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></div>
+            <span class="lesson-stat-value" id="lesson-distance">0,0 km</span>
+            <span class="lesson-stat-label" data-i18n="strecke">Strecke</span>
+          </div>
+          <div class="lesson-stat">
+            <div class="lesson-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5"/><path d="M9 2h6"/></svg></div>
+            <span class="lesson-stat-value" id="lesson-speed">0 km/h</span>
+            <span class="lesson-stat-label" data-i18n="geschwindigkeitKurz">Tempo</span>
+          </div>
+          <div class="lesson-stat">
+            <div class="lesson-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
+            <span class="lesson-stat-value" id="lesson-marker-count">0</span>
+            <span class="lesson-stat-label" data-i18n="markierungenKurz">Marker</span>
+          </div>
         </div>
         <div class="lesson-actions-row">
-          <button class="btn btn-secondary lesson-action-btn" onclick="App.addRouteMarker()"><span class="lesson-action-icon">📍</span><span class="lesson-action-label" data-i18n="markierungSetzen">Markierung setzen</span></button>
-          <button class="btn btn-warning lesson-action-btn" id="lesson-pause-btn" onclick="App.toggleLessonPause()"><span class="lesson-action-icon">⏸</span><span class="lesson-action-label" data-i18n="pause">Pause</span></button>
-          <button class="btn btn-danger lesson-action-btn" onclick="App.finishLesson()"><span class="lesson-action-icon">⏹</span><span class="lesson-action-label" data-i18n="beenden">Beenden</span></button>
+          <button class="lesson-action-btn lesson-action-marker" onclick="App.addRouteMarker()" aria-label="Markierung setzen">
+            <span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
+            <span class="lesson-action-label" data-i18n="markierungSetzen">Markieren</span>
+          </button>
+          <button class="lesson-action-btn lesson-action-pause" id="lesson-pause-btn" onclick="App.toggleLessonPause()" aria-label="Pause">
+            <span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg></span>
+            <span class="lesson-action-label" data-i18n="pause">Pause</span>
+          </button>
+          <button class="lesson-action-btn lesson-action-finish" onclick="App.finishLesson()" aria-label="Beenden">
+            <span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.6"/></svg></span>
+            <span class="lesson-action-label" data-i18n="beenden">Beenden</span>
+          </button>
         </div>
         <div id="lesson-paused-overlay" class="lesson-paused-overlay">
-          <div class="lesson-paused-badge" data-i18n="pausiert">PAUSIERT</div>
+          <div class="lesson-paused-badge"><span class="lesson-paused-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg></span><span data-i18n="pausiert">PAUSIERT</span></div>
         </div>
       </div>
     </div>
