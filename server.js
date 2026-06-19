@@ -219,7 +219,7 @@ const authLimiter = rateLimit({
 });
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '25mb' }));
 // Log API requests for debugging
 app.use('/api/', (req, res, next) => {
   console.log(`[API] ${req.method} ${req.path} (visitor: ${req.headers['x-visitor-id'] || 'none'})`);
@@ -1937,11 +1937,27 @@ app.put('/api/lessons/:id', authMiddleware, async (req, res) => {
     }
 
     if (images && Array.isArray(images)) {
-      const imageRows = images.map(img => ({
-        id: generateId(), lesson_id: req.params.id,
-        filename: img.filename || 'bild.jpg', data: img.data
-      }));
-      if (imageRows.length > 0) await supabase.from('lesson_images').insert(imageRows);
+      // Bild-Sync: existierende Bilder (mit id) behalten, neue (ohne id) inserten,
+      // entfernte (nicht im Array) löschen. Vermeidet Duplikate beim Bearbeiten.
+      const keepIds = images.filter(img => img && img.id).map(img => img.id);
+      // Alle Bilder dieser Lesson holen
+      const { data: dbImgs } = await supabase.from('lesson_images')
+        .select('id').eq('lesson_id', req.params.id);
+      const toDelete = (dbImgs || []).map(r => r.id).filter(id => !keepIds.includes(id));
+      if (toDelete.length > 0) {
+        await supabase.from('lesson_images').delete().in('id', toDelete);
+      }
+      // Nur neue Bilder (ohne id) inserten — bestehende werden NICHT erneut hochgeladen.
+      const newImageRows = images
+        .filter(img => img && !img.id && img.data)
+        .map(img => ({
+          id: generateId(), lesson_id: req.params.id,
+          filename: img.filename || 'bild.jpg', data: img.data
+        }));
+      if (newImageRows.length > 0) {
+        const ins = await supabase.from('lesson_images').insert(newImageRows);
+        if (ins.error) console.error('[PUT /api/lessons/:id] lesson_images insert error:', ins.error.message);
+      }
     }
 
     res.json({ success: true });

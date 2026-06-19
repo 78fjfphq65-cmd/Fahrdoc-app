@@ -5967,7 +5967,8 @@ var App = {
               ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:var(--text-xs);color:var(--text-muted);"><span style="width:8px;height:8px;border-radius:50%;background:' + (SKILL_COLORS[Math.round(rA) || 1] || '#94a3b8') + ';display:inline-block;"></span>' + rA.toFixed(1) + '</span>'
               : '';
             var notesIcon = (l.notes && l.notes.trim()) ? '<span title="Notiz vorhanden" style="color:var(--text-muted);font-size:13px;">\u270d</span>' : '';
-            var imagesIcon = (l.images_count && l.images_count > 0) ? '<span title="Bilder" style="color:var(--text-muted);font-size:13px;">\ud83d\udcf7</span>' : '';
+            var _imgN = (l.images && l.images.length) || l.images_count || 0;
+            var imagesIcon = (_imgN > 0) ? '<span title="Bilder" style="color:var(--text-muted);font-size:13px;">\ud83d\udcf7</span>' : '';
             var instrName;
             if (_meIsInstr && l.instructor_id && String(l.instructor_id) === String(_myInstrId)) {
               instrName = 'ich';
@@ -8326,7 +8327,8 @@ var App = {
     var notes = document.getElementById('lesson-notes') ? document.getElementById('lesson-notes').value : '';
     try {
       this.showLoading(true);
-      await ApiClient.post('/api/lessons', {
+      var _savedStudentId = lesson.studentId;
+      var resp = await ApiClient.post('/api/lessons', {
         studentId: lesson.studentId, type: lesson.type, duration: lesson.duration,
         notes: notes, ratings: _filterValidRatings(AppState.summaryRatings),
         ratingNotes: AppState.summaryRatingNotes || {},
@@ -8339,8 +8341,13 @@ var App = {
       });
       AppState.activeLesson = null; AppState.summaryRatings = {}; AppState.summaryRatingNotes = {}; AppState.pendingImages = [];
       AppState._cachedData.instructorDash = null;
-      this.navigate('instructor-dashboard'); this.switchInstructorTab('dashboard');
       this.showToast(t('fahrstundeGespeichert'));
+      // Direkt zur Lesson-Review navigieren — damit Bilder/Bewertung sofort sichtbar sind.
+      if (resp && resp.id && _savedStudentId) {
+        this.showLessonReview(resp.id, _savedStudentId, 'instructor');
+      } else {
+        this.navigate('instructor-dashboard'); this.switchInstructorTab('dashboard');
+      }
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
     finally { this.showLoading(false); }
   },
