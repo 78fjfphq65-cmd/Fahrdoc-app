@@ -347,6 +347,11 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     if (!user) return res.status(401).json({ error: 'Ungültige E-Mail oder Passwort' });
+    // Konto wurde angelegt (z.B. von der Fahrschule eingeladen), aber das Passwort
+    // wurde noch nie gesetzt -> bcrypt.compareSync wuerde mit null werfen.
+    if (!user.password_hash) {
+      return res.status(403).json({ error: 'Dein Konto ist noch nicht aktiviert. Bitte nutze den Einladungslink aus der E-Mail oder lass dir vom Fahrlehrer eine neue Einladung schicken.' });
+    }
     if (!verifyPassword(password, user.password_hash)) return res.status(401).json({ error: 'Ungültige E-Mail oder Passwort' });
 
     const token = generateToken();
@@ -642,7 +647,7 @@ app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
     const { data: user } = await supabase.from(table).select('password_hash').eq('id', req.user.id).single();
     if (!user) return res.status(404).json({ error: 'Benutzer nicht gefunden' });
 
-    if (!verifyPassword(currentPassword, user.password_hash)) {
+    if (!user.password_hash || !verifyPassword(currentPassword, user.password_hash)) {
       return res.status(401).json({ error: 'Aktuelles Passwort ist falsch' });
     }
 
