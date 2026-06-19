@@ -8049,6 +8049,40 @@ var App = {
 
       // Verrechnungs-Block entfernt (Push 8): GoBD-konform sind alle Fahrstunden regulär.
       // Rabatte/Korrekturen erfolgen über separate Buchungen in der Buchhaltung.
+
+      // Bewertungs-Status berechnen für Nachtragshinweis (nur instructor)
+      var _ratedCount = 0, _totalCount = 0;
+      evaluationGroupsWithLegacy(lesson && (lesson.license_class || lesson.licenseClass), lesson.ratings).forEach(function(grp) {
+        grp.items.forEach(function(task) {
+          _totalCount++;
+          var v = lesson.ratings && lesson.ratings[task];
+          if (typeof v === 'number' && v >= 1 && v <= 4) _ratedCount++;
+        });
+      });
+      var _isFullyUnrated = (_ratedCount === 0 && _totalCount > 0);
+      var _isPartial = (_ratedCount > 0 && _ratedCount < _totalCount);
+
+      // Prominenter Nachtrags-CTA wenn instructor + unbewertet/teilbewertet
+      if (fromRole === 'instructor' && (_isFullyUnrated || _isPartial)) {
+        var _ctaTitle = _isFullyUnrated ? 'Noch nicht bewertet' : 'Bewertung unvollständig';
+        var _ctaSub = _isFullyUnrated
+          ? 'Diese Fahrstunde wurde noch nicht bewertet. Du kannst die Bewertung jetzt nachtragen.'
+          : 'Du hast erst ' + _ratedCount + ' von ' + _totalCount + ' Aufgaben bewertet. Jetzt vervollständigen?';
+        var _ctaBtn = _isFullyUnrated ? '📝 Jetzt nachträglich bewerten' : '✏️ Bewertung vervollständigen';
+        html += '<div class="card mb-4" style="background:linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)), color-mix(in srgb, var(--color-primary) 3%, var(--color-surface)));border:1px solid color-mix(in srgb, var(--color-primary) 25%, transparent);">' +
+          '<div style="display:flex;align-items:flex-start;gap:var(--space-3);margin-bottom:var(--space-3);">' +
+            '<div style="flex-shrink:0;width:40px;height:40px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--color-primary) 15%, transparent);display:flex;align-items:center;justify-content:center;">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2" style="width:22px;height:22px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
+            '</div>' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="font-weight:600;color:var(--color-primary);margin-bottom:2px;">' + _ctaTitle + '</div>' +
+              '<div class="text-xs text-muted" style="line-height:1.4;">' + _ctaSub + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<button class="btn btn-primary" style="width:100%;" onclick="App.editLesson(\'' + lessonId + '\', \'' + studentId + '\')">' + _ctaBtn + '</button>' +
+        '</div>';
+      }
+
       html += '<div class="card mb-4"><div class="section-title mb-3">' + t('bewertung') + '</div>';
       evaluationGroupsWithLegacy(lesson && (lesson.license_class || lesson.licenseClass), lesson.ratings).forEach(function(grp) {
         html += _groupHeaderHtml(grp.group);
@@ -8056,7 +8090,14 @@ var App = {
           var rawVal = lesson.ratings && lesson.ratings[task];
           var hasRating = typeof rawVal === 'number' && rawVal >= 1 && rawVal <= 4;
           if (!hasRating) {
-            html += '<div class="skill-bar"><div class="skill-bar-header"><span style="color:var(--text-muted);">' + tSkill(task) + '</span><span class="text-xs" style="font-size:10px;color:var(--text-muted);font-style:italic;">nicht bewertet</span></div>' +
+            // Instructor: klickbar zum direkten Nachtragen
+            var _editAttr = (fromRole === 'instructor')
+              ? ' style="cursor:pointer;" onclick="App.editLesson(\'' + lessonId + '\', \'' + studentId + '\')" title="Klicken zum Bewerten"'
+              : '';
+            var _hintSpan = (fromRole === 'instructor')
+              ? '<span class="text-xs" style="font-size:10px;color:var(--color-primary);font-style:italic;">tippen zum bewerten →</span>'
+              : '<span class="text-xs" style="font-size:10px;color:var(--text-muted);font-style:italic;">nicht bewertet</span>';
+            html += '<div class="skill-bar"' + _editAttr + '><div class="skill-bar-header"><span style="color:var(--text-muted);">' + tSkill(task) + '</span>' + _hintSpan + '</div>' +
               '<div class="skill-bar-track unrated"></div></div>';
           } else {
             var val = rawVal; var info = getSkillLevel(val); var pct = (val / 4) * 100;
