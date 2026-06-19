@@ -417,13 +417,14 @@
           </div>
         </div>
         <div class="lesson-actions-row">
-          <button class="lesson-action-btn lesson-action-marker" onclick="App.addRouteMarker()" aria-label="Markierung setzen">
-            <span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
-            <span class="lesson-action-label" data-i18n="markierungSetzen">Markieren</span>
-          </button>
           <button class="lesson-action-btn lesson-action-pause" id="lesson-pause-btn" onclick="App.toggleLessonPause()" aria-label="Pause">
             <span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg></span>
             <span class="lesson-action-label" data-i18n="pause">Pause</span>
+          </button>
+          <button class="lesson-action-btn lesson-action-marker" onclick="App.addRouteMarker()" aria-label="Markierung setzen">
+            <span class="lesson-action-marker-ring" aria-hidden="true"></span>
+            <span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
+            <span class="lesson-action-label" data-i18n="markierungSetzen">Markieren</span>
           </button>
           <button class="lesson-action-btn lesson-action-finish" onclick="App.finishLesson()" aria-label="Beenden">
             <span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.6"/></svg></span>
