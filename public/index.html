@@ -64,8 +64,43 @@
     <h1 class="auth-title">FahrDoc</h1>
     <p class="auth-subtitle" data-i18n="transparenz">Transparenz für deine Fahrstunden</p>
     <div class="auth-form">
-      <button class="btn btn-primary btn-full btn-lg" onclick="App.navigate('login')">Anmelden</button>
-      <button class="btn btn-secondary btn-full btn-lg" onclick="App.navigate('signup')">Registrieren</button>
+      <!-- Drei Rollen-Cards: klar erkennbar für Solo-Fahrlehrer -->
+      <div class="role-cards">
+        <button type="button" class="role-card" onclick="App.signupAs('school')">
+          <div class="role-card-icon role-card-icon-school">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h1M9 13h1M9 17h1M14 9h1M14 13h1M14 17h1"/></svg>
+          </div>
+          <div class="role-card-body">
+            <div class="role-card-title">Fahrschule</div>
+            <div class="role-card-desc">Komplettes Team-Tool mit Buchhaltung, Verträgen, Sekretärin & Schüler-App.<br><strong>FahrDoc Plus</strong></div>
+          </div>
+          <div class="role-card-arrow">›</div>
+        </button>
+
+        <button type="button" class="role-card role-card-solo" onclick="App.signupAs('solo')">
+          <div class="role-card-icon role-card-icon-solo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </div>
+          <div class="role-card-body">
+            <div class="role-card-title">Einzelner Fahrlehrer<span class="role-card-badge">Solo</span></div>
+            <div class="role-card-desc">Privat Fahrstunden tracken & bewerten — ohne Fahrschule.<br><strong>FahrDoc</strong> • 14 Tage gratis</div>
+          </div>
+          <div class="role-card-arrow">›</div>
+        </button>
+
+        <button type="button" class="role-card" onclick="App.signupAs('invited')">
+          <div class="role-card-icon role-card-icon-invited">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+          </div>
+          <div class="role-card-body">
+            <div class="role-card-title">Mit Einladung</div>
+            <div class="role-card-desc">Du hast einen Code von deiner Fahrschule oder deinem Fahrlehrer erhalten.</div>
+          </div>
+          <div class="role-card-arrow">›</div>
+        </button>
+      </div>
+
+      <button class="btn btn-ghost btn-full" onclick="App.navigate('login')" style="margin-top:8px;">Schon registriert? Anmelden</button>
     </div>
     <footer class="app-footer app-footer-discreet">
       <a href="./datenschutz.html">Datenschutz</a>
@@ -130,8 +165,9 @@
     <form class="auth-form" id="signup-form" onsubmit="App.handleSignup(event)">
       <div class="form-group">
         <label class="form-label">Ich bin</label>
-        <div class="role-toggle">
+        <div class="role-toggle role-toggle-4">
           <button type="button" class="role-toggle-btn" data-role="school" onclick="App.setRole('school', this)">Fahrschule</button>
+          <button type="button" class="role-toggle-btn" data-role="solo" onclick="App.setRole('solo', this)">Solo</button>
           <button type="button" class="role-toggle-btn" data-role="instructor" onclick="App.setRole('instructor', this)">Fahrlehrer</button>
           <button type="button" class="role-toggle-btn active" data-role="student" onclick="App.setRole('student', this)">Fahrschüler</button>
         </div>
@@ -184,6 +220,21 @@
         <div class="form-group">
           <label class="form-label" for="signup-invite-code">Einladungscode</label>
           <input class="form-input" type="text" id="signup-invite-code" placeholder="Code von deiner Fahrschule">
+        </div>
+      </div>
+
+      <!-- Solo-Info-Box -->
+      <div id="signup-solo-fields" class="signup-conditional-fields hidden">
+        <div class="signup-trial-promo">
+          <div class="signup-trial-promo-header">
+            <span class="signup-trial-promo-badge">FahrDoc Solo</span>
+            <span class="signup-trial-promo-title">14 Tage gratis testen</span>
+          </div>
+          <ul class="signup-trial-promo-list">
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>Fahrstunden tracken & bewerten</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>Schritt-für-Schritt wie ein Prüfer</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>Komplett unabhängig von einer Fahrschule</li>
+          </ul>
         </div>
       </div>
 

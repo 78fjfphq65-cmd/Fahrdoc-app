@@ -713,6 +713,16 @@ var App = {
         }
       }, 100);
     }
+    // Pre-Select role from Welcome cards (signupAs)
+    if (screen === 'signup' && AppState._preselectRole) {
+      var pre = AppState._preselectRole;
+      AppState._preselectRole = null;
+      setTimeout(function() {
+        if (pre === 'school') App.setRole('school');
+        else if (pre === 'solo') App.setRole('solo');
+        else if (pre === 'invited') App.setRole('student');
+      }, 50);
+    }
     if (screen === 'school-dashboard') this.initSchoolDashboard();
     if (screen === 'instructor-dashboard') this.initInstructorDashboard();
     if (screen === 'student-dashboard') this.initStudentDashboard();
@@ -744,11 +754,16 @@ var App = {
     AppState.signupRole = role;
     document.querySelectorAll('.role-toggle-btn').forEach(function(b) { b.classList.remove('active'); });
     if (btn) btn.classList.add('active');
+    else {
+      // Toggle ohne expliziten Klick (z.B. über signupAs())
+      var matchBtn = document.querySelector('.role-toggle-btn[data-role="' + role + '"]');
+      if (matchBtn) matchBtn.classList.add('active');
+    }
     document.querySelectorAll('.signup-conditional-fields').forEach(function(f) { f.classList.add('hidden'); });
-    var fieldMap = { school: 'signup-school-fields', instructor: 'signup-instructor-fields', student: 'signup-student-fields' };
+    var fieldMap = { school: 'signup-school-fields', solo: 'signup-solo-fields', instructor: 'signup-instructor-fields', student: 'signup-student-fields' };
     var target = document.getElementById(fieldMap[role]);
     if (target) target.classList.remove('hidden');
-    // Trial-Promo + Subtitle nur für Fahrschulen (nur sie zahlen später)
+    // Trial-Promo nur für Fahrschulen (Solo zeigt eigene Promo-Box)
     var trialPromo = document.getElementById('signup-trial-promo');
     if (trialPromo) {
       if (role === 'school') trialPromo.classList.remove('hidden');
@@ -757,13 +772,36 @@ var App = {
     var subtitleEl = document.getElementById('signup-subtitle');
     if (subtitleEl) {
       if (role === 'school') {
-        subtitleEl.textContent = 'Jetzt registrieren und 14 Tage kostenlos testen';
+        subtitleEl.textContent = 'Fahrschule registrieren — 14 Tage gratis';
+      } else if (role === 'solo') {
+        subtitleEl.textContent = 'FahrDoc Solo — als Einzel-Fahrlehrer';
       } else if (role === 'instructor') {
-        subtitleEl.textContent = 'Registriere dich als Fahrlehrer';
+        subtitleEl.textContent = 'Registriere dich als Fahrlehrer mit Code';
       } else {
         subtitleEl.textContent = 'Registriere dich als Fahrsch\u00fcler';
       }
     }
+  },
+
+  // ===== Solo-Helpers =====
+  isSolo: function() {
+    var u = AppState.currentUser;
+    return !!(u && u.role === 'instructor' && u.account_type === 'solo');
+  },
+  brandName: function() {
+    return this.isSolo() ? 'FahrDoc' : 'FahrDoc Plus';
+  },
+  applyBranding: function() {
+    try {
+      var title = this.brandName();
+      // Top-Bar Logo-Container per data-Attribut markieren (CSS via .top-bar-logo::after geht nicht, weil Logos SVG sind)
+      document.documentElement.setAttribute('data-app-edition', this.isSolo() ? 'solo' : 'plus');
+    } catch(_) {}
+  },
+  signupAs: function(kind) {
+    // Vom Welcome-Screen: Rolle vorwählen und zu signup navigieren
+    AppState._preselectRole = kind;
+    this.navigate('signup');
   },
 
   handleLogin: async function(e) {
@@ -779,9 +817,13 @@ var App = {
       var result = await ApiClient.post('/api/auth/login', { email: email, password: pw });
       ApiClient.setToken(result.token, remember);
       AppState.currentUser = result.user;
+      this.applyBranding();
       var dash = { school: 'school-dashboard', instructor: 'instructor-dashboard', student: 'student-dashboard' };
       this.navigate(dash[result.user.role]);
-      this.showToast(t('willkommen') + ', ' + (result.user.admin_name || result.user.name) + '!');
+      var greetName = result.user.admin_name || result.user.name;
+      var greet = t('willkommen') + ', ' + greetName + '!';
+      if (this.isSolo()) greet = 'Willkommen bei FahrDoc Solo, ' + greetName + '!';
+      this.showToast(greet);
       if (result.user.role === 'school') { setTimeout(function(){ App.checkSubscriptionLock(); }, 500); }
     } catch (err) { errorEl.textContent = err.message; errorEl.classList.remove('hidden'); }
     finally { this.showLoading(false); }
@@ -794,14 +836,18 @@ var App = {
     var errorEl = document.getElementById('signup-error');
     errorEl.classList.add('hidden');
     if (pw1 !== pw2) { errorEl.textContent = t('passwortNichtGleich'); errorEl.classList.remove('hidden'); return; }
+    // Solo: Backend erwartet role='instructor' + accountType='solo'
+    var apiRole = AppState.signupRole === 'solo' ? 'instructor' : AppState.signupRole;
     var body = {
-      role: AppState.signupRole,
+      role: apiRole,
       firstName: document.getElementById('signup-firstname').value.trim(),
       lastName: document.getElementById('signup-lastname').value.trim(),
       email: document.getElementById('signup-email').value.trim(),
       password: pw1
     };
-    if (AppState.signupRole === 'school') {
+    if (AppState.signupRole === 'solo') {
+      body.accountType = 'solo';
+    } else if (AppState.signupRole === 'school') {
       body.schoolName = document.getElementById('signup-school-name').value.trim();
       body.schoolAddress = document.getElementById('signup-school-address').value.trim();
     } else if (AppState.signupRole === 'instructor') {
@@ -4985,10 +5031,201 @@ var App = {
         b.classList.toggle('active', b.getAttribute('data-tab') === tab);
       });
     }
-    if (tab === 'dashboard') this.renderInstructorDashboardTab();
+    if (tab === 'dashboard') {
+      if (this.isSolo()) this.renderSoloDashboardTab();
+      else this.renderInstructorDashboardTab();
+    }
     else if (tab === 'students') this.renderInstructorStudentsTab();
     else if (tab === 'lessons') this.renderInstructorLessonsTab();
-    else if (tab === 'profile') this.renderInstructorProfileTab();
+    else if (tab === 'profile') {
+      if (this.isSolo()) this.renderSoloProfileTab();
+      else this.renderInstructorProfileTab();
+    }
+  },
+
+  // ============================================
+  // SOLO DASHBOARD — schlank, kein Wochenplan
+  // ============================================
+  renderSoloDashboardTab: async function() {
+    var inst = AppState.currentUser;
+    var main = document.getElementById('instructor-main');
+    main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
+
+    var data;
+    try {
+      data = await ApiClient.get('/api/instructor/dashboard');
+      AppState._cachedData.instructorDash = data;
+    } catch (e) {
+      main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">Fehler: ' + e.message + '</p></div>';
+      return;
+    }
+
+    var students = data.students || [];
+    var lessons = data.lessons || [];
+
+    // Stats berechnen
+    var totalMin = 0;
+    lessons.forEach(function(l) { totalMin += (l.duration || 0); });
+    var totalH = Math.floor(totalMin / 60);
+    var trialDaysLeft = null;
+    if (data.subscription && data.subscription.trial_end) {
+      var diff = new Date(data.subscription.trial_end) - new Date();
+      trialDaysLeft = Math.max(0, Math.ceil(diff / (1000*60*60*24)));
+    }
+
+    // Letzte 5 Fahrstunden
+    var recent = lessons.slice(0, 5);
+
+    var html = '<div class="page-padding">';
+
+    // Hero / Begrüßung
+    html += '<div class="solo-hero">' +
+      '<div class="solo-hero-badge">FahrDoc Solo</div>' +
+      '<h2 class="solo-hero-title">Hallo, ' + inst.name + '</h2>' +
+      '<p class="solo-hero-sub">Deine Fahrstunden — dokumentiert wie vom Prüfer.</p>' +
+      (trialDaysLeft !== null ? '<div class="solo-hero-trial">⏳ Noch <strong>' + trialDaysLeft + '</strong> Tage gratis</div>' : '') +
+    '</div>';
+
+    // Stats-Cards
+    html += '<div class="solo-stats">' +
+      '<div class="solo-stat"><div class="solo-stat-value">' + students.length + '</div><div class="solo-stat-label">Schüler</div></div>' +
+      '<div class="solo-stat"><div class="solo-stat-value">' + lessons.length + '</div><div class="solo-stat-label">Fahrstunden</div></div>' +
+      '<div class="solo-stat"><div class="solo-stat-value">' + totalH + '<span class="solo-stat-unit">h</span></div><div class="solo-stat-label">Gesamtzeit</div></div>' +
+    '</div>';
+
+    // Schnell-Aktionen
+    html += '<div class="solo-actions">' +
+      '<button class="solo-action solo-action-primary" onclick="App.openSoloAddStudent()">' +
+        '<div class="solo-action-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg></div>' +
+        '<div class="solo-action-text"><div class="solo-action-title">Schüler anlegen</div><div class="solo-action-desc">Neuen Schüler hinzufügen</div></div>' +
+      '</button>' +
+      '<button class="solo-action" onclick="App.navigate(\'lesson-setup\')">' +
+        '<div class="solo-action-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>' +
+        '<div class="solo-action-text"><div class="solo-action-title">Fahrstunde starten</div><div class="solo-action-desc">Tracking & Bewertung</div></div>' +
+      '</button>' +
+    '</div>';
+
+    // Letzte Fahrstunden
+    if (recent.length > 0) {
+      html += '<div class="solo-section"><div class="solo-section-head"><span class="solo-section-title">Letzte Fahrstunden</span>' +
+        '<button class="btn btn-ghost btn-sm" onclick="App.switchInstructorTab(\'lessons\')">Alle</button></div>';
+      recent.forEach(function(l) {
+        var avg = App.avgRating(l.ratings);
+        html += '<div class="card card-interactive mb-2" onclick="App.showLessonReview(\'' + l.id + '\', \'' + l.student_id + '\', \'instructor\')"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
+          App.avatarHtml(l.student_name, 'sm') +
+          '<div class="flex-1"><div style="font-weight:600;font-size:var(--text-sm);">' + tType(l.type) + '</div>' +
+          '<div class="text-xs text-muted">' + l.student_name + ' · ' + App.formatDate(l.date) + ' · ' + App.formatDuration(l.duration) + '</div></div>' +
+          '<div>' + App.skillLevelHtml(avg) + '</div></div></div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div class="solo-empty"><div class="solo-empty-icon">💡</div>' +
+        '<div class="solo-empty-title">Noch keine Fahrstunden</div>' +
+        '<div class="solo-empty-desc">Lege zuerst einen Schüler an, dann starte deine erste getrackte Fahrstunde.</div></div>';
+    }
+
+    html += '</div>';
+    main.innerHTML = html;
+  },
+
+  // ============================================
+  // SOLO PROFIL — keine Fahrschul-Zuordnung
+  // ============================================
+  renderSoloProfileTab: async function() {
+    var main = document.getElementById('instructor-main');
+    try {
+      var profile = await ApiClient.get('/api/instructor/profile');
+      var trialEnd = profile.solo_trial_ends_at;
+      var trialInfo = '';
+      if (trialEnd) {
+        var d = new Date(trialEnd);
+        var daysLeft = Math.max(0, Math.ceil((d - new Date()) / (1000*60*60*24)));
+        trialInfo = '<div class="card mb-4"><div class="section-title mb-3">Abo</div>' +
+          '<div class="profile-row"><span class="profile-row-label">Plan</span><span class="profile-row-value">FahrDoc Solo (Trial)</span></div>' +
+          '<div class="profile-row"><span class="profile-row-label">Status</span><span class="profile-row-value">' + (daysLeft > 0 ? 'Noch ' + daysLeft + ' Tage gratis' : 'Trial abgelaufen') + '</span></div>' +
+          '<div class="profile-row"><span class="profile-row-label">Läuft bis</span><span class="profile-row-value">' + d.toLocaleDateString('de-DE') + '</span></div></div>';
+      }
+      var html = '<div class="page-padding"><div class="profile-header">' + this.avatarHtml(profile.name, 'lg') +
+        '<h3>' + profile.name + '</h3><p class="text-xs text-muted">FahrDoc Solo — Einzel-Fahrlehrer</p></div>' +
+        '<div class="card mb-4"><div class="section-title mb-3">Persönliche Daten</div>' +
+          '<form id="solo-profile-form" onsubmit="App.saveInstructorProfile(event)">' +
+            '<div class="form-group mb-3"><label class="form-label">Name</label><input class="form-input" type="text" id="inst-profile-name" value="' + profile.name + '"></div>' +
+            '<div class="form-group mb-3"><label class="form-label">E-Mail</label><input class="form-input" type="email" id="inst-profile-email" value="' + profile.email + '"></div>' +
+            '<div class="form-group mb-3"><label class="form-label">Telefon</label><input class="form-input" type="tel" id="inst-profile-phone" value="' + (profile.phone || '') + '"></div>' +
+            '<button type="submit" class="btn btn-primary btn-full">Änderungen speichern</button></form></div>' +
+        trialInfo +
+        this.changePasswordHtml() +
+        '<button class="btn btn-secondary btn-full" style="margin-top:20px" onclick="App.logout()">Abmelden</button></div>';
+      main.innerHTML = html;
+    } catch (err) {
+      main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">Fehler: ' + err.message + '</p></div>';
+    }
+  },
+
+  // ============================================
+  // SOLO: Schüler anlegen (schlankes Modal)
+  // ============================================
+  openSoloAddStudent: function() {
+    var modal = document.getElementById('solo-add-student-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'solo-add-student-modal';
+      modal.className = 'modal-overlay';
+      modal.innerHTML = '<div class="modal-content" style="max-width:480px;">' +
+        '<div class="modal-header"><h3>Neuen Schüler anlegen</h3>' +
+          '<button class="icon-btn" onclick="App.closeSoloAddStudent()" aria-label="Schließen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>' +
+        '<form id="solo-add-student-form" onsubmit="App.submitSoloAddStudent(event)" class="modal-body">' +
+          '<div class="form-row form-row-2">' +
+            '<div class="form-group"><label class="form-label">Vorname</label><input class="form-input" type="text" id="sas-firstname" required></div>' +
+            '<div class="form-group"><label class="form-label">Nachname</label><input class="form-input" type="text" id="sas-lastname" required></div>' +
+          '</div>' +
+          '<div class="form-group"><label class="form-label">E-Mail</label><input class="form-input" type="email" id="sas-email" required></div>' +
+          '<div class="form-group"><label class="form-label">Telefon (optional)</label><input class="form-input" type="tel" id="sas-phone"></div>' +
+          '<div class="form-group"><label class="form-label">Führerscheinklasse</label>' +
+            '<select class="form-select" id="sas-license">' +
+              '<option value="B">B</option><option value="B17">BF17</option><option value="B96">B96</option><option value="B196">B196</option><option value="BE">BE</option><option value="A">A</option><option value="A1">A1</option><option value="A2">A2</option><option value="AM">AM</option>' +
+            '</select></div>' +
+          '<div id="sas-error" class="form-error hidden"></div>' +
+          '<button type="submit" class="btn btn-primary btn-full btn-lg" style="margin-top:8px;">Schüler anlegen</button>' +
+        '</form></div>';
+      document.body.appendChild(modal);
+    }
+    modal.classList.add('active');
+    setTimeout(function(){ var f = document.getElementById('sas-firstname'); if (f) f.focus(); }, 50);
+  },
+  closeSoloAddStudent: function() {
+    var modal = document.getElementById('solo-add-student-modal');
+    if (modal) modal.classList.remove('active');
+  },
+  submitSoloAddStudent: async function(e) {
+    e.preventDefault();
+    var err = document.getElementById('sas-error');
+    err.classList.add('hidden');
+    var firstName = document.getElementById('sas-firstname').value.trim();
+    var lastName = document.getElementById('sas-lastname').value.trim();
+    var email = document.getElementById('sas-email').value.trim();
+    var phone = document.getElementById('sas-phone').value.trim();
+    var license = document.getElementById('sas-license').value;
+    try {
+      this.showLoading(true);
+      await ApiClient.post('/api/instructor/students', {
+        firstName: firstName, lastName: lastName,
+        name: firstName + ' ' + lastName,
+        email: email, phone: phone || null,
+        license_class: license, status: 'aktiv'
+      });
+      this.closeSoloAddStudent();
+      this.showToast('Schüler angelegt');
+      AppState._cachedData.instructorDash = null;
+      if (AppState.currentScreen === 'instructor-dashboard') {
+        // aktiven Tab neu rendern
+        var active = document.querySelector('#instructor-nav .bottom-nav-item.active');
+        var tab = active ? active.getAttribute('data-tab') : 'dashboard';
+        this.switchInstructorTab(tab);
+      }
+    } catch (er) {
+      err.textContent = er.message; err.classList.remove('hidden');
+    } finally { this.showLoading(false); }
   },
 
   renderInstructorDashboardTab: async function() {
@@ -5152,14 +5389,23 @@ var App = {
     main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
     try {
       var students = await ApiClient.get('/api/instructor/students');
-      var html = '<div class="page-padding"><div class="section-header"><span class="section-title">' + t('meineSchueler') + ' (' + students.length + ')</span></div>';
-      students.forEach(function(st) {
-        html += '<div class="card card-interactive mb-3" onclick="App.viewStudentDetail(\'' + st.id + '\')"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
-          App.avatarHtml(st.name, '') +
-          '<div class="flex-1"><div style="font-weight:600;font-size:var(--text-sm);">' + st.name + '</div>' +
-          '<div class="text-xs text-muted">' + t('klasse') + ' ' + st.license_class + ' · ' + st.lessonCount + ' ' + t('fahrstunden') + '</div></div>' +
-          '<div>' + App.skillLevelHtml(st.avgSkill || 0) + '</div></div></div>';
-      });
+      var isSolo = App.isSolo();
+      var addBtn = isSolo ? '<button class="btn btn-primary btn-sm" onclick="App.openSoloAddStudent()">+ Schüler</button>' : '';
+      var html = '<div class="page-padding"><div class="section-header"><span class="section-title">' + t('meineSchueler') + ' (' + students.length + ')</span>' + addBtn + '</div>';
+      if (students.length === 0 && isSolo) {
+        html += '<div class="solo-empty"><div class="solo-empty-icon">👥</div>' +
+          '<div class="solo-empty-title">Noch keine Schüler</div>' +
+          '<div class="solo-empty-desc">Lege deinen ersten Schüler an, um Fahrstunden zu tracken.</div>' +
+          '<button class="btn btn-primary btn-lg" style="margin-top:16px;" onclick="App.openSoloAddStudent()">+ Schüler anlegen</button></div>';
+      } else {
+        students.forEach(function(st) {
+          html += '<div class="card card-interactive mb-3" onclick="App.viewStudentDetail(\'' + st.id + '\')"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
+            App.avatarHtml(st.name, '') +
+            '<div class="flex-1"><div style="font-weight:600;font-size:var(--text-sm);">' + st.name + '</div>' +
+            '<div class="text-xs text-muted">' + t('klasse') + ' ' + st.license_class + ' · ' + st.lessonCount + ' ' + t('fahrstunden') + '</div></div>' +
+            '<div>' + App.skillLevelHtml(st.avgSkill || 0) + '</div></div></div>';
+        });
+      }
       html += '</div>'; main.innerHTML = html;
     } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
   },

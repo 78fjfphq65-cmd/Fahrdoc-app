@@ -256,7 +256,7 @@ async function authMiddleware(req, res, next) {
     if (data) { user = data; user.role = 'school'; }
   } else if (session.user_role === 'instructor') {
     const { data } = await supabase.from('instructors')
-      .select('id, name, email, phone, school_id, verified')
+      .select('id, name, email, phone, school_id, verified, account_type, subscription_plan, subscription_status, solo_trial_ends_at')
       .eq('id', session.user_id).single();
     if (data) { user = data; user.role = 'instructor'; }
   } else if (session.user_role === 'student') {
@@ -368,7 +368,7 @@ app.post('/api/auth/login', async (req, res) => {
       fullUser.role = 'school';
     } else if (role === 'instructor') {
       const { data } = await supabase.from('instructors')
-        .select('id, name, email, phone, school_id, verified').eq('id', user.id).single();
+        .select('id, name, email, phone, school_id, verified, account_type, subscription_plan, subscription_status, solo_trial_ends_at').eq('id', user.id).single();
       fullUser = data;
       fullUser.role = 'instructor';
     } else {
@@ -387,7 +387,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.post('/api/auth/signup', async (req, res) => {
   try {
-    const { role, firstName, lastName, email, password, schoolName, schoolAddress, inviteCode } = req.body;
+    const { role, firstName, lastName, email, password, schoolName, schoolAddress, inviteCode, accountType } = req.body;
     if (!email || !password || !firstName || !lastName) {
       return res.status(400).json({ error: 'Alle Felder sind erforderlich' });
     }
@@ -424,6 +424,32 @@ app.post('/api/auth/signup', async (req, res) => {
     }
 
     if (role === 'instructor') {
+      // ===== Solo-Pfad: Einzel-Fahrlehrer ohne Fahrschule =====
+      if (accountType === 'solo') {
+        const id = generateId();
+        const trialEnd = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+        await supabase.from('instructors').insert({
+          id, name: fullName, email, password_hash: pwHash,
+          school_id: null, verified: 0,
+          account_type: 'solo',
+          subscription_plan: 'solo_trial',
+          subscription_status: 'trialing',
+          solo_trial_ends_at: trialEnd
+        });
+
+        const vCode = generateCode();
+        const vToken = crypto.randomBytes(24).toString('hex');
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+        await supabase.from('verification_codes').insert([
+          { id: generateId(), user_id: id, user_role: 'instructor', email, code: vCode, type: 'email_verify', expires_at: expiresAt },
+          { id: generateId(), user_id: id, user_role: 'instructor', email, code: vToken, type: 'email_verify', expires_at: expiresAt }
+        ]);
+        await sendVerificationEmail(email, fullName, vCode, vToken, id, 'instructor');
+
+        return res.json({ success: true, userId: id, role: 'instructor', accountType: 'solo' });
+      }
+
+      // ===== Klassischer Pfad: Fahrlehrer mit Einladungscode =====
       if (!inviteCode) return res.status(400).json({ error: 'Fahrschul-Code erforderlich' });
       const { data: code } = await supabase.from('invite_codes')
         .select('*').eq('code', inviteCode).eq('type', 'instructor').eq('status', 'offen').maybeSingle();
@@ -1363,11 +1389,21 @@ app.get('/api/instructor/dashboard', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur für Fahrlehrer' });
     const instId = req.user.id;
+    const isSolo = req.user.account_type === 'solo';
 
-    const { data: studentLinks } = await supabase.from('student_instructors')
-      .select('students(id, name, license_class, status)')
-      .eq('instructor_id', instId);
-    const students = (studentLinks || []).map(sl => sl.students).filter(Boolean);
+    // Schüler: Solo über owner_instructor_id, sonst über student_instructors
+    let students = [];
+    if (isSolo) {
+      const { data } = await supabase.from('students')
+        .select('id, name, license_class, status')
+        .eq('owner_instructor_id', instId);
+      students = data || [];
+    } else {
+      const { data: studentLinks } = await supabase.from('student_instructors')
+        .select('students(id, name, license_class, status)')
+        .eq('instructor_id', instId);
+      students = (studentLinks || []).map(sl => sl.students).filter(Boolean);
+    }
 
     const { data: allLessons } = await supabase.from('lessons')
       .select('*, students(name)')
@@ -1384,13 +1420,26 @@ app.get('/api/instructor/dashboard', authMiddleware, async (req, res) => {
       (ratings || []).forEach(r => { l.ratings[r.skill_name] = r.rating; });
     }
 
+    // Solo: kein school join, eigene Trial-Logik
+    if (isSolo) {
+      const trialEnd = req.user.solo_trial_ends_at;
+      const isExpired = trialEnd ? (new Date() > new Date(trialEnd) && req.user.subscription_status !== 'active') : false;
+      return res.json({
+        students, lessons: allLessons || [],
+        school: null,
+        subscription: { plan: req.user.subscription_plan, status: req.user.subscription_status, trial_end: trialEnd },
+        isExpired,
+        isSolo: true
+      });
+    }
+
     const { data: school } = await supabase.from('schools')
       .select('id, name').eq('id', req.user.school_id).single();
     const { data: sub } = await supabase.from('subscriptions')
       .select('*').eq('school_id', req.user.school_id).single();
     const isExpired = sub ? (new Date() > new Date(sub.trial_end) && !sub.is_active) : false;
 
-    res.json({ students, lessons: allLessons || [], school, subscription: sub, isExpired });
+    res.json({ students, lessons: allLessons || [], school, subscription: sub, isExpired, isSolo: false });
   } catch (err) {
     console.error('Instructor dashboard error:', err);
     res.status(500).json({ error: 'Serverfehler' });
@@ -1413,9 +1462,16 @@ app.get('/api/instructor/students', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur für Fahrlehrer' });
 
-    const { data: links } = await supabase.from('student_instructors')
-      .select('students(*)').eq('instructor_id', req.user.id);
-    const students = (links || []).map(l => l.students).filter(Boolean);
+    let students = [];
+    if (req.user.account_type === 'solo') {
+      const { data } = await supabase.from('students')
+        .select('*').eq('owner_instructor_id', req.user.id);
+      students = data || [];
+    } else {
+      const { data: links } = await supabase.from('student_instructors')
+        .select('students(*)').eq('instructor_id', req.user.id);
+      students = (links || []).map(l => l.students).filter(Boolean);
+    }
 
     for (const st of students) {
       const { count } = await supabase.from('lessons')
@@ -1444,9 +1500,12 @@ app.get('/api/instructor/students', authMiddleware, async (req, res) => {
 app.get('/api/instructor/profile', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur für Fahrlehrer' });
+    if (req.user.account_type === 'solo' || !req.user.school_id) {
+      return res.json({ ...req.user, schoolName: null, isSolo: true });
+    }
     const { data: school } = await supabase.from('schools')
       .select('name').eq('id', req.user.school_id).single();
-    res.json({ ...req.user, schoolName: school ? school.name : '—' });
+    res.json({ ...req.user, schoolName: school ? school.name : '—', isSolo: false });
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
   }
@@ -1462,6 +1521,96 @@ app.put('/api/instructor/profile', authMiddleware, async (req, res) => {
     if (phone) updates.phone = phone;
     await supabase.from('instructors').update(updates).eq('id', req.user.id);
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// ============================================
+// SOLO: Schüler anlegen / editieren / löschen
+// (nur für account_type='solo' Fahrlehrer)
+// ============================================
+app.post('/api/instructor/students', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur für Fahrlehrer' });
+    if (req.user.account_type !== 'solo') return res.status(403).json({ error: 'Nur für Solo-Fahrlehrer' });
+
+    const payload = _normalizeStudentPayload(req.body);
+    if (!payload.name || payload.name.length < 2) return res.status(400).json({ error: 'Name erforderlich' });
+    if (!payload.email) return res.status(400).json({ error: 'E-Mail erforderlich' });
+
+    // E-Mail-Eindeutigkeit
+    const [e1, e2, e3] = await Promise.all([
+      supabase.from('schools').select('id').eq('email', payload.email).maybeSingle(),
+      supabase.from('instructors').select('id').eq('email', payload.email).maybeSingle(),
+      supabase.from('students').select('id').eq('email', payload.email).maybeSingle()
+    ]);
+    if ((e1 && e1.data) || (e2 && e2.data) || (e3 && e3.data)) {
+      return res.status(409).json({ error: 'E-Mail ist bereits registriert' });
+    }
+
+    const studentId = generateId();
+    const insertRow = Object.assign({
+      id: studentId,
+      password_hash: null,
+      school_id: null,
+      owner_instructor_id: req.user.id,
+      verified: 0
+    }, payload);
+    Object.keys(insertRow).forEach(function(k) { if (insertRow[k] === undefined) delete insertRow[k]; });
+
+    const { data: inserted, error: insErr } = await supabase.from('students').insert(insertRow).select('*').single();
+    if (insErr) {
+      console.error('[SOLO-STUDENT-CREATE] insert error:', insErr);
+      return res.status(500).json({ error: 'Schüler konnte nicht angelegt werden' });
+    }
+
+    // Auch Link in student_instructors anlegen (für lessons-Filter etc.)
+    await supabase.from('student_instructors').insert({
+      student_id: studentId, instructor_id: req.user.id
+    });
+
+    res.json({ ok: true, student: inserted });
+  } catch (err) {
+    console.error('[SOLO-STUDENT-CREATE] error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+app.put('/api/instructor/students/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur für Fahrlehrer' });
+    if (req.user.account_type !== 'solo') return res.status(403).json({ error: 'Nur für Solo-Fahrlehrer' });
+
+    const studentId = req.params.id;
+    const { data: existing } = await supabase.from('students')
+      .select('id, owner_instructor_id').eq('id', studentId).maybeSingle();
+    if (!existing || existing.owner_instructor_id !== req.user.id) {
+      return res.status(404).json({ error: 'Schüler nicht gefunden' });
+    }
+    const payload = _normalizeStudentPayload(req.body);
+    Object.keys(payload).forEach(function(k) { if (payload[k] === undefined) delete payload[k]; });
+    await supabase.from('students').update(payload).eq('id', studentId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+app.delete('/api/instructor/students/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur für Fahrlehrer' });
+    if (req.user.account_type !== 'solo') return res.status(403).json({ error: 'Nur für Solo-Fahrlehrer' });
+
+    const studentId = req.params.id;
+    const { data: existing } = await supabase.from('students')
+      .select('id, owner_instructor_id').eq('id', studentId).maybeSingle();
+    if (!existing || existing.owner_instructor_id !== req.user.id) {
+      return res.status(404).json({ error: 'Schüler nicht gefunden' });
+    }
+    await supabase.from('student_instructors').delete().eq('student_id', studentId);
+    await supabase.from('students').delete().eq('id', studentId);
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
   }
@@ -1641,12 +1790,23 @@ app.post('/api/lessons', authMiddleware, async (req, res) => {
     const _billingCategory = 'regular';
 
     var schoolId = req.user.school_id;
+    const _isSoloInstr = (req.user.account_type === 'solo');
     if (studentId) {
-      const { data: student } = await supabase.from('students')
-        .select('school_id').eq('id', studentId).eq('school_id', req.user.school_id).single();
-      if (!student) return res.status(403).json({ error: 'Schüler nicht in dieser Fahrschule' });
-      schoolId = student.school_id;
-      await linkStudentInstructor(studentId, req.user.id);
+      if (_isSoloInstr) {
+        // Solo-Pfad: Schüler gehört dem Fahrlehrer via owner_instructor_id
+        const { data: student } = await supabase.from('students')
+          .select('school_id, owner_instructor_id').eq('id', studentId)
+          .eq('owner_instructor_id', req.user.id).maybeSingle();
+        if (!student) return res.status(403).json({ error: 'Schüler gehört nicht zu diesem Fahrlehrer' });
+        schoolId = student.school_id; // bleibt null bei Solo
+        await linkStudentInstructor(studentId, req.user.id);
+      } else {
+        const { data: student } = await supabase.from('students')
+          .select('school_id').eq('id', studentId).eq('school_id', req.user.school_id).single();
+        if (!student) return res.status(403).json({ error: 'Schüler nicht in dieser Fahrschule' });
+        schoolId = student.school_id;
+        await linkStudentInstructor(studentId, req.user.id);
+      }
     }
 
     const id = generateId();
@@ -1701,7 +1861,8 @@ app.post('/api/lessons', authMiddleware, async (req, res) => {
 
     // ── BUCHHALTUNG: Auto-Soll-Position erzeugen wenn passendes Template existiert ──
     // Nur im GoBD-Modus — im external-Modus führt die Fahrschule die Buchhaltung extern.
-    if (studentId) {
+    // Bei Solo-Fahrlehrer (FahrDoc Solo) gibt es KEINE Buchhaltung.
+    if (studentId && !_isSoloInstr && schoolId) {
       try {
         const mode = await getAccountingMode(schoolId);
         if (mode === 'gobd') {
