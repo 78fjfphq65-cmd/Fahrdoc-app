@@ -1449,10 +1449,23 @@ app.get('/api/instructor/dashboard', authMiddleware, async (req, res) => {
 app.get('/api/instructor/school-students', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur für Fahrlehrer' });
-    const { data: students } = await supabase.from('students')
-      .select('id, name, license_class, status')
-      .eq('school_id', req.user.school_id).eq('status', 'active');
-    res.json(students || []);
+    // Status-Filter: DB nutzt 'aktiv' (deutsch). Akzeptiere 'aktiv' und 'active' (legacy).
+    let students = [];
+    if (req.user.account_type === 'solo') {
+      // Solo-Fahrlehrer: eigene Schüler via owner_instructor_id
+      const { data } = await supabase.from('students')
+        .select('id, name, license_class, status')
+        .eq('owner_instructor_id', req.user.id)
+        .in('status', ['aktiv', 'active']);
+      students = data || [];
+    } else {
+      const { data } = await supabase.from('students')
+        .select('id, name, license_class, status')
+        .eq('school_id', req.user.school_id)
+        .in('status', ['aktiv', 'active']);
+      students = data || [];
+    }
+    res.json(students);
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
   }
