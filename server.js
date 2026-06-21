@@ -3208,7 +3208,7 @@ app.post('/api/stripe/create-solo-checkout', authMiddleware, async (req, res) =>
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'subscription',
-      payment_method_types: ['card', 'sepa_debit'],
+      payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
       subscription_data: {
         metadata: { instructor_id: req.user.id, account_type: 'solo' }
