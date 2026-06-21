@@ -1280,6 +1280,9 @@ var App = {
           }
           html += '<div class="week-grid-slot-name">' + (slot.student_name || t('offen')) + '</div>';
           html += '<div class="week-grid-slot-type">' + tType(slot.type) + (pruef ? ' \ud83c\udfc1' : '') + (isUnconfirmed ? ' \u231b' : '') + (isRecurring ? ' <span class="recurring-badge">\uD83D\uDD01</span>' : '') + '</div>';
+          if (slot.branch_name) {
+            html += '<div class="week-grid-slot-branch" style="font-size:10px;opacity:0.85;">\ud83d\udccd ' + slot.branch_name + '</div>';
+          }
         } else {
           html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + (_slotInstructorName(slot) || slot.student_name || slot.type) + '</div>';
         }
@@ -1408,6 +1411,10 @@ var App = {
     if (studentSel && studentSel.value) slotData.studentId = studentSel.value;
     var vehicleSel = document.getElementById('schedule-vehicle');
     if (vehicleSel && vehicleSel.value) slotData.vehicleId = vehicleSel.value;
+    var branchSel = document.getElementById('schedule-branch');
+    if (branchSel && branchSel.value) slotData.branchId = branchSel.value;
+    var secretarySel = document.getElementById('schedule-secretary');
+    if (secretarySel && secretarySel.value) slotData.secretaryId = secretarySel.value;
     // Admin creating for instructor
     var instSel = document.getElementById('schedule-instructor-select');
     if (instSel && instSel.value) slotData.instructorId = instSel.value;
@@ -1465,6 +1472,10 @@ var App = {
     slotData.studentId = (studentSel && studentSel.value) ? studentSel.value : null;
     var vehicleSel = document.getElementById('schedule-vehicle');
     slotData.vehicleId = (vehicleSel && vehicleSel.value) ? vehicleSel.value : null;
+    var branchSel = document.getElementById('schedule-branch');
+    slotData.branchId = (branchSel && branchSel.value) ? branchSel.value : null;
+    var secretarySel = document.getElementById('schedule-secretary');
+    slotData.secretaryId = (secretarySel && secretarySel.value) ? secretarySel.value : null;
     try {
       this.showLoading(true);
       await ApiClient.put('/api/schedule/' + id, slotData);
@@ -1609,6 +1620,16 @@ var App = {
     html += '<div class="form-group mb-3"><label class="form-label">Fahrzeug</label>' +
       '<select class="form-select" id="schedule-vehicle"><option value="">— Kein Fahrzeug —</option></select></div>';
 
+    // Filiale + Sekretärin (Plus only — Container wird in loadScheduleBranches/-Secretaries angezeigt/versteckt)
+    var branchId = isEdit ? (editSlot.branch_id || '') : '';
+    var secretaryId = isEdit ? (editSlot.secretary_id || '') : '';
+    html += '<div id="schedule-branch-row" class="form-group mb-3" style="display:none;">' +
+      '<label class="form-label">Filiale</label>' +
+      '<select class="form-select" id="schedule-branch"><option value="">— Keine Filiale —</option></select></div>';
+    html += '<div id="schedule-secretary-row" class="form-group mb-3" style="display:none;">' +
+      '<label class="form-label">Sekretärin</label>' +
+      '<select class="form-select" id="schedule-secretary"><option value="">— Keine Sekretärin —</option></select></div>';
+
     html += '<div class="form-row form-row-2 mb-3">' +
       '<div class="form-group"><label class="form-label">' + t('klasse') + '</label>' +
         '<select class="form-select" id="schedule-class">' +
@@ -1677,7 +1698,49 @@ var App = {
     // Load students - for schedule modals load ALL school students
     this.loadScheduleStudents(studentId, isEdit ? editSlot.instructor_id : instructorIdOverride);
     this.loadScheduleVehicles(date, startTime, endTime, vehicleId);
+    this.loadScheduleBranches(branchId);
+    this.loadScheduleSecretaries(secretaryId);
     this.updateDurationDisplay();
+  },
+
+  loadScheduleBranches: async function(preSelectId) {
+    // Nur Plus — Solo bekommt keine Branches
+    if (this.isSolo()) return;
+    try {
+      var data = await ApiClient.get('/api/school/branches');
+      var branches = (data && data.branches) || [];
+      var row = document.getElementById('schedule-branch-row');
+      var sel = document.getElementById('schedule-branch');
+      if (!sel || !row) return;
+      if (branches.length === 0) { row.style.display = 'none'; return; }
+      row.style.display = '';
+      var optionsHtml = '<option value="">— Keine Filiale —</option>';
+      branches.forEach(function(b){
+        var sel2 = (b.id === preSelectId) ? ' selected' : '';
+        var lbl = b.name + (b.address ? ' · ' + b.address : '');
+        optionsHtml += '<option value="' + b.id + '"' + sel2 + '>' + lbl + '</option>';
+      });
+      sel.innerHTML = optionsHtml;
+    } catch(e) { /* 403 bei Solo/Instructor ohne Zugriff — still ignorieren */ }
+  },
+
+  loadScheduleSecretaries: async function(preSelectId) {
+    if (this.isSolo()) return;
+    try {
+      var data = await ApiClient.get('/api/school/secretaries');
+      var secs = (data && data.secretaries) || [];
+      var row = document.getElementById('schedule-secretary-row');
+      var sel = document.getElementById('schedule-secretary');
+      if (!sel || !row) return;
+      if (secs.length === 0) { row.style.display = 'none'; return; }
+      row.style.display = '';
+      var optionsHtml = '<option value="">— Keine Sekretärin —</option>';
+      secs.forEach(function(s){
+        var sel2 = (s.id === preSelectId) ? ' selected' : '';
+        optionsHtml += '<option value="' + s.id + '"' + sel2 + '>' + s.name + '</option>';
+      });
+      sel.innerHTML = optionsHtml;
+    } catch(e) {}
   },
 
   loadScheduleVehicles: async function(date, startTime, endTime, preSelectId) {
@@ -4169,6 +4232,8 @@ var App = {
       '<div id="profile-accounting-mode-section"></div>' +
       '<div id="profile-billing-settings-section"></div>' +
       '<div id="profile-pricing-categories-section"></div>' +
+      '<div id="profile-branches-section"></div>' +
+      '<div id="profile-secretaries-section"></div>' +
       '<div class="card mb-4"><div class="section-title mb-3">' + t('supportFeedback') + '</div>' +
         '<div class="form-group mb-3"><label class="form-label">' + t('feedbackKategorie') + '</label>' +
           '<select class="form-select" id="feedback-category">' +
@@ -4191,6 +4256,174 @@ var App = {
     this._loadBillingSettings();
     // Load merged price categories + pricing templates (Push 7)
     this._loadPricingAndCategories();
+    // Load branches + secretaries (Push 8 — nur Plus-Schul-Admin)
+    this._loadProfileBranches();
+    this._loadProfileSecretaries();
+  },
+
+  // ============================================
+  // Filialen + Sekretärinnen (Plus-Schul-Admin)
+  // ============================================
+  _loadProfileBranches: async function() {
+    var container = document.getElementById('profile-branches-section');
+    if (!container) return;
+    var u = AppState.currentUser;
+    if (!u || u.role !== 'school') { container.innerHTML = ''; return; }
+    try {
+      var data = await ApiClient.get('/api/school/branches');
+      this._renderProfileBranches(data.branches || []);
+    } catch (e) { container.innerHTML = ''; }
+  },
+
+  _renderProfileBranches: function(branches) {
+    var container = document.getElementById('profile-branches-section');
+    if (!container) return;
+    var rowsHtml = '';
+    if (branches.length === 0) {
+      rowsHtml = '<div style="font-size:var(--text-sm);color:var(--text-muted);padding:var(--space-2) 0;">Noch keine Filialen angelegt.</div>';
+    } else {
+      rowsHtml = branches.map(function(b){
+        var safeName = (b.name || '').replace(/'/g, "\\'");
+        var safeAddr = (b.address || '').replace(/'/g, "\\'");
+        return '<div style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) 0;border-top:1px solid var(--color-border);">' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="font-weight:600;">' + (b.name || '—') + '</div>' +
+            (b.address ? '<div style="font-size:var(--text-xs);color:var(--text-muted);">' + b.address + '</div>' : '') +
+          '</div>' +
+          '<button class="btn btn-sm btn-secondary" onclick="App.openBranchModal({id:\'' + b.id + '\',name:\'' + safeName + '\',address:\'' + safeAddr + '\'})">Bearbeiten</button>' +
+          '<button class="btn btn-sm btn-danger" onclick="App.deleteBranch(\'' + b.id + '\')">Löschen</button>' +
+        '</div>';
+      }).join('');
+    }
+    container.innerHTML = '<div class="card mb-4">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-2);">' +
+        '<div class="section-title" style="margin:0;">Filialen</div>' +
+        '<button class="btn btn-sm btn-primary" onclick="App.openBranchModal()">+ Neue Filiale</button>' +
+      '</div>' +
+      '<div style="font-size:var(--text-xs);color:var(--text-muted);margin-bottom:var(--space-2);">Optionale Standorte deiner Fahrschule. Bei der Terminplanung wählbar.</div>' +
+      rowsHtml +
+    '</div>';
+  },
+
+  openBranchModal: function(branch) {
+    var isEdit = !!(branch && branch.id);
+    var name = isEdit ? (branch.name || '') : '';
+    var address = isEdit ? (branch.address || '') : '';
+    var title = isEdit ? 'Filiale bearbeiten' : 'Neue Filiale';
+    var html = '<form id="branch-form" onsubmit="event.preventDefault();">' +
+      '<div class="form-group mb-3"><label class="form-label">Name *</label>' +
+        '<input class="form-input" type="text" id="branch-name" value="' + name.replace(/"/g, '&quot;') + '" placeholder="z.B. Hauptstandort"></div>' +
+      '<div class="form-group mb-3"><label class="form-label">Adresse</label>' +
+        '<input class="form-input" type="text" id="branch-address" value="' + address.replace(/"/g, '&quot;') + '" placeholder="Straße, PLZ Ort"></div>' +
+      '<button type="button" class="btn btn-primary btn-full btn-lg" onclick="App.saveBranch(' + (isEdit ? "'" + branch.id + "'" : 'null') + ')">Speichern</button>' +
+    '</form>';
+    this.openModal(title, html);
+  },
+
+  saveBranch: async function(id) {
+    var name = (document.getElementById('branch-name') || {}).value || '';
+    var address = (document.getElementById('branch-address') || {}).value || '';
+    if (!name.trim()) { this.showToast('Name erforderlich'); return; }
+    try {
+      this.showLoading(true);
+      if (id) {
+        await ApiClient.put('/api/school/branches/' + id, { name: name.trim(), address: address.trim() });
+      } else {
+        await ApiClient.post('/api/school/branches', { name: name.trim(), address: address.trim() });
+      }
+      this.closeModalForce();
+      this.showToast('Filiale gespeichert');
+      this._loadProfileBranches();
+    } catch(err) { this.showToast('Fehler: ' + (err.message || err)); }
+    finally { this.showLoading(false); }
+  },
+
+  deleteBranch: async function(id) {
+    if (!confirm('Filiale wirklich löschen? Bestehende Termine bleiben erhalten, verlieren aber die Filial-Zuordnung.')) return;
+    try {
+      this.showLoading(true);
+      await ApiClient.del('/api/school/branches/' + id);
+      this.showToast('Filiale gelöscht');
+      this._loadProfileBranches();
+    } catch(err) { this.showToast('Fehler: ' + (err.message || err)); }
+    finally { this.showLoading(false); }
+  },
+
+  _loadProfileSecretaries: async function() {
+    var container = document.getElementById('profile-secretaries-section');
+    if (!container) return;
+    var u = AppState.currentUser;
+    if (!u || u.role !== 'school') { container.innerHTML = ''; return; }
+    try {
+      var data = await ApiClient.get('/api/school/secretaries');
+      this._renderProfileSecretaries(data.secretaries || []);
+    } catch (e) { container.innerHTML = ''; }
+  },
+
+  _renderProfileSecretaries: function(secs) {
+    var container = document.getElementById('profile-secretaries-section');
+    if (!container) return;
+    var rowsHtml = '';
+    if (secs.length === 0) {
+      rowsHtml = '<div style="font-size:var(--text-sm);color:var(--text-muted);padding:var(--space-2) 0;">Noch keine Sekretärinnen angelegt.</div>';
+    } else {
+      rowsHtml = secs.map(function(s){
+        var safeName = (s.name || '').replace(/'/g, "\\'");
+        return '<div style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) 0;border-top:1px solid var(--color-border);">' +
+          '<div style="flex:1;min-width:0;font-weight:600;">' + (s.name || '—') + '</div>' +
+          '<button class="btn btn-sm btn-secondary" onclick="App.openSecretaryModal({id:\'' + s.id + '\',name:\'' + safeName + '\'})">Bearbeiten</button>' +
+          '<button class="btn btn-sm btn-danger" onclick="App.deleteSecretary(\'' + s.id + '\')">Löschen</button>' +
+        '</div>';
+      }).join('');
+    }
+    container.innerHTML = '<div class="card mb-4">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-2);">' +
+        '<div class="section-title" style="margin:0;">Sekretärinnen</div>' +
+        '<button class="btn btn-sm btn-primary" onclick="App.openSecretaryModal()">+ Neue Sekretärin</button>' +
+      '</div>' +
+      '<div style="font-size:var(--text-xs);color:var(--text-muted);margin-bottom:var(--space-2);">Optional. Bei der Terminplanung wählbar — ohne eigenen Login.</div>' +
+      rowsHtml +
+    '</div>';
+  },
+
+  openSecretaryModal: function(sec) {
+    var isEdit = !!(sec && sec.id);
+    var name = isEdit ? (sec.name || '') : '';
+    var title = isEdit ? 'Sekretärin bearbeiten' : 'Neue Sekretärin';
+    var html = '<form id="secretary-form" onsubmit="event.preventDefault();">' +
+      '<div class="form-group mb-3"><label class="form-label">Name *</label>' +
+        '<input class="form-input" type="text" id="secretary-name" value="' + name.replace(/"/g, '&quot;') + '" placeholder="Vorname Nachname"></div>' +
+      '<button type="button" class="btn btn-primary btn-full btn-lg" onclick="App.saveSecretary(' + (isEdit ? "'" + sec.id + "'" : 'null') + ')">Speichern</button>' +
+    '</form>';
+    this.openModal(title, html);
+  },
+
+  saveSecretary: async function(id) {
+    var name = (document.getElementById('secretary-name') || {}).value || '';
+    if (!name.trim()) { this.showToast('Name erforderlich'); return; }
+    try {
+      this.showLoading(true);
+      if (id) {
+        await ApiClient.put('/api/school/secretaries/' + id, { name: name.trim() });
+      } else {
+        await ApiClient.post('/api/school/secretaries', { name: name.trim() });
+      }
+      this.closeModalForce();
+      this.showToast('Sekretärin gespeichert');
+      this._loadProfileSecretaries();
+    } catch(err) { this.showToast('Fehler: ' + (err.message || err)); }
+    finally { this.showLoading(false); }
+  },
+
+  deleteSecretary: async function(id) {
+    if (!confirm('Sekretärin wirklich löschen? Bestehende Termine bleiben erhalten, verlieren aber die Zuordnung.')) return;
+    try {
+      this.showLoading(true);
+      await ApiClient.del('/api/school/secretaries/' + id);
+      this.showToast('Sekretärin gelöscht');
+      this._loadProfileSecretaries();
+    } catch(err) { this.showToast('Fehler: ' + (err.message || err)); }
+    finally { this.showLoading(false); }
   },
 
   // ============================================

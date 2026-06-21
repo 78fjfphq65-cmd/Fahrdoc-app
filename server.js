@@ -2286,6 +2286,20 @@ app.get('/api/schedule', authMiddleware, async (req, res) => {
     query = query.order('date').order('start_time');
     const { data: slots } = await query;
 
+    // Load branches + secretaries lookup maps for this school
+    const branchMap = {};
+    const secretaryMap = {};
+    try {
+      const { data: brs } = await supabase.from('school_branches')
+        .select('id, name, address').eq('school_id', schoolId);
+      (brs || []).forEach(b => { branchMap[b.id] = b; });
+      const { data: secs } = await supabase.from('school_secretaries')
+        .select('id, name').eq('school_id', schoolId);
+      (secs || []).forEach(s => { secretaryMap[s.id] = s; });
+    } catch (e) {
+      // Tables may not exist in older deployments — ignore
+    }
+
     // Flatten joined data
     for (const s of (slots || [])) {
       s.student_name = s.students?.name || null;
@@ -2293,6 +2307,12 @@ app.get('/api/schedule', authMiddleware, async (req, res) => {
       s.instructor_name = s.instructors?.name || null;
       s.vehicle_brand = s.vehicles?.brand || null;
       s.vehicle_plate = s.vehicles?.license_plate || null;
+      // Branch + Secretary info
+      const br = s.branch_id ? branchMap[s.branch_id] : null;
+      s.branch_name = br ? br.name : null;
+      s.branch_address = br ? br.address : null;
+      const sec = s.secretary_id ? secretaryMap[s.secretary_id] : null;
+      s.secretary_name = sec ? sec.name : null;
       // Derive slot_type and confirmed from existing DB fields
       s.slot_type = s.type === 'Zeitsperre' ? 'block' : 'lesson';
       // Admin-created slots with status 'geplant' need instructor confirmation
@@ -2380,7 +2400,7 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
   try {
     if (req.user.role === 'student') return res.status(403).json({ error: 'Kein Zugriff' });
 
-    const { instructorId, studentId, date, startTime, endTime, type, licenseClass, notes, vehicleId } = req.body;
+    const { instructorId, studentId, date, startTime, endTime, type, licenseClass, notes, vehicleId, branchId, secretaryId } = req.body;
     if (!date || !startTime || !endTime) return res.status(400).json({ error: 'Datum, Start- und Endzeit erforderlich' });
 
     let targetInstructorId = instructorId;
@@ -2475,6 +2495,8 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
       type: type || 'Übungsfahrt', license_class: licenseClass || 'B',
       status, notes: notes || null,
       vehicle_id: vehicleId || null,
+      branch_id: branchId || null,
+      secretary_id: secretaryId || null,
       created_by_role: req.user.role, created_by_id: req.user.id
     });
     if (insertErr) { console.error('[Schedule] Insert error:', insertErr.message); return res.status(500).json({ error: insertErr.message }); }
@@ -2506,7 +2528,7 @@ app.put('/api/schedule/:id', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Kein Zugriff auf diesen Termin' });
     }
 
-    const { studentId, date, startTime, endTime, type, licenseClass, status, notes, vehicleId } = req.body;
+    const { studentId, date, startTime, endTime, type, licenseClass, status, notes, vehicleId, branchId, secretaryId } = req.body;
 
     // Check overlap if time changed
     if ((date && date !== slot.date) || (startTime && startTime !== slot.start_time) || (endTime && endTime !== slot.end_time)) {
@@ -2562,6 +2584,8 @@ app.put('/api/schedule/:id', authMiddleware, async (req, res) => {
     if (newStatus) updates.status = newStatus;
     if (notes !== undefined) updates.notes = notes;
     if (vehicleId !== undefined) updates.vehicle_id = vehicleId || null;
+    if (branchId !== undefined) updates.branch_id = branchId || null;
+    if (secretaryId !== undefined) updates.secretary_id = secretaryId || null;
 
     if (Object.keys(updates).length > 0) {
       await supabase.from('scheduled_lessons').update(updates).eq('id', req.params.id);
@@ -3389,6 +3413,148 @@ app.delete('/api/school/vehicles/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// =========================================================
+// FILIALEN (school_branches)  — nur Schul-Admin (role=school)
+// =========================================================
+app.get('/api/school/branches', authMiddleware, async (req, res) => {
+  try {
+    // School-Admin sieht eigene; Plus-Instructor (mit school_id) sieht die seiner Schule.
+    let schoolId = null;
+    if (req.user.role === 'school') schoolId = req.user.id;
+    else if (req.user.role === 'instructor' && req.user.school_id) schoolId = req.user.school_id;
+    else return res.status(403).json({ error: 'Kein Zugriff' });
+    const { data: branches } = await supabase.from('school_branches')
+      .select('*').eq('school_id', schoolId).order('created_at', { ascending: true });
+    res.json({ branches: branches || [] });
+  } catch (err) {
+    console.error('Branches GET error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+app.post('/api/school/branches', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const name = (req.body.name || '').trim();
+    const address = (req.body.address || '').trim() || null;
+    if (!name) return res.status(400).json({ error: 'Name erforderlich' });
+    const id = generateId();
+    const { error } = await supabase.from('school_branches')
+      .insert({ id, school_id: req.user.id, name, address });
+    if (error) throw error;
+    res.json({ id, success: true });
+  } catch (err) {
+    console.error('Branches POST error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+app.put('/api/school/branches/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const { data: br } = await supabase.from('school_branches')
+      .select('id').eq('id', req.params.id).eq('school_id', req.user.id).maybeSingle();
+    if (!br) return res.status(404).json({ error: 'Filiale nicht gefunden' });
+    const updates = {};
+    if (typeof req.body.name === 'string') {
+      const n = req.body.name.trim();
+      if (!n) return res.status(400).json({ error: 'Name erforderlich' });
+      updates.name = n;
+    }
+    if (req.body.address !== undefined) {
+      updates.address = (req.body.address || '').trim() || null;
+    }
+    if (Object.keys(updates).length > 0) {
+      const { error } = await supabase.from('school_branches').update(updates).eq('id', req.params.id);
+      if (error) throw error;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Branches PUT error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+app.delete('/api/school/branches/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const { data: br } = await supabase.from('school_branches')
+      .select('id').eq('id', req.params.id).eq('school_id', req.user.id).maybeSingle();
+    if (!br) return res.status(404).json({ error: 'Filiale nicht gefunden' });
+    // FK on scheduled_lessons.branch_id ist ON DELETE SET NULL — bestehende Termine verlieren nur die Zuordnung.
+    await supabase.from('school_branches').delete().eq('id', req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Branches DELETE error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// =========================================================
+// SEKRETAERINNEN (school_secretaries) — reine Stammdaten
+// =========================================================
+app.get('/api/school/secretaries', authMiddleware, async (req, res) => {
+  try {
+    let schoolId = null;
+    if (req.user.role === 'school') schoolId = req.user.id;
+    else if (req.user.role === 'instructor' && req.user.school_id) schoolId = req.user.school_id;
+    else return res.status(403).json({ error: 'Kein Zugriff' });
+    const { data: secretaries } = await supabase.from('school_secretaries')
+      .select('*').eq('school_id', schoolId).order('created_at', { ascending: true });
+    res.json({ secretaries: secretaries || [] });
+  } catch (err) {
+    console.error('Secretaries GET error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+app.post('/api/school/secretaries', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const name = (req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Name erforderlich' });
+    const id = generateId();
+    const { error } = await supabase.from('school_secretaries')
+      .insert({ id, school_id: req.user.id, name });
+    if (error) throw error;
+    res.json({ id, success: true });
+  } catch (err) {
+    console.error('Secretaries POST error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+app.put('/api/school/secretaries/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const { data: sec } = await supabase.from('school_secretaries')
+      .select('id').eq('id', req.params.id).eq('school_id', req.user.id).maybeSingle();
+    if (!sec) return res.status(404).json({ error: 'Sekretärin nicht gefunden' });
+    const n = (req.body.name || '').trim();
+    if (!n) return res.status(400).json({ error: 'Name erforderlich' });
+    const { error } = await supabase.from('school_secretaries').update({ name: n }).eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Secretaries PUT error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+app.delete('/api/school/secretaries/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const { data: sec } = await supabase.from('school_secretaries')
+      .select('id').eq('id', req.params.id).eq('school_id', req.user.id).maybeSingle();
+    if (!sec) return res.status(404).json({ error: 'Sekretärin nicht gefunden' });
+    await supabase.from('school_secretaries').delete().eq('id', req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Secretaries DELETE error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
 // Vehicle detail with utilization stats
 app.get('/api/school/vehicles/:id/detail', authMiddleware, async (req, res) => {
   try {
@@ -3735,7 +3901,7 @@ app.post('/api/recurring-lessons/check-conflicts', authMiddleware, async (req, r
 app.post('/api/recurring-lessons', authMiddleware, async (req, res) => {
   try {
     if (req.user.role === 'student') return res.status(403).json({ error: 'Kein Zugriff' });
-    const { instructorId, studentId, vehicleId, date, startTime, endTime, type, licenseClass, notes, frequency, end_date, skipConflicts } = req.body;
+    const { instructorId, studentId, vehicleId, date, startTime, endTime, type, licenseClass, notes, frequency, end_date, skipConflicts, branchId, secretaryId } = req.body;
     if (!date || !startTime || !endTime || !frequency || !end_date) {
       return res.status(400).json({ error: 'Alle Felder erforderlich' });
     }
@@ -3817,6 +3983,7 @@ app.post('/api/recurring-lessons', authMiddleware, async (req, res) => {
         type: type || 'Übungsfahrt', license_class: licenseClass || 'B',
         status, notes: (notes || '') + (notes ? ' ' : '') + '[recurring:' + groupId + ']',
         vehicle_id: vehicleId || null,
+        branch_id: branchId || null, secretary_id: secretaryId || null,
         created_by_role: req.user.role, created_by_id: req.user.id
       });
       if (!insertErr) {
