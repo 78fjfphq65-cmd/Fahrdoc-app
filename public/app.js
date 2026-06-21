@@ -587,6 +587,14 @@ var App = {
       var dash = { school: 'school-dashboard', instructor: 'instructor-dashboard', student: 'student-dashboard' };
       this.navigate(dash[user.role]);
       if (user.role === 'school') { setTimeout(function(){ App.checkSubscriptionLock(); }, 500); }
+      // Toast nach Solo-Checkout-Success-Reload
+      try {
+        var _ssR = window['session' + 'Storage'];
+        if (_ssR && _ssR.getItem('fahrdoc_solo_success_toast')) {
+          _ssR.removeItem('fahrdoc_solo_success_toast');
+          setTimeout(function() { App.showToast('Abo erfolgreich gestartet — willkommen bei FahrDoc!'); }, 700);
+        }
+      } catch(_) {}
       // Handle Stripe redirect
       var params = new URLSearchParams(window.location.search);
       if (params.get('stripe') === 'success') {
@@ -597,12 +605,13 @@ var App = {
         window.history.replaceState({}, '', window.location.pathname);
       } else if (params.get('solo_checkout') === 'success') {
         AppState._soloSub = null; // Cache invalidieren
-        setTimeout(function() {
-          App.showToast('Abo erfolgreich gestartet — willkommen bei FahrDoc!');
-          // Refresh aktuelle Tab
-          if (App.isSolo()) App.switchInstructorTab(AppState.currentInstructorTab || 'dashboard');
-        }, 500);
         window.history.replaceState({}, '', window.location.pathname);
+        // Toast direkt zeigen, dann Hard-Reload damit Lock-Screen (falls aktiv) verschwindet
+        try {
+          var _ss = window['session' + 'Storage'];
+          if (_ss) _ss.setItem('fahrdoc_solo_success_toast', '1');
+        } catch(_) {}
+        setTimeout(function() { window.location.reload(); }, 300);
       } else if (params.get('solo_checkout') === 'cancel') {
         setTimeout(function() { App.showToast('Checkout abgebrochen'); }, 500);
         window.history.replaceState({}, '', window.location.pathname);
@@ -924,6 +933,33 @@ var App = {
     }
     return '';
   },
+
+  // Vollbild-Lock-Screen wenn Trial abgelaufen oder Abo ausgelaufen
+  renderSoloLockScreen: function(sub) {
+    var isTrialExpired = sub && sub.state === 'trial_expired';
+    var title = isTrialExpired ? 'Dein Testzeitraum ist beendet' : 'Dein Abo ist abgelaufen';
+    var msg = isTrialExpired
+      ? 'Du hast FahrDoc 14 Tage gratis getestet. Schalte jetzt frei und nutze alle Funktionen ohne Einschränkung.'
+      : 'Reaktiviere dein FahrDoc-Abo, um wieder Schueler zu verwalten und Fahrstunden zu tracken.';
+    var screen = document.getElementById('screen-instructor-dashboard');
+    if (!screen) return;
+    var html = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:linear-gradient(135deg,#f8fafc,#e2e8f0);">' +
+      '<div style="max-width:480px;width:100%;background:#fff;border-radius:20px;padding:36px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.08);text-align:center;">' +
+        '<div style="font-size:64px;margin-bottom:12px;">🔒</div>' +
+        '<h1 style="font-size:24px;font-weight:700;color:#0f172a;margin:0 0 8px;">' + title + '</h1>' +
+        '<p style="font-size:15px;color:#64748b;line-height:1.5;margin:0 0 28px;">' + msg + '</p>' +
+        '<div style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border-radius:14px;padding:20px;margin-bottom:20px;">' +
+          '<div style="font-size:13px;color:#1e3a8a;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">FahrDoc</div>' +
+          '<div style="font-size:36px;font-weight:700;color:#0f172a;margin:4px 0;">14,99 €<span style="font-size:16px;font-weight:500;color:#64748b;">/Monat</span></div>' +
+          '<div style="font-size:13px;color:#475569;">Jederzeit kündbar · Unbegrenzte Schüler</div>' +
+        '</div>' +
+        '<button class="btn btn-primary btn-full" style="padding:14px;font-size:16px;font-weight:600;margin-bottom:12px;" onclick="App.startSoloCheckout()">Jetzt freischalten</button>' +
+        '<button class="btn btn-ghost btn-full" style="padding:12px;color:#64748b;" onclick="App.logout()">Abmelden</button>' +
+      '</div>' +
+    '</div>';
+    screen.innerHTML = html;
+  },
+
   applyBranding: function() {
     try {
       var title = this.brandName();
@@ -5502,7 +5538,18 @@ var App = {
   // ══════════════════════════════════════════
   initInstructorDashboard: async function() {
     var inst = AppState.currentUser;
-    document.getElementById('instructor-name-display').textContent = inst.name;
+
+    // SOLO LOCK: Bei abgelaufenem Trial / Abo gesamten Screen sperren
+    if (this.isSolo()) {
+      var soloSub = await this.loadSoloSubscription(true);
+      if (soloSub && soloSub.locked) {
+        this.renderSoloLockScreen(soloSub);
+        return;
+      }
+    }
+
+    var nameEl = document.getElementById('instructor-name-display');
+    if (nameEl) nameEl.textContent = inst.name;
     AppState._cachedData = AppState._cachedData || {};
 
     // Perf: Dashboard + Students + aktuelle Woche-Schedule + Theorie PARALLEL prefetchen.

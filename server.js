@@ -299,6 +299,34 @@ async function authMiddleware(req, res, next) {
   if (!user) return res.status(401).json({ error: 'Benutzer nicht gefunden' });
   req.user = user;
   req.sessionToken = token;
+
+  // SOLO LOCK: Bei abgelaufenem Trial / Abo nur Read + Auth + Stripe-Endpoints erlauben
+  if (user.role === 'instructor' && user.account_type === 'solo') {
+    var now = new Date();
+    var trialEnd = user.solo_trial_ends_at ? new Date(user.solo_trial_ends_at) : null;
+    var periodEnd = user.current_period_end ? new Date(user.current_period_end) : null;
+    var status = user.subscription_status;
+    var hasStripe = !!user.stripe_subscription_id;
+    var locked = false;
+    if (hasStripe && status === 'canceled' && (!periodEnd || periodEnd <= now)) locked = true;
+    else if (!hasStripe && trialEnd && trialEnd < now) locked = true;
+    // Aktives Abo (auch wenn cancel_at_period_end=true und Periode noch läuft) ist nicht locked
+    if (hasStripe && (status === 'active' || status === 'trialing' || status === 'past_due')) locked = false;
+    if (hasStripe && status === 'canceled' && periodEnd && periodEnd > now) locked = false;
+
+    if (locked) {
+      var path = req.path || '';
+      var method = req.method || 'GET';
+      // Whitelist: GET (lesen erlaubt), und alles unter /api/stripe/, /api/auth/, /api/instructor/profile (zum Lesen)
+      var allowed = method === 'GET'
+        || path.indexOf('/api/stripe/') === 0
+        || path.indexOf('/api/auth/') === 0;
+      if (!allowed) {
+        return res.status(402).json({ error: 'Abo erforderlich. Bitte schalte FahrDoc frei, um diese Aktion auszufuehren.', solo_locked: true });
+      }
+    }
+  }
+
   next();
 }
 
