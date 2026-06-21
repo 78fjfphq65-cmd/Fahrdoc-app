@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>FahrDoc – Fahrstunden dokumentieren mit Routentracking, Street View & KI</title>
-<meta name="description" content="FahrDoc zeichnet jede Fahrstunde per GPS auf, verknüpft Markierungen mit Street View und fasst den Fortschritt per KI zusammen. Planung und Dokumentation für deine Fahrschule." />
-<meta property="og:title" content="FahrDoc – Fahrstunden dokumentieren mit Routentracking, Street View & KI" />
-<meta property="og:description" content="GPS-Routentracking, Street-View-Markierungen und KI-Briefing für die Fahrschule." />
+<title>FahrDoc – Fahrstunden tracken, bewerten wie ein TÜV-Prüfer & KI-Briefing</title>
+<meta name="description" content="FahrDoc zeichnet jede Fahrstunde per GPS auf, markiert Fehler mit Street View, bewertet 18 Aufgaben wie ein TÜV-Prüfer und liefert ein KI-Briefing für die nächste Stunde. Für Solo-Fahrlehrer und Fahrschulen." />
+<meta property="og:title" content="FahrDoc – Tracking, TÜV-Bewertung & KI-Briefing" />
+<meta property="og:description" content="GPS-Tracking mit Street-View-Markierungen, Bewertung wie ein TÜV-Prüfer und automatisches KI-Briefing. Solo ab 14,99 € / Monat." />
 <link rel="preconnect" href="https://api.fontshare.com" />
 <link href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@500,700,800&f[]=general-sans@400,500,600,700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="landing.css" />
@@ -26,7 +26,8 @@
       <span class="brand-name">FahrDoc</span>
     </a>
     <nav class="nav" aria-label="Hauptnavigation">
-      <a href="#routentracking">Routentracking</a>
+      <a href="#routentracking">Tracking</a>
+      <a href="#bewertung">Bewertung</a>
       <a href="#ki">KI-Briefing</a>
       <a href="#funktionen">Funktionen</a>
       <a href="#preise">Preise</a>
@@ -47,22 +48,22 @@
   <section class="hero">
     <div class="container hero-grid">
       <div class="hero-copy">
-        <span class="eyebrow">Planung &amp; Dokumentation der Fahrstunden mit KI-Funktion</span>
+        <span class="eyebrow">Tracken · Bewerten wie ein TÜV-Prüfer · KI-Briefing</span>
         <h1>Jede Fahrstunde aufgezeichnet.<br><span class="accent">Jeder Fehler nachvollziehbar.</span></h1>
-        <p class="lead">FahrDoc zeichnet die gefahrene Route per GPS auf, lässt Fahrlehrer kritische Stellen direkt markieren und verknüpft jede Markierung mit Street View. So wird die Auswertung nach der Stunde konkret – Punkt für Punkt.</p>
+        <p class="lead">FahrDoc zeichnet jede Fahrstunde per GPS auf, du markierst kritische Stellen mit Street View, bewertest 18 Aufgaben wie ein TÜV-Prüfer und bekommst vor der nächsten Stunde ein automatisches KI-Briefing.</p>
         <div class="hero-cta">
-          <a href="https://www.fahrdoc.app/app" class="btn btn-primary">Kostenlos testen</a>
-          <a href="https://www.fahrdoc.app/app" class="btn btn-ghost">Anmelden</a>
+          <a href="https://www.fahrdoc.app/app" class="btn btn-primary">14 Tage kostenlos testen</a>
+          <a href="#preise" class="btn btn-ghost">Preise ansehen</a>
         </div>
-        <p class="hero-note">Für Fahrschulen, Fahrlehrer und Fahrschüler · Klassen B, A, A1, A2, AM</p>
+        <p class="hero-note">Für Solo-Fahrlehrer ab 14,99 € · Für Fahrschulen ab 29,99 € · Klassen B, A, A1, A2, AM</p>
       </div>
       <div class="hero-visual">
         <div class="phone">
           <div class="phone-notch"></div>
-          <img src="assets/screen_tracking.jpeg" alt="FahrDoc Live-Routentracking während einer Fahrstunde mit Karte, Strecke, Geschwindigkeit und Markierungs-Funktion" loading="eager" />
+          <img src="assets/screen_tracking_live.jpeg" alt="FahrDoc Live-Tracking während einer Fahrstunde mit Berlin-Karte, Timer, Strecke, Geschwindigkeit und Markierungs-Button" loading="eager" />
         </div>
         <div class="phone phone-back" aria-hidden="true">
-          <img src="assets/screen_ki.jpeg" alt="" />
+          <img src="assets/screen_ki_briefing.jpeg" alt="" />
         </div>
       </div>
     </div>
@@ -71,10 +72,10 @@
   <!-- TRUST STRIP -->
   <section class="strip">
     <div class="container strip-inner">
-      <div class="strip-item"><strong>GPS</strong><span>Live-Routenaufzeichnung</span></div>
+      <div class="strip-item"><strong>GPS-Tracking</strong><span>Live-Route in der App</span></div>
       <div class="strip-item"><strong>Street View</strong><span>Markierungen im Detail</span></div>
-      <div class="strip-item"><strong>KI</strong><span>Automatisches Briefing</span></div>
-      <div class="strip-item"><strong>PWA</strong><span>Direkt im Browser</span></div>
+      <div class="strip-item"><strong>TÜV-Bewertung</strong><span>18 Aufgaben pro Stunde</span></div>
+      <div class="strip-item"><strong>KI-Briefing</strong><span>Automatisch vor jeder Stunde</span></div>
     </div>
   </section>
 
@@ -83,7 +84,7 @@
     <div class="container feature-grid">
       <div class="feature-text">
         <span class="kicker">Das Herzstück</span>
-        <h2>Routentracking mit Street View</h2>
+        <h2>GPS-Tracking mit Street-View-Markierungen</h2>
         <p>Sobald die Fahrstunde beginnt, läuft die GPS-Aufzeichnung. Die App zeigt live die gefahrene Strecke, Geschwindigkeit, Dauer und gesetzte Markierungen.</p>
         <ul class="check-list" role="list">
           <li>Live-Karte mit gefahrener Route, Strecke in km, Tempo und Timer</li>
@@ -92,10 +93,42 @@
           <li>Pausieren und Beenden direkt im Fahrmodus</li>
         </ul>
       </div>
-      <div class="feature-media">
+      <div class="feature-media feature-media-duo">
         <div class="phone phone-tilt">
           <div class="phone-notch"></div>
-          <img src="assets/screen_marker.jpeg" alt="Markierung setzen während der Fahrstunde mit optionaler Anmerkung in FahrDoc" loading="lazy" />
+          <img src="assets/screen_tracking_live.jpeg" alt="Live-Tracking: Karte mit gefahrener Route in Berlin, Timer 00:00:04, Strecke, Tempo, Markierungs-Button" loading="lazy" />
+        </div>
+        <div class="phone phone-tilt-r phone-offset">
+          <div class="phone-notch"></div>
+          <img src="assets/screen_marker_modal.jpeg" alt="Markierung setzen während der Fahrstunde mit optionaler Anmerkung" loading="lazy" />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HAUPTMERKMAL: BEWERTUNG WIE EIN TÜV-PRÜFER -->
+  <section class="feature-major" id="bewertung">
+    <div class="container feature-grid reverse">
+      <div class="feature-text">
+        <span class="kicker">Bewerten wie ein TÜV-Prüfer</span>
+        <h2>18 Aufgaben — strukturiert wie in der Prüfung</h2>
+        <p>Nach jeder Fahrstunde bewertest du strukturiert nach den gleichen Kategorien, die ein TÜV-Prüfer abfragt. Nicht bewertete Items fließen nicht in den Schnitt ein — du bewertest nur, was wirklich beobachtbar war.</p>
+        <ul class="check-list" role="list">
+          <li><strong>5 Beobachtungskategorien:</strong> Verkehrsbeobachtung, Fahrzeugpositionierung, Geschwindigkeitsanpassung, Kommunikation, Umweltbewusstsein</li>
+          <li><strong>8 Fahraufgaben:</strong> Kurven, Überholen, Abbiegen, Kreisverkehr, Fahrstreifenwechsel, Autobahn / Kraftfahrstraße u. m.</li>
+          <li><strong>5 Grundfahraufgaben:</strong> Bremsen mit höchstmöglicher Verzögerung, Rückwärtsfahren, Umkehren, Einparken längs &amp; quer</li>
+          <li>Vier Stufen pro Aufgabe: <em>Sehr gut · Gut · Ausreichend · Ungenügend</em></li>
+          <li>Notiz-Feld direkt je Aufgabe — ohne Extra-Klicks</li>
+        </ul>
+      </div>
+      <div class="feature-media feature-media-duo">
+        <div class="phone phone-tilt-r">
+          <div class="phone-notch"></div>
+          <img src="assets/screen_bewertung_tuev.jpeg" alt="Bewertungs-Übersicht: Wie ein TÜV-Prüfer bewerten, Beobachtungskategorien mit Sehr gut / Gut / Ausreichend / Ungenügend" loading="lazy" />
+        </div>
+        <div class="phone phone-tilt phone-offset">
+          <div class="phone-notch"></div>
+          <img src="assets/screen_bewertung_fahraufgaben.jpeg" alt="Fahraufgaben im Straßenverkehr: Kurven, Überholen, Abbiegen, Kreisverkehr, Fahrstreifenwechsel, Autobahn" loading="lazy" />
         </div>
       </div>
     </div>
@@ -103,21 +136,43 @@
 
   <!-- HAUPTMERKMAL: KI -->
   <section class="feature-major alt" id="ki">
-    <div class="container feature-grid reverse">
+    <div class="container feature-grid">
       <div class="feature-text">
         <span class="kicker">KI-Funktion</span>
-        <h2>KI-Briefing für die nächste Stunde</h2>
-        <p>FahrDoc wertet die dokumentierten Stunden aus und zeigt das aktuelle Können je Kategorie – von Abbiegen über Spurwechsel bis zum Schulterblick. Vor der nächsten Fahrstunde lässt sich daraus automatisch ein Briefing erzeugen.</p>
+        <h2>Automatisches KI-Briefing vor jeder Stunde</h2>
+        <p>FahrDoc wertet die letzten Fahrstunden aus und schreibt vor der nächsten Stunde automatisch ein Briefing — mit aktuellem Stand, was schon gut läuft, was geübt werden muss und einer konkreten Empfehlung für heute.</p>
         <ul class="check-list" role="list">
-          <li>Gesamtdurchschnitt und Bewertung je Fahrkategorie auf einen Blick</li>
-          <li>Status-Einstufung wie „Sicher", „Fortgeschritten" oder „Prüfungsreif"</li>
-          <li>Automatisch zusammengefasstes Briefing aus den letzten Stunden – auf Knopfdruck</li>
+          <li>Ein Tipp auf <strong>Briefing erstellen</strong> — die KI denkt nach</li>
+          <li>Strukturiert in 4 Teile: Aktueller Stand · Funktioniert gut · Muss geübt werden · Empfehlung</li>
+          <li>Basiert auf allen bisherigen Bewertungen, Notizen und gesetzten Markierungen</li>
+          <li>Neu generieren mit einem Tipp — immer aktuell vor jeder Stunde</li>
         </ul>
       </div>
-      <div class="feature-media">
-        <div class="phone phone-tilt-r">
+      <div class="feature-media feature-media-duo">
+        <div class="phone phone-tilt">
           <div class="phone-notch"></div>
-          <img src="assets/screen_ki.jpeg" alt="KI-Briefing und Können-Übersicht eines Fahrschülers in FahrDoc" loading="lazy" />
+          <img src="assets/screen_ki_loading.jpeg" alt="KI-Briefing wird erstellt: Lade-Animation mit Schriftzug KI denkt nach" loading="lazy" />
+        </div>
+        <div class="phone phone-tilt-r phone-offset">
+          <div class="phone-notch"></div>
+          <img src="assets/screen_ki_briefing.jpeg" alt="Fertiges KI-Briefing mit Aktuellem Stand, Was funktioniert gut, Was muss geübt werden und Empfehlung" loading="lazy" />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BONUS-STRIP: GRUNDFAHRAUFGABEN -->
+  <section class="showcase-strip" aria-label="Grundfahraufgaben">
+    <div class="container showcase-inner">
+      <div class="showcase-text">
+        <span class="kicker">Auch die Klassiker</span>
+        <h3>Grundfahraufgaben einzeln dokumentiert</h3>
+        <p>Abbremsen mit höchstmöglicher Verzögerung, Rückwärtsfahren mit Abbiegen, Umkehren, Einparken längs und quer — jede Aufgabe wird einzeln bewertet und später nachvollziehbar.</p>
+      </div>
+      <div class="showcase-media">
+        <div class="phone phone-tilt">
+          <div class="phone-notch"></div>
+          <img src="assets/screen_bewertung_grundfahr.jpeg" alt="Grundfahraufgaben in FahrDoc: Abbremsen, Rückwärtsfahren mit Abbiegen, Umkehren, Einparken längs und quer" loading="lazy" />
         </div>
       </div>
     </div>
@@ -182,33 +237,50 @@
     <div class="container">
       <div class="section-head">
         <span class="kicker">Preise</span>
-        <h2>Starte mit 14 Tagen kostenlos</h2>
-        <p class="section-sub">Nach der Testphase wählst du den passenden Plan. Jederzeit im Fahrschul-Profil verwaltbar.</p>
+        <h2>14 Tage kostenlos testen. Solo oder Fahrschule.</h2>
+        <p class="section-sub">Nach der Testphase wählst du den passenden Plan. Jederzeit monatlich kündbar — Solo direkt im Profil, Fahrschule im Stripe-Portal.</p>
         <p class="section-contact">Noch Fragen? Schreib uns jederzeit an <a href="mailto:info@fahrdoc.app">info@fahrdoc.app</a></p>
       </div>
-      <div class="price-grid">
+      <div class="price-grid price-grid-3">
+        <article class="price-card featured">
+          <span class="badge">Neu · Für Solo-Fahrlehrer</span>
+          <h3>FahrDoc Solo</h3>
+          <p class="price"><span class="amount">14,99 €</span><span class="per">/ Monat</span></p>
+          <p class="price-sub">Für selbständige Fahrlehrer ohne Fahrschule</p>
+          <ul class="price-list" role="list">
+            <li>GPS-Tracking mit Street-View-Markierungen</li>
+            <li>Bewertung wie ein TÜV-Prüfer (18 Aufgaben)</li>
+            <li><strong>KI-Briefing inklusive</strong></li>
+            <li>Unbegrenzte Schüler</li>
+            <li>Jederzeit monatlich kündbar</li>
+          </ul>
+          <a href="https://www.fahrdoc.app/app" class="btn btn-primary btn-block">14 Tage testen</a>
+        </article>
         <article class="price-card">
           <h3>FahrDoc Classic</h3>
-          <p class="price"><span class="amount">29,99 €</span><span class="per">/ Monat</span></p>
+          <p class="price"><span class="amount">29,99 €</span><span class="per">/ Fahrlehrer · Monat</span></p>
+          <p class="price-sub">Für Fahrschulen mit mehreren Lehrern</p>
           <ul class="price-list" role="list">
-            <li>GPS-Routentracking mit Street View</li>
+            <li>GPS-Tracking mit Street View</li>
+            <li>Bewertung wie ein TÜV-Prüfer</li>
             <li>Planung &amp; Termine anbieten</li>
             <li>Theorie- &amp; Fahrzeugverwaltung</li>
             <li>Dashboard &amp; Abrechnung</li>
           </ul>
           <a href="https://www.fahrdoc.app/app" class="btn btn-ghost btn-block">14 Tage testen</a>
         </article>
-        <article class="price-card featured">
-          <span class="badge">Mit KI-Funktion</span>
+        <article class="price-card">
+          <span class="badge badge-ki">Mit KI-Briefing</span>
           <h3>FahrDoc KI</h3>
-          <p class="price"><span class="amount">39,99 €</span><span class="per">/ Monat</span></p>
+          <p class="price"><span class="amount">39,99 €</span><span class="per">/ Fahrlehrer · Monat</span></p>
+          <p class="price-sub">Fahrschule mit KI-Funktion</p>
           <ul class="price-list" role="list">
             <li>Alles aus Classic</li>
             <li>KI-Briefing vor jeder Fahrstunde</li>
-            <li>Können-Auswertung je Kategorie</li>
             <li>Automatische Zusammenfassungen</li>
+            <li>Können-Auswertung je Kategorie</li>
           </ul>
-          <a href="https://www.fahrdoc.app/app" class="btn btn-primary btn-block">14 Tage testen</a>
+          <a href="https://www.fahrdoc.app/app" class="btn btn-ghost btn-block">14 Tage testen</a>
         </article>
       </div>
     </div>
