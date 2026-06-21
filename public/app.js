@@ -452,6 +452,17 @@ var App = {
   init: function() {
     ApiClient.init();
     this.applyTheme();
+    // pageshow: BFCache-Restore (Browser-Back von Stripe) — hängende Buttons reset + Cache invalidieren
+    window.addEventListener('pageshow', function(e) {
+      if (e.persisted) {
+        document.querySelectorAll('button[data-original-text]').forEach(function(b) {
+          b.disabled = false;
+          b.textContent = b.getAttribute('data-original-text');
+          b.removeAttribute('data-original-text');
+        });
+        AppState._soloSub = null;
+      }
+    });
     document.querySelectorAll('[data-theme-toggle]').forEach(function(btn) {
       btn.addEventListener('click', function() { App.toggleTheme(); });
     });
@@ -822,28 +833,30 @@ var App = {
   },
   // Solo-Checkout starten
   startSoloCheckout: async function() {
+    var btn = event && event.target;
+    var origText = btn ? btn.textContent : 'Jetzt freischalten';
     try {
-      var btn = event && event.target;
-      if (btn) { btn.disabled = true; btn.textContent = 'Lade Checkout...'; }
+      if (btn) { btn.disabled = true; btn.textContent = 'Lade Checkout...'; btn.setAttribute('data-original-text', origText); }
       var res = await ApiClient.post('/api/stripe/create-solo-checkout', {});
       if (res && res.url) { window.location.href = res.url; }
       else throw new Error('Keine Checkout-URL erhalten');
     } catch (e) {
       alert('Fehler beim Öffnen des Checkouts: ' + (e.message || e));
-      if (event && event.target) { event.target.disabled = false; event.target.textContent = 'Jetzt freischalten'; }
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
     }
   },
   // Solo-Portal öffnen (Abo verwalten/kündigen)
   openSoloPortal: async function() {
+    var btn = event && event.target;
+    var origText = btn ? btn.textContent : 'Abo verwalten';
     try {
-      var btn = event && event.target;
-      if (btn) { btn.disabled = true; btn.textContent = 'Lade Portal...'; }
+      if (btn) { btn.disabled = true; btn.textContent = 'Lade Portal...'; btn.setAttribute('data-original-text', origText); }
       var res = await ApiClient.post('/api/stripe/solo-portal', {});
       if (res && res.url) { window.location.href = res.url; }
       else throw new Error('Keine Portal-URL erhalten');
     } catch (e) {
       alert('Fehler beim Öffnen des Abo-Portals: ' + (e.message || e));
-      if (event && event.target) { event.target.disabled = false; event.target.textContent = 'Abo verwalten'; }
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
     }
   },
   // Solo-Abo-Card (im Profil-Tab): Plan + Status + Buttons
