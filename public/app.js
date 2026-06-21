@@ -5366,18 +5366,54 @@ var App = {
   initInstructorDashboard: async function() {
     var inst = AppState.currentUser;
     document.getElementById('instructor-name-display').textContent = inst.name;
-    try {
-      var data = await ApiClient.get('/api/instructor/dashboard');
+    AppState._cachedData = AppState._cachedData || {};
+
+    // Perf: Dashboard + Students + aktuelle Woche-Schedule + Theorie PARALLEL prefetchen.
+    // Damit Tab-Wechsel danach instant aus Cache rendern.
+    this.initWeek();
+    var w = this.getWeekDates(AppState.scheduleWeekStart);
+    var wsStr = formatDateLocal(w.monday);
+    var weStr = formatDateLocal(w.saturday);
+    var cacheKey = wsStr + '|inst';
+    AppState._cachedData._scheduleBundle = AppState._cachedData._scheduleBundle || {};
+
+    var dashP = ApiClient.get('/api/instructor/dashboard').catch(function(){ return null; });
+    var studP = ApiClient.get('/api/instructor/students').catch(function(){ return null; });
+    var schedP = ApiClient.get('/api/schedule?weekStart=' + wsStr + '&weekEnd=' + weStr).catch(function(){ return null; });
+    var theoryP = ApiClient.get('/api/theory/schedule?week_start=' + wsStr).catch(function(){ return []; });
+
+    var results = await Promise.all([dashP, studP, schedP, theoryP]);
+    var data = results[0];
+    var students = results[1];
+    var schedData = results[2];
+    var theorySchedule = results[3] || [];
+
+    if (data) {
       AppState._cachedData.instructorDash = data;
+      AppState._cachedData.instructorDashTs = Date.now();
       var banner = document.getElementById('instructor-expired-banner');
       if (data.isExpired) banner.classList.remove('hidden');
       else banner.classList.add('hidden');
-    } catch (e) {}
+    }
+    if (students) {
+      AppState._cachedData.instructorStudents = students;
+      AppState._cachedData.instructorStudentsTs = Date.now();
+    }
+    if (schedData) {
+      AppState._cachedData._scheduleBundle[cacheKey] = {
+        ts: Date.now(),
+        scheduleData: schedData,
+        theorySchedule: theorySchedule
+      };
+      AppState.scheduleData = schedData;
+    }
+
     this.loadNotifications();
     this.switchInstructorTab('dashboard');
   },
 
   switchInstructorTab: function(tab, btn) {
+    AppState.currentInstructorTab = tab;
     if (btn) {
       document.querySelectorAll('#instructor-nav .bottom-nav-item').forEach(function(b) { b.classList.remove('active'); });
       btn.classList.add('active');
@@ -5572,6 +5608,7 @@ var App = {
       this.closeSoloAddStudent();
       this.showToast('Schüler angelegt');
       AppState._cachedData.instructorDash = null;
+      AppState._cachedData.instructorStudents = null;
       if (AppState.currentScreen === 'instructor-dashboard') {
         // aktiven Tab neu rendern
         var active = document.querySelector('#instructor-nav .bottom-nav-item.active');
@@ -5586,29 +5623,66 @@ var App = {
   renderInstructorDashboardTab: async function() {
     var inst = AppState.currentUser;
     var main = document.getElementById('instructor-main');
-    main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
 
     this.initWeek();
     var w = this.getWeekDates(AppState.scheduleWeekStart);
     var wsStr = formatDateLocal(w.monday);
     var weStr = formatDateLocal(w.saturday);
 
-    // Perf: Schedule + Theory parallel laden
-    var data, theoryScheduleInst;
-    try {
-      var results = await Promise.all([
-        ApiClient.get('/api/schedule?weekStart=' + wsStr + '&weekEnd=' + weStr),
-        ApiClient.get('/api/theory/schedule?week_start=' + wsStr).catch(function() { return []; })
-      ]);
-      data = results[0];
-      theoryScheduleInst = results[1];
-      AppState.scheduleData = data;
-    } catch(e) {
-      main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + e.message + '</p></div>';
-      return;
+    // TTL-Cache (30s) — instant Re-Render bei Tab-Wechsel / Wochen-Navigation zurück
+    var cacheKey = wsStr + '|inst';
+    AppState._cachedData = AppState._cachedData || {};
+    AppState._cachedData._scheduleBundle = AppState._cachedData._scheduleBundle || {};
+    var cached = AppState._cachedData._scheduleBundle[cacheKey];
+    var cacheValid = cached && (Date.now() - cached.ts) < 30000;
+    var hasCache = !!cached;
+
+    // Spinner nur zeigen wenn KEIN Cache (auch nicht stale) verfügbar ist
+    if (!hasCache) {
+      main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
     }
 
-    var slots = AppState.scheduleData.slots || [];
+    var data, theoryScheduleInst;
+    if (cacheValid) {
+      data = cached.scheduleData;
+      theoryScheduleInst = cached.theorySchedule;
+    } else if (hasCache) {
+      // Stale-While-Revalidate: sofort mit altem Cache rendern, im Hintergrund refresh
+      data = cached.scheduleData;
+      theoryScheduleInst = cached.theorySchedule;
+      // Hintergrund-Refresh ohne UI-Block
+      Promise.all([
+        ApiClient.get('/api/schedule?weekStart=' + wsStr + '&weekEnd=' + weStr).catch(function(){ return null; }),
+        ApiClient.get('/api/theory/schedule?week_start=' + wsStr).catch(function(){ return []; })
+      ]).then(function(r) {
+        if (r[0]) {
+          AppState._cachedData._scheduleBundle[cacheKey] = {
+            ts: Date.now(), scheduleData: r[0], theorySchedule: r[1] || []
+          };
+          // Nur neu rendern wenn User noch auf dem Tab ist
+          if (AppState.currentInstructorTab === 'dashboard') App.renderInstructorDashboardTab();
+        }
+      });
+    } else {
+      // Erster Aufruf — sequentiell warten
+      try {
+        var results = await Promise.all([
+          ApiClient.get('/api/schedule?weekStart=' + wsStr + '&weekEnd=' + weStr),
+          ApiClient.get('/api/theory/schedule?week_start=' + wsStr).catch(function(){ return []; })
+        ]);
+        data = results[0];
+        theoryScheduleInst = results[1];
+        AppState._cachedData._scheduleBundle[cacheKey] = {
+          ts: Date.now(), scheduleData: data, theorySchedule: theoryScheduleInst
+        };
+      } catch(e) {
+        main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + e.message + '</p></div>';
+        return;
+      }
+    }
+    AppState.scheduleData = data;
+
+    var slots = (data && data.slots) ? data.slots.slice() : [];
 
     var instId = inst.id;
     (theoryScheduleInst || []).forEach(function(ts) {
@@ -5742,29 +5816,56 @@ var App = {
     main.innerHTML = html;
   },
 
+  _renderStudentsList: function(students) {
+    var main = document.getElementById('instructor-main');
+    var isSolo = App.isSolo();
+    var addBtn = isSolo ? '<button class="btn btn-primary btn-sm" onclick="App.openSoloAddStudent()">+ Schüler</button>' : '';
+    var html = '<div class="page-padding"><div class="section-header"><span class="section-title">' + t('meineSchueler') + ' (' + students.length + ')</span>' + addBtn + '</div>';
+    if (students.length === 0 && isSolo) {
+      html += '<div class="solo-empty"><div class="solo-empty-icon">👥</div>' +
+        '<div class="solo-empty-title">Noch keine Schüler</div>' +
+        '<div class="solo-empty-desc">Lege deinen ersten Schüler an, um Fahrstunden zu tracken.</div>' +
+        '<button class="btn btn-primary btn-lg" style="margin-top:16px;" onclick="App.openSoloAddStudent()">+ Schüler anlegen</button></div>';
+    } else {
+      students.forEach(function(st) {
+        html += '<div class="card card-interactive mb-3" onclick="App.viewStudentDetail(\'' + st.id + '\')"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
+          App.avatarHtml(st.name, '') +
+          '<div class="flex-1"><div style="font-weight:600;font-size:var(--text-sm);">' + st.name + '</div>' +
+          '<div class="text-xs text-muted">' + t('klasse') + ' ' + st.license_class + ' · ' + st.lessonCount + ' ' + t('fahrstunden') + '</div></div>' +
+          '<div>' + App.skillLevelHtml(st.avgSkill || 0) + '</div></div></div>';
+      });
+    }
+    html += '</div>';
+    main.innerHTML = html;
+  },
+
   renderInstructorStudentsTab: async function() {
     var main = document.getElementById('instructor-main');
+    AppState._cachedData = AppState._cachedData || {};
+    var cached = AppState._cachedData.instructorStudents;
+    var cachedTs = AppState._cachedData.instructorStudentsTs || 0;
+    var cacheValid = cached && (Date.now() - cachedTs) < 30000;
+
+    if (cached) {
+      // Sofort aus Cache rendern (auch wenn stale)
+      App._renderStudentsList(cached);
+      if (cacheValid) return;
+      // Stale: im Hintergrund refresh
+      ApiClient.get('/api/instructor/students').then(function(students) {
+        AppState._cachedData.instructorStudents = students;
+        AppState._cachedData.instructorStudentsTs = Date.now();
+        if (AppState.currentInstructorTab === 'students') App._renderStudentsList(students);
+      }).catch(function(){});
+      return;
+    }
+
+    // Kein Cache — Spinner + warten
     main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
     try {
       var students = await ApiClient.get('/api/instructor/students');
-      var isSolo = App.isSolo();
-      var addBtn = isSolo ? '<button class="btn btn-primary btn-sm" onclick="App.openSoloAddStudent()">+ Schüler</button>' : '';
-      var html = '<div class="page-padding"><div class="section-header"><span class="section-title">' + t('meineSchueler') + ' (' + students.length + ')</span>' + addBtn + '</div>';
-      if (students.length === 0 && isSolo) {
-        html += '<div class="solo-empty"><div class="solo-empty-icon">👥</div>' +
-          '<div class="solo-empty-title">Noch keine Schüler</div>' +
-          '<div class="solo-empty-desc">Lege deinen ersten Schüler an, um Fahrstunden zu tracken.</div>' +
-          '<button class="btn btn-primary btn-lg" style="margin-top:16px;" onclick="App.openSoloAddStudent()">+ Schüler anlegen</button></div>';
-      } else {
-        students.forEach(function(st) {
-          html += '<div class="card card-interactive mb-3" onclick="App.viewStudentDetail(\'' + st.id + '\')"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
-            App.avatarHtml(st.name, '') +
-            '<div class="flex-1"><div style="font-weight:600;font-size:var(--text-sm);">' + st.name + '</div>' +
-            '<div class="text-xs text-muted">' + t('klasse') + ' ' + st.license_class + ' · ' + st.lessonCount + ' ' + t('fahrstunden') + '</div></div>' +
-            '<div>' + App.skillLevelHtml(st.avgSkill || 0) + '</div></div></div>';
-        });
-      }
-      html += '</div>'; main.innerHTML = html;
+      AppState._cachedData.instructorStudents = students;
+      AppState._cachedData.instructorStudentsTs = Date.now();
+      App._renderStudentsList(students);
     } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
   },
 
