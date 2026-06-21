@@ -1411,13 +1411,21 @@ app.get('/api/instructor/dashboard', authMiddleware, async (req, res) => {
       .is('deleted_at', null)
       .order('date', { ascending: false });
 
+    // Perf: alle skill_ratings in EINEM Batch holen statt N+1
+    const lessonIdsAll = (allLessons || []).map(l => l.id);
+    const ratingsByLessonAll = {};
+    if (lessonIdsAll.length > 0) {
+      const { data: ratingsAll } = await supabase.from('skill_ratings')
+        .select('lesson_id, skill_name, rating').in('lesson_id', lessonIdsAll);
+      (ratingsAll || []).forEach(r => {
+        if (!ratingsByLessonAll[r.lesson_id]) ratingsByLessonAll[r.lesson_id] = {};
+        ratingsByLessonAll[r.lesson_id][r.skill_name] = r.rating;
+      });
+    }
     for (const l of (allLessons || [])) {
       l.student_name = l.students?.name || '?';
       delete l.students;
-      const { data: ratings } = await supabase.from('skill_ratings')
-        .select('skill_name, rating').eq('lesson_id', l.id);
-      l.ratings = {};
-      (ratings || []).forEach(r => { l.ratings[r.skill_name] = r.rating; });
+      l.ratings = ratingsByLessonAll[l.id] || {};
     }
 
     // Solo: kein school join, eigene Trial-Logik
@@ -1433,10 +1441,13 @@ app.get('/api/instructor/dashboard', authMiddleware, async (req, res) => {
       });
     }
 
-    const { data: school } = await supabase.from('schools')
-      .select('id, name').eq('id', req.user.school_id).single();
-    const { data: sub } = await supabase.from('subscriptions')
-      .select('*').eq('school_id', req.user.school_id).single();
+    // Perf: school + subscription parallel laden
+    const [schoolRes, subRes] = await Promise.all([
+      supabase.from('schools').select('id, name').eq('id', req.user.school_id).single(),
+      supabase.from('subscriptions').select('*').eq('school_id', req.user.school_id).single()
+    ]);
+    const school = schoolRes.data;
+    const sub = subRes.data;
     const isExpired = sub ? (new Date() > new Date(sub.trial_end) && !sub.is_active) : false;
 
     res.json({ students, lessons: allLessons || [], school, subscription: sub, isExpired, isSolo: false });
@@ -1486,22 +1497,41 @@ app.get('/api/instructor/students', authMiddleware, async (req, res) => {
       students = (links || []).map(l => l.students).filter(Boolean);
     }
 
+    // Perf: ALLE lessons der Schueler in EINER Query holen,
+    // dann lessonCount + latest_lesson_id pro Schueler im Speicher rechnen.
+    const studentIds = students.map(s => s.id);
+    const countByStudent = {};
+    const latestLessonIdByStudent = {};
+    const allLatestLessonIds = [];
+    if (studentIds.length > 0) {
+      const { data: lessonsAll } = await supabase.from('lessons')
+        .select('id, student_id, date')
+        .in('student_id', studentIds)
+        .is('deleted_at', null)
+        .order('date', { ascending: false });
+      (lessonsAll || []).forEach(l => {
+        countByStudent[l.student_id] = (countByStudent[l.student_id] || 0) + 1;
+        if (!latestLessonIdByStudent[l.student_id]) {
+          latestLessonIdByStudent[l.student_id] = l.id;
+          allLatestLessonIds.push(l.id);
+        }
+      });
+    }
+    // Alle Ratings der "latest" Lessons in EINEM Batch
+    const ratingsByLatestLesson = {};
+    if (allLatestLessonIds.length > 0) {
+      const { data: ratingsBatch } = await supabase.from('skill_ratings')
+        .select('lesson_id, rating').in('lesson_id', allLatestLessonIds);
+      (ratingsBatch || []).forEach(r => {
+        if (!ratingsByLatestLesson[r.lesson_id]) ratingsByLatestLesson[r.lesson_id] = [];
+        ratingsByLatestLesson[r.lesson_id].push(r.rating);
+      });
+    }
     for (const st of students) {
-      const { count } = await supabase.from('lessons')
-        .select('id', { count: 'exact', head: true }).eq('student_id', st.id).is('deleted_at', null);
-      st.lessonCount = count || 0;
-
-      if (st.lessonCount > 0) {
-        const { data: latest } = await supabase.from('lessons')
-          .select('id').eq('student_id', st.id).is('deleted_at', null).order('date', { ascending: false }).limit(1);
-        if (latest && latest[0]) {
-          const { data: ratings } = await supabase.from('skill_ratings')
-            .select('rating').eq('lesson_id', latest[0].id);
-          let sum = 0;
-          (ratings || []).forEach(r => sum += r.rating);
-          st.avgSkill = ratings && ratings.length > 0 ? sum / ratings.length : 0;
-        } else { st.avgSkill = 0; }
-      } else { st.avgSkill = 0; }
+      st.lessonCount = countByStudent[st.id] || 0;
+      const latestId = latestLessonIdByStudent[st.id];
+      const rArr = latestId ? (ratingsByLatestLesson[latestId] || []) : [];
+      st.avgSkill = rArr.length > 0 ? (rArr.reduce((a, b) => a + b, 0) / rArr.length) : 0;
     }
 
     res.json(students);
@@ -2286,16 +2316,16 @@ app.get('/api/schedule', authMiddleware, async (req, res) => {
     query = query.order('date').order('start_time');
     const { data: slots } = await query;
 
-    // Load branches + secretaries lookup maps for this school
+    // Load branches + secretaries lookup maps for this school (parallel)
     const branchMap = {};
     const secretaryMap = {};
     try {
-      const { data: brs } = await supabase.from('school_branches')
-        .select('id, name, address').eq('school_id', schoolId);
-      (brs || []).forEach(b => { branchMap[b.id] = b; });
-      const { data: secs } = await supabase.from('school_secretaries')
-        .select('id, name').eq('school_id', schoolId);
-      (secs || []).forEach(s => { secretaryMap[s.id] = s; });
+      const [brsRes, secsRes] = await Promise.all([
+        supabase.from('school_branches').select('id, name, address').eq('school_id', schoolId),
+        supabase.from('school_secretaries').select('id, name').eq('school_id', schoolId)
+      ]);
+      (brsRes.data || []).forEach(b => { branchMap[b.id] = b; });
+      (secsRes.data || []).forEach(s => { secretaryMap[s.id] = s; });
     } catch (e) {
       // Tables may not exist in older deployments — ignore
     }

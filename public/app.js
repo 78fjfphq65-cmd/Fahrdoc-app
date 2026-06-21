@@ -1590,8 +1590,17 @@ var App = {
     // Read-only für: Schüler, Fahrzeug, Filiale, Sekretärin, Klasse, Typ, Datum, Zeit.
     var isInstructorReadonly = isEdit && AppState.currentUser && AppState.currentUser.role === 'instructor'
       && editSlot && editSlot.created_by_role === 'school';
-    var roAttr = isInstructorReadonly ? ' disabled' : '';
-    var roStyle = isInstructorReadonly ? ' style="background:var(--color-surface-2);color:var(--text-muted);"' : '';
+    // Helper: statisches Read-only-Anzeigefeld (linksbündig, dezent)
+    var roField = function(text) {
+      return '<div class="form-input" style="background:var(--color-surface-2);color:var(--text-default);border-color:transparent;text-align:left;">' +
+        (text || '—') + '</div>';
+    };
+    var fmtDateDE = function(iso) {
+      if (!iso) return '—';
+      var p = iso.split('-');
+      if (p.length !== 3) return iso;
+      return p[2] + '.' + p[1] + '.' + p[0];
+    };
 
     var html = '<form id="schedule-form" onsubmit="event.preventDefault();">';
 
@@ -1606,49 +1615,97 @@ var App = {
       html += '</select></div>';
     }
 
-    html += '<div class="form-group mb-3"><label class="form-label">' + t('typ') + '</label>' +
-      '<select class="form-select" id="schedule-type" onchange="App.onScheduleTypeChange()"' + roAttr + roStyle + '>';
-    SCHEDULE_TYPES.forEach(function(st) {
-      html += '<option value="' + st + '"' + (st === type ? ' selected' : '') + '>' + tType(st) + '</option>';
-    });
-    html += '</select></div>';
+    html += '<div class="form-group mb-3"><label class="form-label">' + t('typ') + '</label>';
+    if (isInstructorReadonly) {
+      html += roField(tType(type));
+    } else {
+      html += '<select class="form-select" id="schedule-type" onchange="App.onScheduleTypeChange()">';
+      SCHEDULE_TYPES.forEach(function(st) {
+        html += '<option value="' + st + '"' + (st === type ? ' selected' : '') + '>' + tType(st) + '</option>';
+      });
+      html += '</select>';
+    }
+    html += '</div>';
 
-    html += '<div class="form-group mb-3"><label class="form-label">' + t('datum') + '</label>' +
-      '<input class="form-input" type="date" id="schedule-date" value="' + date + '"' + roAttr + roStyle + '></div>';
+    html += '<div class="form-group mb-3"><label class="form-label">' + t('datum') + '</label>';
+    if (isInstructorReadonly) {
+      html += roField(fmtDateDE(date));
+    } else {
+      html += '<input class="form-input" type="date" id="schedule-date" value="' + date + '">';
+    }
+    html += '</div>';
 
     html += '<div class="form-row form-row-2 mb-3">' +
       '<div class="form-group"><label class="form-label">' + t('start') + '</label>' +
-        '<input class="form-input" type="time" id="schedule-start-time" value="' + startTime + '" onchange="App.onScheduleStartChange()"' + roAttr + roStyle + '></div>' +
+        (isInstructorReadonly
+          ? roField(startTime)
+          : '<input class="form-input" type="time" id="schedule-start-time" value="' + startTime + '" onchange="App.onScheduleStartChange()">') +
+      '</div>' +
       '<div class="form-group"><label class="form-label">' + t('ende') + '</label>' +
-        '<input class="form-input" type="time" id="schedule-end-time" value="' + endTime + '" onchange="App.onScheduleEndManual()"' + roAttr + roStyle + '></div>' +
+        (isInstructorReadonly
+          ? roField(endTime)
+          : '<input class="form-input" type="time" id="schedule-end-time" value="' + endTime + '" onchange="App.onScheduleEndManual()">') +
+      '</div>' +
     '</div>';
 
     // Student selector
-    html += '<div class="form-group mb-3"><label class="form-label">' + t('schuelerLeer') + '</label>' +
-      '<select class="form-select" id="schedule-student"' + roAttr + roStyle + '><option value="">— Offener Block —</option></select></div>';
+    html += '<div class="form-group mb-3"><label class="form-label">' + t('schuelerLeer') + '</label>';
+    if (isInstructorReadonly) {
+      var roStudentName = editSlot.student_name ? (editSlot.student_name + (editSlot.student_license_class ? ' (Klasse ' + editSlot.student_license_class + ')' : '')) : '— Offener Block —';
+      html += roField(roStudentName);
+    } else {
+      html += '<select class="form-select" id="schedule-student"><option value="">— Offener Block —</option></select>';
+    }
+    html += '</div>';
 
     // Vehicle selector
     var vehicleId = isEdit ? (editSlot.vehicle_id || '') : '';
-    html += '<div class="form-group mb-3"><label class="form-label">Fahrzeug</label>' +
-      '<select class="form-select" id="schedule-vehicle"' + roAttr + roStyle + '><option value="">— Kein Fahrzeug —</option></select></div>';
+    html += '<div class="form-group mb-3"><label class="form-label">Fahrzeug</label>';
+    if (isInstructorReadonly) {
+      var roVehicle = '— Kein Fahrzeug —';
+      if (editSlot.vehicle_brand || editSlot.vehicle_plate) {
+        roVehicle = (editSlot.vehicle_brand || '') + (editSlot.vehicle_plate ? ' · ' + editSlot.vehicle_plate : '');
+      }
+      html += roField(roVehicle);
+    } else {
+      html += '<select class="form-select" id="schedule-vehicle"><option value="">— Kein Fahrzeug —</option></select>';
+    }
+    html += '</div>';
 
-    // Filiale + Sekretärin (Plus only — Container wird in loadScheduleBranches/-Secretaries angezeigt/versteckt)
+    // Filiale + Sekretärin (Plus only)
     var branchId = isEdit ? (editSlot.branch_id || '') : '';
     var secretaryId = isEdit ? (editSlot.secretary_id || '') : '';
-    html += '<div id="schedule-branch-row" class="form-group mb-3" style="display:none;">' +
-      '<label class="form-label">Filiale</label>' +
-      '<select class="form-select" id="schedule-branch"' + roAttr + roStyle + '><option value="">— Keine Filiale —</option></select></div>';
-    html += '<div id="schedule-secretary-row" class="form-group mb-3" style="display:none;">' +
-      '<label class="form-label">Sekretärin</label>' +
-      '<select class="form-select" id="schedule-secretary"' + roAttr + roStyle + '><option value="">— Keine Sekretärin —</option></select></div>';
+    if (isInstructorReadonly) {
+      // Read-only: nur anzeigen wenn am Termin gesetzt
+      if (editSlot.branch_name) {
+        html += '<div class="form-group mb-3"><label class="form-label">Filiale</label>' +
+          roField(editSlot.branch_name + (editSlot.branch_address ? ' · ' + editSlot.branch_address : '')) +
+          '</div>';
+      }
+      if (editSlot.secretary_name) {
+        html += '<div class="form-group mb-3"><label class="form-label">Sekretärin</label>' +
+          roField(editSlot.secretary_name) +
+          '</div>';
+      }
+    } else {
+      html += '<div id="schedule-branch-row" class="form-group mb-3" style="display:none;">' +
+        '<label class="form-label">Filiale</label>' +
+        '<select class="form-select" id="schedule-branch"><option value="">— Keine Filiale —</option></select></div>';
+      html += '<div id="schedule-secretary-row" class="form-group mb-3" style="display:none;">' +
+        '<label class="form-label">Sekretärin</label>' +
+        '<select class="form-select" id="schedule-secretary"><option value="">— Keine Sekretärin —</option></select></div>';
+    }
 
     html += '<div class="form-row form-row-2 mb-3">' +
       '<div class="form-group"><label class="form-label">' + t('klasse') + '</label>' +
-        '<select class="form-select" id="schedule-class"' + roAttr + roStyle + '>' +
-          ['B','B78','B96','B196','B197','BE','A','A1','A2','AM','BF17','C','CE','D','L','T'].map(function(k){
-            return '<option value="' + k + '"' + (cls === k ? ' selected' : '') + '>' + k + '</option>';
-          }).join('') +
-        '</select></div>' +
+        (isInstructorReadonly
+          ? roField(cls)
+          : '<select class="form-select" id="schedule-class">' +
+            ['B','B78','B96','B196','B197','BE','A','A1','A2','AM','BF17','C','CE','D','L','T'].map(function(k){
+              return '<option value="' + k + '"' + (cls === k ? ' selected' : '') + '>' + k + '</option>';
+            }).join('') +
+            '</select>') +
+      '</div>' +
       '<div class="form-group"><label class="form-label">' + t('dauer') + '</label>' +
         '<div class="form-input" style="background:var(--color-surface-2);border:none;" id="schedule-duration-display">—</div></div>' +
     '</div>';
@@ -5536,8 +5593,15 @@ var App = {
     var wsStr = formatDateLocal(w.monday);
     var weStr = formatDateLocal(w.saturday);
 
+    // Perf: Schedule + Theory parallel laden
+    var data, theoryScheduleInst;
     try {
-      var data = await ApiClient.get('/api/schedule?weekStart=' + wsStr + '&weekEnd=' + weStr);
+      var results = await Promise.all([
+        ApiClient.get('/api/schedule?weekStart=' + wsStr + '&weekEnd=' + weStr),
+        ApiClient.get('/api/theory/schedule?week_start=' + wsStr).catch(function() { return []; })
+      ]);
+      data = results[0];
+      theoryScheduleInst = results[1];
       AppState.scheduleData = data;
     } catch(e) {
       main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + e.message + '</p></div>';
@@ -5546,27 +5610,23 @@ var App = {
 
     var slots = AppState.scheduleData.slots || [];
 
-    // Fetch theory schedule for this week (instructor sees assigned blocks)
-    try {
-      var theoryScheduleInst = await ApiClient.get('/api/theory/schedule?week_start=' + wsStr);
-      var instId = inst.id;
-      (theoryScheduleInst || []).forEach(function(ts) {
-        if (ts.instructor_id === instId) {
-          slots.push({
-            id: ts.id,
-            date: ts.date,
-            start_time: ts.start_time,
-            end_time: ts.end_time,
-            slot_type: 'theory',
-            theory_topic_number: ts.theory_topics ? ts.theory_topics.topic_number : '?',
-            theory_topic_title: ts.theory_topics ? ts.theory_topics.title : '',
-            instructor_id: ts.instructor_id,
-            instructor_name: ts.instructor_name,
-            status: ts.status
-          });
-        }
-      });
-    } catch(e) {}
+    var instId = inst.id;
+    (theoryScheduleInst || []).forEach(function(ts) {
+      if (ts.instructor_id === instId) {
+        slots.push({
+          id: ts.id,
+          date: ts.date,
+          start_time: ts.start_time,
+          end_time: ts.end_time,
+          slot_type: 'theory',
+          theory_topic_number: ts.theory_topics ? ts.theory_topics.topic_number : '?',
+          theory_topic_title: ts.theory_topics ? ts.theory_topics.title : '',
+          instructor_id: ts.instructor_id,
+          instructor_name: ts.instructor_name,
+          status: ts.status
+        });
+      }
+    });
 
     var selectedDay = AppState.scheduleSelectedDay || 0;
     if (selectedDay >= w.days.length) selectedDay = 0;
