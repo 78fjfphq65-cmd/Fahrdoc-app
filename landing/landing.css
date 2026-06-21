@@ -146,7 +146,7 @@ p { text-wrap:pretty; }
   position:relative; width:270px; aspect-ratio:9/19.5; background:#0c0f0e;
   border-radius:38px; padding:9px; box-shadow:var(--shadow-lg); flex-shrink:0;
 }
-.phone img { width:100%; height:100%; object-fit:cover; border-radius:30px; }
+.phone img { width:100%; height:100%; object-fit:contain; object-position:top; background:#ffffff; border-radius:30px; display:block; }
 .phone-notch { position:absolute; top:9px; left:50%; transform:translateX(-50%); width:90px; height:22px; background:#0c0f0e; border-radius:0 0 14px 14px; z-index:2; }
 .hero-visual .phone { z-index:2; transform:rotate(-3deg); }
 .phone-back { position:absolute; right:8%; top:6%; width:230px; transform:rotate(6deg); opacity:.85; z-index:1; box-shadow:var(--shadow-md); }
