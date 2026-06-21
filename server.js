@@ -101,9 +101,26 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object;
+        const accountType = session.metadata?.account_type;
+        const subscriptionId = session.subscription;
+
+        // SOLO: instructor-Abo
+        if (accountType === 'solo' && session.metadata?.instructor_id && subscriptionId) {
+          const instructorId = session.metadata.instructor_id;
+          const sub = await stripe.subscriptions.retrieve(subscriptionId);
+          throwIfDbError(await supabase.from('instructors').update({
+            stripe_customer_id: session.customer,
+            stripe_subscription_id: subscriptionId,
+            subscription_status: sub.status,
+            subscription_plan: 'solo',
+            current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+            cancel_at_period_end: sub.cancel_at_period_end
+          }).eq('id', instructorId), 'webhook:solo-checkout-completed');
+          break;
+        }
+
         const schoolId = session.metadata?.school_id;
         const planFromMeta = session.metadata?.plan || 'classic';
-        const subscriptionId = session.subscription;
         if (schoolId && subscriptionId) {
           const sub = await stripe.subscriptions.retrieve(subscriptionId);
           const priceId = sub.items.data[0]?.price?.id;
@@ -136,6 +153,19 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
       case 'customer.subscription.deleted': {
         const sub = event.data.object;
         const wasCancelled = event.type === 'customer.subscription.deleted' || sub.status === 'canceled';
+
+        // SOLO: instructor-Lookup
+        const { data: soloInst } = await supabase.from('instructors')
+          .select('id, email, name').eq('stripe_subscription_id', sub.id).maybeSingle();
+        if (soloInst) {
+          throwIfDbError(await supabase.from('instructors').update({
+            subscription_status: sub.status,
+            current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+            cancel_at_period_end: sub.cancel_at_period_end
+          }).eq('id', soloInst.id), 'webhook:solo-subscription-updated');
+          break;
+        }
+
         const { data: existing } = await supabase.from('subscriptions')
           .select('school_id').eq('stripe_subscription_id', sub.id).single();
         if (existing) {
@@ -256,7 +286,7 @@ async function authMiddleware(req, res, next) {
     if (data) { user = data; user.role = 'school'; }
   } else if (session.user_role === 'instructor') {
     const { data } = await supabase.from('instructors')
-      .select('id, name, email, phone, school_id, verified, account_type, subscription_plan, subscription_status, solo_trial_ends_at')
+      .select('id, name, email, phone, school_id, verified, account_type, subscription_plan, subscription_status, solo_trial_ends_at, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id')
       .eq('id', session.user_id).single();
     if (data) { user = data; user.role = 'instructor'; }
   } else if (session.user_role === 'student') {
@@ -2885,7 +2915,8 @@ app.get('/api/stripe/config', (req, res) => {
     perSeat: true,
     plans: {
       classic: { priceId: process.env.STRIPE_PRICE_ID_CLASSIC || '', name: 'FahrDoc Classic', price: 29.99, currency: 'EUR', perSeat: true, unit: 'Fahrlehrer', features: ['Pro Fahrlehrer/Monat', 'Unbegrenzte Schüler', 'Kalender & Slot-Buchung', 'Schein-Verwaltung', 'PDF-Bescheinigungen', 'Email-Support'] },
-      ki: { priceId: process.env.STRIPE_PRICE_ID_KI || '', name: 'FahrDoc KI', price: 39.99, currency: 'EUR', perSeat: true, unit: 'Fahrlehrer', features: ['Pro Fahrlehrer/Monat', 'Alles aus Classic', 'KI-Briefing vor jeder Fahrstunde', 'Automatische Lernfortschritt-Analyse', 'Unbegrenzte KI-Anfragen', 'Prioritäts-Support'] }
+      ki: { priceId: process.env.STRIPE_PRICE_ID_KI || '', name: 'FahrDoc KI', price: 39.99, currency: 'EUR', perSeat: true, unit: 'Fahrlehrer', features: ['Pro Fahrlehrer/Monat', 'Alles aus Classic', 'KI-Briefing vor jeder Fahrstunde', 'Automatische Lernfortschritt-Analyse', 'Unbegrenzte KI-Anfragen', 'Prioritäts-Support'] },
+      solo: { priceId: process.env.STRIPE_SOLO_PRICE_ID || '', name: 'FahrDoc Solo', price: 14.99, currency: 'EUR', perSeat: false, unit: 'Monat', features: ['Unbegrenzte Schüler', 'Fahrstunden-Tracking', 'KI-Briefing vor jeder Fahrstunde', 'Lernfortschritt & Bewertungen', 'Mobile App (PWA)', 'Email-Support'] }
     }
   });
 });
@@ -3078,6 +3109,141 @@ app.get('/api/stripe/subscription', authMiddleware, async (req, res) => {
     });
   } catch (err) {
     console.error('[Stripe Sub Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// STRIPE SOLO: Subscription-Status (Trial / Aktiv / Gekündigt / Abgelaufen)
+// ============================================
+app.get('/api/stripe/solo-subscription', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'instructor' || req.user.account_type !== 'solo') {
+      return res.status(403).json({ error: 'Nur für Solo-Fahrlehrer' });
+    }
+
+    // Bei aktivem Stripe-Abo: live von Stripe syncen
+    if (stripe && req.user.stripe_subscription_id) {
+      try {
+        const stripeSub = await stripe.subscriptions.retrieve(req.user.stripe_subscription_id);
+        const updates = {
+          subscription_status: stripeSub.status,
+          current_period_end: new Date(stripeSub.current_period_end * 1000).toISOString(),
+          cancel_at_period_end: stripeSub.cancel_at_period_end
+        };
+        await supabase.from('instructors').update(updates).eq('id', req.user.id);
+        Object.assign(req.user, updates);
+      } catch (e) { /* offline: cached */ }
+    }
+
+    var now = new Date();
+    var trialEnd = req.user.solo_trial_ends_at ? new Date(req.user.solo_trial_ends_at) : null;
+    var periodEnd = req.user.current_period_end ? new Date(req.user.current_period_end) : null;
+    var status = req.user.subscription_status || null;
+    var hasStripe = !!req.user.stripe_subscription_id;
+
+    var trialDaysLeft = trialEnd ? Math.max(0, Math.ceil((trialEnd - now) / (1000*60*60*24))) : null;
+    var trialExpired = trialEnd ? (trialEnd < now) : false;
+
+    // Effektiver State
+    var state = 'trial';
+    var locked = false;
+    if (hasStripe && (status === 'active' || status === 'trialing')) {
+      state = req.user.cancel_at_period_end ? 'cancelling' : 'active';
+    } else if (hasStripe && status === 'past_due') {
+      state = 'past_due';
+    } else if (hasStripe && status === 'canceled' && periodEnd && periodEnd > now) {
+      state = 'cancelled_grace';
+    } else if (hasStripe && status === 'canceled' && (!periodEnd || periodEnd <= now)) {
+      state = 'cancelled_expired'; locked = true;
+    } else if (trialExpired) {
+      state = 'trial_expired'; locked = true;
+    } else {
+      state = 'trial';
+    }
+
+    res.json({
+      state: state,
+      locked: locked,
+      has_stripe: hasStripe,
+      status: status,
+      trial_ends_at: req.user.solo_trial_ends_at || null,
+      trial_days_left: trialDaysLeft,
+      trial_expired: trialExpired,
+      current_period_end: req.user.current_period_end || null,
+      cancel_at_period_end: !!req.user.cancel_at_period_end,
+      price: 14.99,
+      currency: 'EUR'
+    });
+  } catch (err) {
+    console.error('[Solo Subscription Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// STRIPE SOLO: Checkout-Session (Solo abschließen)
+// ============================================
+app.post('/api/stripe/create-solo-checkout', authMiddleware, async (req, res) => {
+  if (!stripe) return res.status(500).json({ error: 'Stripe nicht konfiguriert' });
+  if (req.user.role !== 'instructor' || req.user.account_type !== 'solo') {
+    return res.status(403).json({ error: 'Nur für Solo-Fahrlehrer' });
+  }
+  try {
+    const priceId = process.env.STRIPE_SOLO_PRICE_ID;
+    if (!priceId) return res.status(500).json({ error: 'Solo-Tarif nicht konfiguriert. Bitte Admin kontaktieren.' });
+
+    // Customer holen oder anlegen
+    let customerId = req.user.stripe_customer_id;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: req.user.email,
+        name: req.user.name,
+        metadata: { instructor_id: req.user.id, account_type: 'solo', app: 'fahrdoc' }
+      });
+      customerId = customer.id;
+      await supabase.from('instructors').update({ stripe_customer_id: customerId }).eq('id', req.user.id);
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: 'subscription',
+      payment_method_types: ['card', 'sepa_debit'],
+      line_items: [{ price: priceId, quantity: 1 }],
+      subscription_data: {
+        metadata: { instructor_id: req.user.id, account_type: 'solo' }
+      },
+      metadata: { instructor_id: req.user.id, account_type: 'solo' },
+      success_url: `${req.protocol}://${req.get('host')}/app/?solo_checkout=success`,
+      cancel_url: `${req.protocol}://${req.get('host')}/app/?solo_checkout=cancel`,
+      locale: 'de',
+      allow_promotion_codes: true
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('[Solo Checkout Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// STRIPE SOLO: Customer Portal (Abo verwalten / kündigen)
+// ============================================
+app.post('/api/stripe/solo-portal', authMiddleware, async (req, res) => {
+  if (!stripe) return res.status(500).json({ error: 'Stripe nicht konfiguriert' });
+  if (req.user.role !== 'instructor' || req.user.account_type !== 'solo') {
+    return res.status(403).json({ error: 'Nur für Solo-Fahrlehrer' });
+  }
+  try {
+    if (!req.user.stripe_customer_id) return res.status(404).json({ error: 'Kein Abo gefunden' });
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: req.user.stripe_customer_id,
+      return_url: `${req.protocol}://${req.get('host')}/app/`
+    });
+    res.json({ url: portalSession.url });
+  } catch (err) {
+    console.error('[Solo Portal Error]', err);
     res.status(500).json({ error: err.message });
   }
 });

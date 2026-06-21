@@ -595,6 +595,17 @@ var App = {
       } else if (params.get('stripe') === 'cancel') {
         setTimeout(function() { App.showToast('Checkout abgebrochen'); }, 500);
         window.history.replaceState({}, '', window.location.pathname);
+      } else if (params.get('solo_checkout') === 'success') {
+        AppState._soloSub = null; // Cache invalidieren
+        setTimeout(function() {
+          App.showToast('Abo erfolgreich gestartet — willkommen bei FahrDoc!');
+          // Refresh aktuelle Tab
+          if (App.isSolo()) App.switchInstructorTab(AppState.currentInstructorTab || 'dashboard');
+        }, 500);
+        window.history.replaceState({}, '', window.location.pathname);
+      } else if (params.get('solo_checkout') === 'cancel') {
+        setTimeout(function() { App.showToast('Checkout abgebrochen'); }, 500);
+        window.history.replaceState({}, '', window.location.pathname);
       }
     } catch (e) { ApiClient.setToken(null); } finally { this.showLoading(false); }
   },
@@ -787,6 +798,131 @@ var App = {
   },
   brandName: function() {
     return this.isSolo() ? 'FahrDoc' : 'FahrDoc Plus';
+  },
+  // Solo-Subscription-Status laden (gecacht 60s)
+  loadSoloSubscription: async function(force) {
+    if (!this.isSolo()) return null;
+    var cached = AppState._soloSub;
+    if (!force && cached && (Date.now() - cached._ts) < 60000) return cached;
+    try {
+      var sub = await ApiClient.get('/api/stripe/solo-subscription');
+      sub._ts = Date.now();
+      AppState._soloSub = sub;
+      return sub;
+    } catch (e) { return null; }
+  },
+  // Solo-Checkout starten
+  startSoloCheckout: async function() {
+    try {
+      var btn = event && event.target;
+      if (btn) { btn.disabled = true; btn.textContent = 'Lade Checkout...'; }
+      var res = await ApiClient.post('/api/stripe/create-solo-checkout', {});
+      if (res && res.url) { window.location.href = res.url; }
+      else throw new Error('Keine Checkout-URL erhalten');
+    } catch (e) {
+      alert('Fehler beim Öffnen des Checkouts: ' + (e.message || e));
+      if (event && event.target) { event.target.disabled = false; event.target.textContent = 'Jetzt freischalten'; }
+    }
+  },
+  // Solo-Portal öffnen (Abo verwalten/kündigen)
+  openSoloPortal: async function() {
+    try {
+      var btn = event && event.target;
+      if (btn) { btn.disabled = true; btn.textContent = 'Lade Portal...'; }
+      var res = await ApiClient.post('/api/stripe/solo-portal', {});
+      if (res && res.url) { window.location.href = res.url; }
+      else throw new Error('Keine Portal-URL erhalten');
+    } catch (e) {
+      alert('Fehler beim Öffnen des Abo-Portals: ' + (e.message || e));
+      if (event && event.target) { event.target.disabled = false; event.target.textContent = 'Abo verwalten'; }
+    }
+  },
+  // Solo-Abo-Card (im Profil-Tab): Plan + Status + Buttons
+  soloAboCardHtml: function(sub) {
+    if (!sub) return '';
+    var row = function(label, val) {
+      return '<div class="profile-row"><span class="profile-row-label">' + label + '</span><span class="profile-row-value">' + val + '</span></div>';
+    };
+    var planLabel, statusLabel, actionBtns = '';
+    var endDate = sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString('de-DE') : '—';
+    var trialEndDate = sub.trial_ends_at ? new Date(sub.trial_ends_at).toLocaleDateString('de-DE') : '—';
+
+    if (sub.state === 'active') {
+      planLabel = 'FahrDoc Solo (14,99 €/Monat)';
+      statusLabel = '✓ Aktiv';
+      actionBtns = '<button class="btn btn-secondary btn-full" style="margin-top:12px;" onclick="App.openSoloPortal()">Abo verwalten</button>';
+    } else if (sub.state === 'cancelling') {
+      planLabel = 'FahrDoc Solo (gekündigt)';
+      statusLabel = 'Läuft bis ' + endDate;
+      actionBtns = '<button class="btn btn-secondary btn-full" style="margin-top:12px;" onclick="App.openSoloPortal()">Abo verwalten</button>';
+    } else if (sub.state === 'past_due') {
+      planLabel = 'FahrDoc Solo';
+      statusLabel = '⚠️ Zahlung fehlgeschlagen';
+      actionBtns = '<button class="btn btn-primary btn-full" style="margin-top:12px;" onclick="App.openSoloPortal()">Zahlung aktualisieren</button>';
+    } else if (sub.state === 'cancelled_grace') {
+      planLabel = 'FahrDoc Solo (läuft aus)';
+      statusLabel = 'Noch bis ' + endDate;
+      actionBtns = '<button class="btn btn-primary btn-full" style="margin-top:12px;" onclick="App.startSoloCheckout()">Erneut abonnieren</button>';
+    } else if (sub.state === 'cancelled_expired') {
+      planLabel = 'FahrDoc Solo (abgelaufen)';
+      statusLabel = 'Kein aktives Abo';
+      actionBtns = '<button class="btn btn-primary btn-full" style="margin-top:12px;" onclick="App.startSoloCheckout()">Jetzt freischalten – 14,99 €/Monat</button>';
+    } else if (sub.state === 'trial_expired') {
+      planLabel = 'FahrDoc Solo (Trial abgelaufen)';
+      statusLabel = 'Testzeitraum beendet';
+      actionBtns = '<button class="btn btn-primary btn-full" style="margin-top:12px;" onclick="App.startSoloCheckout()">Jetzt freischalten – 14,99 €/Monat</button>';
+    } else {
+      // trial (aktiv)
+      planLabel = 'FahrDoc Solo (Trial)';
+      statusLabel = sub.trial_days_left !== null ? 'Noch ' + sub.trial_days_left + ' Tage gratis' : 'Trial aktiv';
+      actionBtns = '<button class="btn btn-primary btn-full" style="margin-top:12px;" onclick="App.startSoloCheckout()">Jetzt freischalten – 14,99 €/Monat</button>';
+    }
+
+    var endRow = (sub.state === 'active' || sub.state === 'cancelling' || sub.state === 'cancelled_grace') ?
+      row(sub.cancel_at_period_end ? 'Läuft bis' : 'Nächste Abbuchung', endDate) :
+      (sub.state === 'trial' ? row('Trial endet am', trialEndDate) : '');
+
+    return '<div class="card mb-4">' +
+      '<div class="section-title mb-3">Abo</div>' +
+      row('Plan', planLabel) +
+      row('Status', statusLabel) +
+      endRow +
+      actionBtns +
+      '</div>';
+  },
+  // Solo-Subscription-Banner HTML (sanfter Lock)
+  soloSubBannerHtml: function(sub) {
+    if (!sub) return '';
+    if (sub.state === 'active') return '';
+    var box = function(emoji, title, msg, btnLabel, btnAction, kind) {
+      var bg = kind === 'warn' ? 'background:linear-gradient(135deg,#fff7ed,#fed7aa);border:1px solid #fb923c;color:#7c2d12;'
+             : kind === 'error' ? 'background:linear-gradient(135deg,#fef2f2,#fecaca);border:1px solid #f87171;color:#7f1d1d;'
+             : 'background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #60a5fa;color:#1e3a8a;';
+      var btn = btnLabel ? '<button class="btn btn-primary btn-sm" style="margin-top:8px;" onclick="App.' + btnAction + '()">' + btnLabel + '</button>' : '';
+      return '<div style="' + bg + 'border-radius:12px;padding:14px 16px;margin-bottom:16px;">' +
+        '<div style="font-weight:600;font-size:15px;">' + emoji + ' ' + title + '</div>' +
+        '<div style="font-size:13px;margin-top:4px;opacity:0.9;">' + msg + '</div>' + btn + '</div>';
+    };
+    var endDate = sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString('de-DE') : '';
+    if (sub.state === 'trial' && sub.trial_days_left !== null && sub.trial_days_left <= 3) {
+      return box('⏳', 'Testzeitraum endet bald', 'Nur noch ' + sub.trial_days_left + ' Tage gratis. Sichere dir FahrDoc für 14,99 €/Monat.', 'Jetzt freischalten', 'startSoloCheckout', 'warn');
+    }
+    if (sub.state === 'trial_expired') {
+      return box('🔒', 'Testzeitraum abgelaufen', 'Schalte FahrDoc für 14,99 €/Monat frei — unbegrenzte Schüler und alle Funktionen.', 'Jetzt freischalten', 'startSoloCheckout', 'error');
+    }
+    if (sub.state === 'past_due') {
+      return box('⚠️', 'Zahlung fehlgeschlagen', 'Deine letzte Zahlung konnte nicht eingezogen werden. Bitte aktualisiere deine Zahlungsmethode.', 'Abo verwalten', 'openSoloPortal', 'error');
+    }
+    if (sub.state === 'cancelling') {
+      return box('📅', 'Abo gekündigt', 'Dein Zugang läuft bis zum ' + endDate + '. Du kannst die Kündigung im Abo-Portal rückgängig machen.', 'Abo verwalten', 'openSoloPortal', 'warn');
+    }
+    if (sub.state === 'cancelled_grace') {
+      return box('📅', 'Abo läuft aus', 'Du kannst FahrDoc noch bis ' + endDate + ' nutzen.', 'Erneut abonnieren', 'startSoloCheckout', 'warn');
+    }
+    if (sub.state === 'cancelled_expired') {
+      return box('🔒', 'Abo abgelaufen', 'Reaktiviere dein FahrDoc-Abo für 14,99 €/Monat.', 'Jetzt freischalten', 'startSoloCheckout', 'error');
+    }
+    return '';
   },
   applyBranding: function() {
     try {
@@ -5455,27 +5591,30 @@ var App = {
     var students = data.students || [];
     var lessons = data.lessons || [];
 
+    // Solo-Subscription laden
+    var soloSub = await this.loadSoloSubscription();
+
     // Stats berechnen
     var totalMin = 0;
     lessons.forEach(function(l) { totalMin += (l.duration || 0); });
     var totalH = Math.floor(totalMin / 60);
-    var trialDaysLeft = null;
-    if (data.subscription && data.subscription.trial_end) {
-      var diff = new Date(data.subscription.trial_end) - new Date();
-      trialDaysLeft = Math.max(0, Math.ceil(diff / (1000*60*60*24)));
-    }
+    var trialDaysLeft = (soloSub && soloSub.state === 'trial' && soloSub.trial_days_left !== null) ? soloSub.trial_days_left : null;
 
     // Letzte 5 Fahrstunden
     var recent = lessons.slice(0, 5);
 
     var html = '<div class="page-padding">';
 
+    // Subscription-Banner (sanfter Lock)
+    html += this.soloSubBannerHtml(soloSub);
+
     // Hero / Begrüßung
     html += '<div class="solo-hero">' +
       '<div class="solo-hero-badge">FahrDoc Solo</div>' +
       '<h2 class="solo-hero-title">Hallo, ' + inst.name + '</h2>' +
       '<p class="solo-hero-sub">Deine Fahrstunden — dokumentiert wie vom Prüfer.</p>' +
-      (trialDaysLeft !== null ? '<div class="solo-hero-trial">⏳ Noch <strong>' + trialDaysLeft + '</strong> Tage gratis</div>' : '') +
+      (trialDaysLeft !== null && soloSub && soloSub.state === 'trial' ? '<div class="solo-hero-trial">⏳ Noch <strong>' + trialDaysLeft + '</strong> Tage gratis</div>' : '') +
+      (soloSub && soloSub.state === 'active' && !soloSub.cancel_at_period_end ? '<div class="solo-hero-trial" style="background:rgba(34,197,94,0.15);color:#15803d;">✓ Abo aktiv</div>' : '') +
     '</div>';
 
     // Stats-Cards
@@ -5527,18 +5666,11 @@ var App = {
     var main = document.getElementById('instructor-main');
     try {
       var profile = await ApiClient.get('/api/instructor/profile');
-      var trialEnd = profile.solo_trial_ends_at;
-      var trialInfo = '';
-      if (trialEnd) {
-        var d = new Date(trialEnd);
-        var daysLeft = Math.max(0, Math.ceil((d - new Date()) / (1000*60*60*24)));
-        trialInfo = '<div class="card mb-4"><div class="section-title mb-3">Abo</div>' +
-          '<div class="profile-row"><span class="profile-row-label">Plan</span><span class="profile-row-value">FahrDoc Solo (Trial)</span></div>' +
-          '<div class="profile-row"><span class="profile-row-label">Status</span><span class="profile-row-value">' + (daysLeft > 0 ? 'Noch ' + daysLeft + ' Tage gratis' : 'Trial abgelaufen') + '</span></div>' +
-          '<div class="profile-row"><span class="profile-row-label">Läuft bis</span><span class="profile-row-value">' + d.toLocaleDateString('de-DE') + '</span></div></div>';
-      }
+      var soloSub = await this.loadSoloSubscription(true);
+      var trialInfo = this.soloAboCardHtml(soloSub);
       var html = '<div class="page-padding"><div class="profile-header">' + this.avatarHtml(profile.name, 'lg') +
         '<h3>' + profile.name + '</h3><p class="text-xs text-muted">FahrDoc Solo — Einzel-Fahrlehrer</p></div>' +
+        this.soloSubBannerHtml(soloSub) +
         '<div class="card mb-4"><div class="section-title mb-3">Persönliche Daten</div>' +
           '<form id="solo-profile-form" onsubmit="App.saveInstructorProfile(event)">' +
             '<div class="form-group mb-3"><label class="form-label">Name</label><input class="form-input" type="text" id="inst-profile-name" value="' + profile.name + '"></div>' +
