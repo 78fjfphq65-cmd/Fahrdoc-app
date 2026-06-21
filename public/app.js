@@ -1590,9 +1590,10 @@ var App = {
     // Read-only für: Schüler, Fahrzeug, Filiale, Sekretärin, Klasse, Typ, Datum, Zeit.
     var isInstructorReadonly = isEdit && AppState.currentUser && AppState.currentUser.role === 'instructor'
       && editSlot && editSlot.created_by_role === 'school';
-    // Helper: statisches Read-only-Anzeigefeld (linksbündig, dezent)
+    // Helper: statisches Read-only-Anzeigefeld — sieht aus wie disabled-Input,
+    // aber linksbündig und ohne kaputten Dropdown-Pfeil.
     var roField = function(text) {
-      return '<div class="form-input" style="background:var(--color-surface-2);color:var(--text-default);border-color:transparent;text-align:left;">' +
+      return '<div class="form-input" style="background:var(--color-surface-2);color:var(--text-default);border:1px solid var(--color-border);text-align:left;display:flex;align-items:center;">' +
         (text || '—') + '</div>';
     };
     var fmtDateDE = function(iso) {
@@ -8802,14 +8803,14 @@ var App = {
         avgSpeedKmh: lesson.avgSpeedKmh || 0
       });
       AppState.activeLesson = null; AppState.summaryRatings = {}; AppState.summaryRatingNotes = {}; AppState.pendingImages = [];
+      // Caches invalidieren, damit Dashboard frisch geladen wird
       AppState._cachedData.instructorDash = null;
+      AppState._cachedData.instructorStudents = null;
+      if (AppState._cachedData._scheduleBundle) AppState._cachedData._scheduleBundle = {};
       this.showToast(t('fahrstundeGespeichert'));
-      // Direkt zur Lesson-Review navigieren — damit Bilder/Bewertung sofort sichtbar sind.
-      if (resp && resp.id && _savedStudentId) {
-        this.showLessonReview(resp.id, _savedStudentId, 'instructor');
-      } else {
-        this.navigate('instructor-dashboard'); this.switchInstructorTab('dashboard');
-      }
+      // Zurueck zum Wochenplan-Dashboard
+      this.navigate('instructor-dashboard');
+      this.switchInstructorTab('dashboard');
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
     finally { this.showLoading(false); }
   },
