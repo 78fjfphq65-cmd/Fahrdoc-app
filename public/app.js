@@ -1620,6 +1620,9 @@ var App = {
         '<div class="form-input" style="background:var(--color-surface-2);border:none;" id="schedule-duration-display">—</div></div>' +
     '</div>';
 
+    // Saldo-Banner (nur Plus, nur wenn Schueler gesetzt) — wird async befuellt
+    html += '<div id="schedule-balance-banner" style="display:none;"></div>';
+
     html += '<div class="form-group mb-3"><label class="form-label">' + t('notizen') + '</label>' +
       '<textarea class="form-textarea" id="schedule-notes" placeholder="' + t('optional') + '">' + notes + '</textarea></div>';
 
@@ -1718,7 +1721,55 @@ var App = {
         var selected = st.id === preSelectId ? ' selected' : '';
         sel.innerHTML += '<option value="' + st.id + '"' + selected + '>' + st.name + ' (Klasse ' + st.license_class + ')</option>';
       });
+      // Saldo-Banner an Dropdown-Wechsel binden + initial laden
+      var self = this;
+      sel.onchange = function() { self._loadScheduleStudentBalance(this.value); };
+      this._loadScheduleStudentBalance(preSelectId);
     } catch(e) {}
+  },
+
+  // Laedt den offenen Saldo eines Schuelers und zeigt einen Banner im Termin-Modal.
+  // Nur in Plus sichtbar (Solo hat keine Buchhaltung). Bei 0 € wird der Banner ausgeblendet.
+  _loadScheduleStudentBalance: async function(studentId) {
+    var banner = document.getElementById('schedule-balance-banner');
+    if (!banner) return;
+    // Solo: nie anzeigen
+    if (this.isSolo()) { banner.style.display = 'none'; banner.innerHTML = ''; return; }
+    // Kein Schueler: kein Banner
+    if (!studentId) { banner.style.display = 'none'; banner.innerHTML = ''; return; }
+    // Sofort einen schlanken Lade-Hinweis zeigen, dann ersetzen
+    banner.style.display = 'block';
+    banner.innerHTML = '<div style="font-size:var(--text-xs);color:var(--text-muted);margin-bottom:var(--space-3);padding:var(--space-2) var(--space-3);">Saldo wird geladen …</div>';
+    try {
+      var data = await ApiClient.get('/api/students/' + studentId + '/balance');
+      // Race-Schutz: ggf. hat sich der Schueler inzwischen geaendert
+      var currentSel = document.getElementById('schedule-student');
+      if (currentSel && currentSel.value !== studentId) return;
+      var open = data && typeof data.open_cents === 'number' ? data.open_cents : 0;
+      if (open === 0) {
+        banner.style.display = 'none'; banner.innerHTML = '';
+        return;
+      }
+      var isOpen = open > 0;
+      var icon = isOpen ? '\u26A0\uFE0F' : '\uD83D\uDCB0';
+      var label = isOpen ? 'Offen' : 'Guthaben';
+      var color = isOpen ? '#dc2626' : '#0d9488';
+      var bg = isOpen ? '#fef2f2' : '#ecfdf5';
+      var border = isOpen ? '#fecaca' : '#a7f3d0';
+      var sign = isOpen ? '\u2212' : '+';
+      var amount = this._formatEur(Math.abs(open));
+      banner.innerHTML =
+        '<div style="display:flex;align-items:center;gap:var(--space-2);background:' + bg + ';border:1px solid ' + border + ';border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);margin-bottom:var(--space-3);">' +
+          '<span style="font-size:18px;line-height:1;">' + icon + '</span>' +
+          '<div style="flex:1;">' +
+            '<div style="font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.5px;font-weight:600;color:' + color + ';">' + label + '</div>' +
+            '<div style="font-size:16px;font-weight:700;color:' + color + ';line-height:1.2;">' + sign + ' ' + amount + '</div>' +
+          '</div>' +
+        '</div>';
+    } catch (e) {
+      // Bei Fehler einfach ausblenden — nicht aufdringlich.
+      banner.style.display = 'none'; banner.innerHTML = '';
+    }
   },
 
   // ──── TIME BLOCK (Zeitsperre) MODAL ────

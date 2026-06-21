@@ -4812,6 +4812,27 @@ async function canAccessStudent(req, studentId) {
   return s.school_id === schoolIdOf(req.user);
 }
 
+// Read-only Variante: erlaubt zusaetzlich Instructors lesenden Zugriff auf Schueler
+// der eigenen Schule (Plus) oder der eigenen Solo-Schueler (owner_instructor_id).
+// Verwendung: NUR fuer reine Lese-Endpoints (z.B. Saldo-Anzeige im Planer).
+async function canReadStudent(req, studentId) {
+  if (!studentId || !req.user) return false;
+  const { data: s } = await supabase.from('students')
+    .select('school_id, owner_instructor_id').eq('id', studentId).maybeSingle();
+  if (!s) return false;
+  if (req.user.role === 'school') {
+    return s.school_id === schoolIdOf(req.user);
+  }
+  if (req.user.role === 'instructor') {
+    // Solo: eigene Schueler
+    if (s.owner_instructor_id && s.owner_instructor_id === req.user.id) return true;
+    // Plus: gleiche Schule wie der Instructor
+    if (s.school_id && req.user.school_id && s.school_id === req.user.school_id) return true;
+    return false;
+  }
+  return false;
+}
+
 // Helper: accounting_mode der Schule laden (Default 'gobd')
 async function getAccountingMode(schoolId) {
   if (!schoolId) return 'gobd';
@@ -5064,6 +5085,25 @@ app.delete('/api/pricing-templates/:id', authMiddleware, requireGobdMode(), asyn
 // ============================================
 // BUCHHALTUNG: Schüler-Abrechnung (Soll + Ist + Summen)
 // ============================================
+// GET /api/students/:id/balance — schlanker Endpoint nur fuer Saldo-Anzeige (z.B. im Planer-Modal)
+// Read-only — deshalb canReadStudent (erlaubt auch Instructors der gleichen Schule / Solo-Owner).
+app.get('/api/students/:id/balance', authMiddleware, async (req, res) => {
+  try {
+    const allowed = await canReadStudent(req, req.params.id);
+    if (!allowed) return res.status(403).json({ error: 'Keine Berechtigung' });
+    const [chargesRes, paymentsRes] = await Promise.all([
+      supabase.from('student_charges').select('total_cents').eq('student_id', req.params.id),
+      supabase.from('student_payments').select('amount_cents').eq('student_id', req.params.id)
+    ]);
+    const totalCharges = (chargesRes.data || []).reduce(function(s, c){ return s + (c.total_cents || 0); }, 0);
+    const totalPaid = (paymentsRes.data || []).reduce(function(s, p){ return s + (p.amount_cents || 0); }, 0);
+    res.json({ open_cents: totalCharges - totalPaid });
+  } catch (err) {
+    console.error('[Balance GET]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/students/:id/billing — alles für die Abrechnungs-Ansicht
 app.get('/api/students/:id/billing', authMiddleware, async (req, res) => {
   try {
