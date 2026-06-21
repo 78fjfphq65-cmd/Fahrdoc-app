@@ -316,11 +316,11 @@ async function authMiddleware(req, res, next) {
 
     if (locked) {
       var path = req.path || '';
-      var method = req.method || 'GET';
-      // Whitelist: GET (lesen erlaubt), und alles unter /api/stripe/, /api/auth/, /api/instructor/profile (zum Lesen)
-      var allowed = method === 'GET'
-        || path.indexOf('/api/stripe/') === 0
-        || path.indexOf('/api/auth/') === 0;
+      // HART sperren: nur Auth + Stripe + Read-only Profil erlauben (damit Lock-Screen rendern kann)
+      var allowed = path.indexOf('/api/stripe/') === 0
+        || path.indexOf('/api/auth/') === 0
+        || path === '/api/instructor/profile'
+        || path === '/api/notifications/unread-count';
       if (!allowed) {
         return res.status(402).json({ error: 'Abo erforderlich. Bitte schalte FahrDoc frei, um diese Aktion auszufuehren.', solo_locked: true });
       }
