@@ -3521,7 +3521,7 @@ app.post('/api/ai/briefing/:studentId', authMiddleware, async (req, res) => {
 
     const prompt = 'Du bist Assistent für einen Fahrlehrer in Deutschland. Erstelle ein kurzes Briefing (max. 150 Wörter) für die nächste Fahrstunde mit ' + student.name + ' (Klasse ' + (student.license_class || 'B') + ').\n\nBisheriger Verlauf:' + ctx + '\n\nSchreibe das Briefing auf Deutsch, direkt an den Fahrlehrer gerichtet. Struktur:\n1. Aktueller Stand (1-2 Sätze)\n2. Was funktioniert gut (Bullet-Points)\n3. Was muss noch geübt werden (Bullet-Points)\n4. Empfehlung für heutige Stunde (1-2 Sätze)\n\nSei konkret und praxisnah.';
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const result = await model.generateContent(prompt);
     const briefing = result.response.text();
 
