@@ -2480,13 +2480,13 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
     }
 
     const id = generateId();
-    // Confirmation logic: instructor self-created = auto-confirmed, admin-created = needs confirmation
+    // Confirmation logic: instructor self-created = auto-confirmed; admin/Büro-created = AUCH auto-bestätigt
+    // (Büro plant verbindlich — Fahrlehrer muss nicht mehr bestätigen).
     let status;
     if (req.user.role === 'instructor') {
       status = studentId ? 'bestätigt' : 'offen';
     } else {
-      // Admin/Büro creates for instructor → status 'geplant' (needs instructor confirmation)
-      status = 'geplant';
+      status = studentId ? 'bestätigt' : 'offen';
     }
 
     const { error: insertErr } = await supabase.from('scheduled_lessons').insert({
@@ -2528,7 +2528,21 @@ app.put('/api/schedule/:id', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Kein Zugriff auf diesen Termin' });
     }
 
-    const { studentId, date, startTime, endTime, type, licenseClass, status, notes, vehicleId, branchId, secretaryId } = req.body;
+    let { studentId, date, startTime, endTime, type, licenseClass, status, notes, vehicleId, branchId, secretaryId } = req.body;
+
+    // Härtung: Fahrlehrer darf Büro-geplante Termine nur in den Notizen ändern.
+    if (req.user.role === 'instructor' && slot.created_by_role === 'school') {
+      studentId = undefined;
+      date = undefined;
+      startTime = undefined;
+      endTime = undefined;
+      type = undefined;
+      licenseClass = undefined;
+      status = undefined;
+      vehicleId = undefined;
+      branchId = undefined;
+      secretaryId = undefined;
+    }
 
     // Check overlap if time changed
     if ((date && date !== slot.date) || (startTime && startTime !== slot.start_time) || (endTime && endTime !== slot.end_time)) {
@@ -2616,6 +2630,10 @@ app.delete('/api/schedule/:id', authMiddleware, async (req, res) => {
     }
     if (req.user.role === 'school' && slot.school_id !== req.user.id) {
       return res.status(403).json({ error: 'Kein Zugriff auf diesen Termin' });
+    }
+    // Fahrlehrer darf Büro-geplante Termine NICHT löschen.
+    if (req.user.role === 'instructor' && slot.created_by_role === 'school') {
+      return res.status(403).json({ error: 'Vom Büro geplante Termine können nur dort gelöscht werden.' });
     }
 
     await supabase.from('scheduled_lessons').delete().eq('id', req.params.id);
@@ -3949,7 +3967,7 @@ app.post('/api/recurring-lessons', authMiddleware, async (req, res) => {
     if (req.user.role === 'instructor') {
       status = studentId ? 'bestätigt' : 'offen';
     } else {
-      status = 'geplant';
+      status = studentId ? 'bestätigt' : 'offen';
     }
 
     const created = [];

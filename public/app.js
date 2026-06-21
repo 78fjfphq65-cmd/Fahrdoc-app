@@ -1460,22 +1460,27 @@ var App = {
   },
 
   updateScheduleSlot: async function(id) {
-    var slotData = {
-      date: document.getElementById('schedule-date').value,
-      startTime: document.getElementById('schedule-start-time').value,
-      endTime: document.getElementById('schedule-end-time').value,
-      type: document.getElementById('schedule-type').value,
-      licenseClass: document.getElementById('schedule-class').value,
-      notes: document.getElementById('schedule-notes').value
-    };
+    // Notizen darf der Fahrlehrer immer ändern. Felder die disabled sind, NICHT mitsenden,
+    // damit das Backend (PUT /api/schedule) sie nicht überschreibt.
+    var slotData = { notes: document.getElementById('schedule-notes').value };
+    var dateEl = document.getElementById('schedule-date');
+    if (dateEl && !dateEl.disabled) slotData.date = dateEl.value;
+    var startEl = document.getElementById('schedule-start-time');
+    if (startEl && !startEl.disabled) slotData.startTime = startEl.value;
+    var endEl = document.getElementById('schedule-end-time');
+    if (endEl && !endEl.disabled) slotData.endTime = endEl.value;
+    var typeEl = document.getElementById('schedule-type');
+    if (typeEl && !typeEl.disabled) slotData.type = typeEl.value;
+    var classEl = document.getElementById('schedule-class');
+    if (classEl && !classEl.disabled) slotData.licenseClass = classEl.value;
     var studentSel = document.getElementById('schedule-student');
-    slotData.studentId = (studentSel && studentSel.value) ? studentSel.value : null;
+    if (studentSel && !studentSel.disabled) slotData.studentId = studentSel.value ? studentSel.value : null;
     var vehicleSel = document.getElementById('schedule-vehicle');
-    slotData.vehicleId = (vehicleSel && vehicleSel.value) ? vehicleSel.value : null;
+    if (vehicleSel && !vehicleSel.disabled) slotData.vehicleId = vehicleSel.value ? vehicleSel.value : null;
     var branchSel = document.getElementById('schedule-branch');
-    slotData.branchId = (branchSel && branchSel.value) ? branchSel.value : null;
+    if (branchSel && !branchSel.disabled) slotData.branchId = branchSel.value ? branchSel.value : null;
     var secretarySel = document.getElementById('schedule-secretary');
-    slotData.secretaryId = (secretarySel && secretarySel.value) ? secretarySel.value : null;
+    if (secretarySel && !secretarySel.disabled) slotData.secretaryId = secretarySel.value ? secretarySel.value : null;
     try {
       this.showLoading(true);
       await ApiClient.put('/api/schedule/' + id, slotData);
@@ -1581,6 +1586,13 @@ var App = {
       endTime = String(Math.floor(em / 60)).padStart(2, '0') + ':' + String(em % 60).padStart(2, '0');
     }
 
+    // Fahrlehrer darf Büro-geplante Termine nicht in den Pflichtfeldern ändern.
+    // Read-only für: Schüler, Fahrzeug, Filiale, Sekretärin, Klasse, Typ, Datum, Zeit.
+    var isInstructorReadonly = isEdit && AppState.currentUser && AppState.currentUser.role === 'instructor'
+      && editSlot && editSlot.created_by_role === 'school';
+    var roAttr = isInstructorReadonly ? ' disabled' : '';
+    var roStyle = isInstructorReadonly ? ' style="background:var(--color-surface-2);color:var(--text-muted);"' : '';
+
     var html = '<form id="schedule-form" onsubmit="event.preventDefault();">';
 
     // If admin and creating new — show instructor selector
@@ -1595,44 +1607,44 @@ var App = {
     }
 
     html += '<div class="form-group mb-3"><label class="form-label">' + t('typ') + '</label>' +
-      '<select class="form-select" id="schedule-type" onchange="App.onScheduleTypeChange()">';
+      '<select class="form-select" id="schedule-type" onchange="App.onScheduleTypeChange()"' + roAttr + roStyle + '>';
     SCHEDULE_TYPES.forEach(function(st) {
       html += '<option value="' + st + '"' + (st === type ? ' selected' : '') + '>' + tType(st) + '</option>';
     });
     html += '</select></div>';
 
     html += '<div class="form-group mb-3"><label class="form-label">' + t('datum') + '</label>' +
-      '<input class="form-input" type="date" id="schedule-date" value="' + date + '"></div>';
+      '<input class="form-input" type="date" id="schedule-date" value="' + date + '"' + roAttr + roStyle + '></div>';
 
     html += '<div class="form-row form-row-2 mb-3">' +
       '<div class="form-group"><label class="form-label">' + t('start') + '</label>' +
-        '<input class="form-input" type="time" id="schedule-start-time" value="' + startTime + '" onchange="App.onScheduleStartChange()"></div>' +
+        '<input class="form-input" type="time" id="schedule-start-time" value="' + startTime + '" onchange="App.onScheduleStartChange()"' + roAttr + roStyle + '></div>' +
       '<div class="form-group"><label class="form-label">' + t('ende') + '</label>' +
-        '<input class="form-input" type="time" id="schedule-end-time" value="' + endTime + '" onchange="App.onScheduleEndManual()"></div>' +
+        '<input class="form-input" type="time" id="schedule-end-time" value="' + endTime + '" onchange="App.onScheduleEndManual()"' + roAttr + roStyle + '></div>' +
     '</div>';
 
     // Student selector
     html += '<div class="form-group mb-3"><label class="form-label">' + t('schuelerLeer') + '</label>' +
-      '<select class="form-select" id="schedule-student"><option value="">— Offener Block —</option></select></div>';
+      '<select class="form-select" id="schedule-student"' + roAttr + roStyle + '><option value="">— Offener Block —</option></select></div>';
 
     // Vehicle selector
     var vehicleId = isEdit ? (editSlot.vehicle_id || '') : '';
     html += '<div class="form-group mb-3"><label class="form-label">Fahrzeug</label>' +
-      '<select class="form-select" id="schedule-vehicle"><option value="">— Kein Fahrzeug —</option></select></div>';
+      '<select class="form-select" id="schedule-vehicle"' + roAttr + roStyle + '><option value="">— Kein Fahrzeug —</option></select></div>';
 
     // Filiale + Sekretärin (Plus only — Container wird in loadScheduleBranches/-Secretaries angezeigt/versteckt)
     var branchId = isEdit ? (editSlot.branch_id || '') : '';
     var secretaryId = isEdit ? (editSlot.secretary_id || '') : '';
     html += '<div id="schedule-branch-row" class="form-group mb-3" style="display:none;">' +
       '<label class="form-label">Filiale</label>' +
-      '<select class="form-select" id="schedule-branch"><option value="">— Keine Filiale —</option></select></div>';
+      '<select class="form-select" id="schedule-branch"' + roAttr + roStyle + '><option value="">— Keine Filiale —</option></select></div>';
     html += '<div id="schedule-secretary-row" class="form-group mb-3" style="display:none;">' +
       '<label class="form-label">Sekretärin</label>' +
-      '<select class="form-select" id="schedule-secretary"><option value="">— Keine Sekretärin —</option></select></div>';
+      '<select class="form-select" id="schedule-secretary"' + roAttr + roStyle + '><option value="">— Keine Sekretärin —</option></select></div>';
 
     html += '<div class="form-row form-row-2 mb-3">' +
       '<div class="form-group"><label class="form-label">' + t('klasse') + '</label>' +
-        '<select class="form-select" id="schedule-class">' +
+        '<select class="form-select" id="schedule-class"' + roAttr + roStyle + '>' +
           ['B','B78','B96','B196','B197','BE','A','A1','A2','AM','BF17','C','CE','D','L','T'].map(function(k){
             return '<option value="' + k + '"' + (cls === k ? ' selected' : '') + '>' + k + '</option>';
           }).join('') +
@@ -1672,15 +1684,20 @@ var App = {
           '\u231b ' + t('wartaufBestaetigung') + '</div>';
       }
       html += '<div style="display:flex;gap:var(--space-3);flex-wrap:wrap;">';
-      html += '<button type="button" class="btn btn-primary flex-1" onclick="App.updateScheduleSlot(\'' + editSlot.id + '\')">'+t('speichern')+'</button>';
-      if (editSlot.status === 'geplant' || editSlot.confirmed === false) {
+      // Speichern: Im Read-only-Modus nur Notizen speichern
+      var saveLabel = isInstructorReadonly ? 'Notizen speichern' : t('speichern');
+      html += '<button type="button" class="btn btn-primary flex-1" onclick="App.updateScheduleSlot(\'' + editSlot.id + '\')">'+saveLabel+'</button>';
+      if (!isInstructorReadonly && (editSlot.status === 'geplant' || editSlot.confirmed === false)) {
         html += '<button type="button" class="btn btn-success flex-1" onclick="App.confirmScheduleSlot(\'' + editSlot.id + '\')">'+t('bestaetigenBtn')+'</button>';
       }
-      var isRecurringSlot = editSlot.notes && editSlot.notes.indexOf('[recurring:') !== -1;
-      if (isRecurringSlot) {
-        html += '<button type="button" class="btn btn-danger" onclick="App.showRecurringDeleteOptions(\'' + editSlot.id + '\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
-      } else {
-        html += '<button type="button" class="btn btn-danger" onclick="App.deleteScheduleSlot(\'' + editSlot.id + '\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+      // Löschen: Fahrlehrer darf Büro-geplante Termine NICHT löschen
+      if (!isInstructorReadonly) {
+        var isRecurringSlot = editSlot.notes && editSlot.notes.indexOf('[recurring:') !== -1;
+        if (isRecurringSlot) {
+          html += '<button type="button" class="btn btn-danger" onclick="App.showRecurringDeleteOptions(\'' + editSlot.id + '\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+        } else {
+          html += '<button type="button" class="btn btn-danger" onclick="App.deleteScheduleSlot(\'' + editSlot.id + '\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+        }
       }
       html += '</div>';
       // "Fahrstunde starten" button for instructor when student is assigned
