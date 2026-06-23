@@ -9919,8 +9919,63 @@ var App = {
   // Markierungen mit klickbaren Maps-Links, Notizen.
   // Versucht anschließend die Web-Share-API (mit Datei-Anhang),
   // Fallback ist Download.
-  openLessonReportPdf: async function(lessonId) {
+  // Zeigt einen kleinen Sprach-Picker. Beim Klick wird _generateLessonReportPdf(lessonId, lang) aufgerufen.
+  // Arabisch ist im PDF-Picker ausgeblendet, weil die Standard-PDF-Schrift (Helvetica) kein RTL/Arabisch rendern kann.
+  openLessonReportPdf: function(lessonId) {
     var self = this;
+    // Aktuelle UI-Sprache vorauswaehlen; ar -> en als Fallback
+    var currentLang = (window.AppState && AppState.lang) || (window.localStorage && window.localStorage.getItem && window.localStorage.getItem('fahrdoc_lang')) || 'de';
+    if (currentLang === 'ar') currentLang = 'en';
+    var langs = (typeof LANGUAGES !== 'undefined' ? LANGUAGES : [
+      { code:'de', name:'Deutsch', flag:'\ud83c\udde9\ud83c\uddea' },
+      { code:'en', name:'English', flag:'\ud83c\uddec\ud83c\udde7' }
+    ]).filter(function(l){ return l.code !== 'ar'; });
+
+    var modalId = 'pdf-lang-modal';
+    var existing = document.getElementById(modalId);
+    if (existing) existing.remove();
+    var modal = document.createElement('div');
+    modal.id = modalId;
+    modal.className = 'modal-overlay active';
+    var title = (typeof t === 'function' ? t('spracheWaehlen') : '') || 'Sprache f\u00fcr den Bericht w\u00e4hlen';
+    var cancelLabel = (typeof t === 'function' ? t('abbrechen') : '') || 'Abbrechen';
+    var rows = langs.map(function(l) {
+      var sel = (l.code === currentLang) ? ' style="border-color:#14b8a6;background:#f0fdfa;"' : '';
+      return '<button type="button" class="btn btn-secondary" data-lang="' + l.code + '"' + sel +
+             ' style="width:100%;display:flex;align-items:center;gap:10px;justify-content:flex-start;padding:12px 14px;font-size:15px;margin-bottom:8px;">' +
+             '<span style="font-size:20px;line-height:1;">' + (l.flag || '') + '</span>' +
+             '<span style="font-weight:600;">' + (l.name || l.code) + '</span></button>';
+    }).join('');
+    modal.innerHTML = '<div class="modal-content" style="max-width:380px;">' +
+      '<div class="modal-header"><h3 style="margin:0;">' + title + '</h3>' +
+        '<button class="icon-btn" data-action="close" aria-label="' + cancelLabel + '">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+        '</button></div>' +
+      '<div class="modal-body" style="padding:14px 18px 18px;">' + rows +
+        '<button type="button" data-action="close" class="btn btn-secondary" style="width:100%;margin-top:6px;">' + cancelLabel + '</button>' +
+      '</div></div>';
+    document.body.appendChild(modal);
+    var close = function() { modal.classList.remove('active'); setTimeout(function(){ if (modal.parentNode) modal.parentNode.removeChild(modal); }, 200); };
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) return close(); // Klick auf Overlay
+      var btn = e.target.closest('button');
+      if (!btn) return;
+      if (btn.getAttribute('data-action') === 'close') return close();
+      var lang = btn.getAttribute('data-lang');
+      if (lang) { close(); self._generateLessonReportPdf(lessonId, lang); }
+    });
+  },
+
+  _generateLessonReportPdf: async function(lessonId, lang) {
+    var self = this;
+    lang = lang || 'de';
+    if (lang === 'ar') lang = 'en'; // Sicherheitsnetz: Helvetica kann kein RTL
+    // pdfT: lookup key for lang, fallback de -> en -> key
+    var pdfT = function(key) {
+      var entry = (window.TRANSLATIONS || {})[key];
+      if (!entry) return key;
+      return entry[lang] || entry.en || entry.de || key;
+    };
     self.showToast(t('berichtWirdErstellt') || 'Bericht wird erstellt...');
     var lesson;
     try { lesson = await ApiClient.get('/api/lesson/' + lessonId); }
@@ -9963,7 +10018,7 @@ var App = {
 
     // Titel — gross
     doc.setFont('helvetica', 'bold'); doc.setFontSize(20); setText(TXT);
-    doc.text('Fahrstunden-Bericht', ml, y); y += 2;
+    doc.text(pdfT('pdfTitel'), ml, y); y += 2;
     setDraw(BRAND); doc.setLineWidth(0.8); doc.line(ml, y, ml + 18, y);
     y += 9;
 
@@ -9979,11 +10034,11 @@ var App = {
     doc.setFontSize(9);
     var colW = (cw - 12) / 3;
     var fields = [
-      ['Datum',     self.formatDate(lesson.date)],
-      ['Dauer',     self.formatDuration(lesson.duration)],
-      ['Klasse',    lesson.license_class || lesson.licenseClass || ''],
-      ['Typ',       tType ? tType(lesson.type) : (lesson.type || '')],
-      ['Fahrlehrer', instrName]
+      [pdfT('datum'),    self.formatDate(lesson.date)],
+      [pdfT('dauer'),    self.formatDuration(lesson.duration)],
+      [pdfT('klasse'),   lesson.license_class || lesson.licenseClass || ''],
+      [pdfT('typ'),      tType ? tType(lesson.type) : (lesson.type || '')],
+      [pdfT('pdfFahrlehrer'), instrName]
     ];
     // Erste Reihe (3 Felder) + zweite Reihe (2 Felder)
     for (var fi = 0; fi < fields.length; fi++) {
@@ -10010,13 +10065,13 @@ var App = {
     // ══ Karte + Stats-Pills ══
     if (lesson.route && lesson.route.points && lesson.route.points.length > 1) {
       ensureSpace(85);
-      sectionTitle('Route');
+      sectionTitle(pdfT('pdfRoute'));
 
       // Stats-Pillen (über der Karte)
       var stats = [
-        { label: 'Strecke', value: (Number(lesson.route.distanceKm) || 0).toFixed(1) + ' km' },
-        { label: '\u00d8 Tempo', value: Math.round(Number(lesson.route.avgSpeedKmh) || 0) + ' km/h' },
-        { label: 'Markierungen', value: String((lesson.route.markers || []).length) }
+        { label: pdfT('strecke'),      value: (Number(lesson.route.distanceKm) || 0).toFixed(1) + ' km' },
+        { label: pdfT('pdfTempo'),     value: Math.round(Number(lesson.route.avgSpeedKmh) || 0) + ' km/h' },
+        { label: pdfT('markierungen'), value: String((lesson.route.markers || []).length) }
       ];
       var pillW = (cw - 8) / 3, pillH = 12;
       stats.forEach(function(s, i) {
@@ -10035,19 +10090,65 @@ var App = {
       y += 60 + 8;
     }
 
+    // ── Markierungen mit Maps-Links (direkt unter der Karte) ──
+    var markers = (lesson.route && lesson.route.markers) || [];
+    if (markers.length > 0) {
+      sectionTitle(pdfT('markierungen'));
+      markers.forEach(function(m, i) {
+        var lat = Number(m.lat), lng = Number(m.lng);
+        var coordOk = !isNaN(lat) && !isNaN(lng);
+        var url = coordOk ? ('https://www.google.com/maps?q=' + lat.toFixed(6) + ',' + lng.toFixed(6)) : null;
+        // Reservierter Platz rechts für Link
+        var linkLabel = pdfT('pdfInKarteOeffnen');
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+        var linkW = url ? doc.getTextWidth(linkLabel) : 0;
+        var contentRight = pw - mr - 6 - (linkW ? linkW + 4 : 0);
+        var noteMaxW = contentRight - (ml + 13);
+        var noteLines = m.note ? doc.splitTextToSize(String(m.note), Math.max(20, noteMaxW)) : [];
+        var cardH = 9 + (noteLines.length ? (noteLines.length * 3.8 + 2) : 0);
+        ensureSpace(cardH + 3);
+        setFill(BG_SOFT); doc.roundedRect(ml, y, cw, cardH, 1.8, 1.8, 'F');
+        setFill(BRAND); doc.rect(ml, y, 1.2, cardH, 'F');
+        var badgeCy = y + 4.8;
+        setFill(BRAND);
+        doc.circle(ml + 5.5, badgeCy, 2.6, 'F');
+        setText([255, 255, 255]); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+        doc.text(String(i + 1), ml + 5.5, badgeCy + 1, { align: 'center' });
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); setText(TXT);
+        doc.text(m.time || '\u2014', ml + 11, y + 6);
+        if (url) {
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); setText(BRAND_DARK);
+          doc.textWithLink(linkLabel, pw - mr - 6, y + 6, { align: 'right', url: url });
+        }
+        if (noteLines.length) {
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); setText(TXT_MUTED);
+          var noteY = y + 9.5;
+          noteLines.forEach(function(ln) { doc.text(ln, ml + 11, noteY); noteY += 3.8; });
+        }
+        y += cardH + 2;
+      });
+      y += 4;
+    }
+
     // ══ Bewertung als Karten-Liste mit Pills rechts ══
     var hasAnyRating = lesson.ratings && Object.keys(lesson.ratings).some(function(k){
       var v = lesson.ratings[k]; return typeof v === 'number' && v >= 1 && v <= 4;
     });
     if (hasAnyRating) {
-      sectionTitle('Bewertung');
+      sectionTitle(pdfT('bewertung'));
 
       var levelMeta = function(v) {
-        if (v === 1) return { label: 'Sehr gut',    bg: [220, 252, 231], fg: [22, 101, 52],   accent: [34, 197, 94] };
-        if (v === 2) return { label: 'Gut',         bg: [219, 234, 254], fg: [30, 64, 175],   accent: [59, 130, 246] };
-        if (v === 3) return { label: 'Ausreichend', bg: [254, 243, 199], fg: [133, 77, 14],   accent: [234, 179, 8] };
-        if (v === 4) return { label: 'Ungen\u00fcgend', bg: [254, 226, 226], fg: [153, 27, 27],   accent: [239, 68, 68] };
+        if (v === 1) return { label: pdfT('pdfSehrGut'),     bg: [220, 252, 231], fg: [22, 101, 52],   accent: [34, 197, 94] };
+        if (v === 2) return { label: pdfT('pdfGut'),         bg: [219, 234, 254], fg: [30, 64, 175],   accent: [59, 130, 246] };
+        if (v === 3) return { label: pdfT('pdfAusreichend'), bg: [254, 243, 199], fg: [133, 77, 14],   accent: [234, 179, 8] };
+        if (v === 4) return { label: pdfT('pdfUngenuegend'), bg: [254, 226, 226], fg: [153, 27, 27],   accent: [239, 68, 68] };
         return { label: '', bg: BG_SOFT, fg: TXT_MUTED, accent: BORDER };
+      };
+      // Map German group-names (from evaluationGroupsWithLegacy) to i18n keys
+      var groupKeyMap = {
+        'Beobachtungskategorien': 'pdfBeobachtungskategorien',
+        'Fahraufgaben im Stra\u00dfenverkehr': 'pdfFahraufgaben',
+        'Grundfahraufgaben': 'pdfGrundfahraufgaben'
       };
 
       // Pill-Renderer: gefüllter Hintergrund mit gerundeten Ecken, mittig vertikal, rechtsbündig
@@ -10071,9 +10172,10 @@ var App = {
         });
         if (!anyInGroup) return;
         ensureSpace(12);
-        // Gruppen-Header
+        // Gruppen-Header (uebersetzt wenn moeglich)
+        var groupLabel = groupKeyMap[grp.group] ? pdfT(groupKeyMap[grp.group]) : String(grp.group);
         doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); setText(TXT_MUTED);
-        doc.text(String(grp.group).toUpperCase(), ml, y);
+        doc.text(String(groupLabel).toUpperCase(), ml, y);
         y += 5;
 
         // Items als Karten
@@ -10120,55 +10222,9 @@ var App = {
       y += 4;
     }
 
-    // ── Markierungen mit Maps-Links (Card-Style) ──
-    var markers = (lesson.route && lesson.route.markers) || [];
-    if (markers.length > 0) {
-      sectionTitle('Markierungen');
-      markers.forEach(function(m, i) {
-        var lat = Number(m.lat), lng = Number(m.lng);
-        var coordOk = !isNaN(lat) && !isNaN(lng);
-        var url = coordOk ? ('https://www.google.com/maps?q=' + lat.toFixed(6) + ',' + lng.toFixed(6)) : null;
-        // Reservierter Platz rechts für Link
-        var linkLabel = 'In Karte \u00f6ffnen \u203a';
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-        var linkW = url ? doc.getTextWidth(linkLabel) : 0;
-        var contentRight = pw - mr - 6 - (linkW ? linkW + 4 : 0);
-        var noteMaxW = contentRight - (ml + 13);
-        var noteLines = m.note ? doc.splitTextToSize(String(m.note), Math.max(20, noteMaxW)) : [];
-        // Karten-Höhe: Header-Zeile (Nummer + Zeit) + Notiz
-        var cardH = 9 + (noteLines.length ? (noteLines.length * 3.8 + 2) : 0);
-        ensureSpace(cardH + 3);
-        // Karte mit BG + Akzent links
-        setFill(BG_SOFT); doc.roundedRect(ml, y, cw, cardH, 1.8, 1.8, 'F');
-        setFill(BRAND); doc.rect(ml, y, 1.2, cardH, 'F');
-        // Nummer-Badge (Kreis) — vertikal zentriert in Header-Zeile
-        var badgeCy = y + 4.8;
-        setFill(BRAND);
-        doc.circle(ml + 5.5, badgeCy, 2.6, 'F');
-        setText([255, 255, 255]); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-        doc.text(String(i + 1), ml + 5.5, badgeCy + 1, { align: 'center' });
-        // Zeit
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); setText(TXT);
-        doc.text(m.time || '\u2014', ml + 11, y + 6);
-        // Maps-Link rechts
-        if (url) {
-          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); setText(BRAND_DARK);
-          doc.textWithLink(linkLabel, pw - mr - 6, y + 6, { align: 'right', url: url });
-        }
-        // Notiz
-        if (noteLines.length) {
-          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); setText(TXT_MUTED);
-          var noteY = y + 9.5;
-          noteLines.forEach(function(ln) { doc.text(ln, ml + 11, noteY); noteY += 3.8; });
-        }
-        y += cardH + 2;
-      });
-      y += 4;
-    }
-
     // ── Notizen (Card-Style) ──
     if (lesson.notes && String(lesson.notes).trim()) {
-      sectionTitle('Notizen');
+      sectionTitle(pdfT('notizen'));
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
       var nLines = doc.splitTextToSize(String(lesson.notes), cw - 10);
       var notesCardH = nLines.length * 4.5 + 6;
@@ -10194,14 +10250,15 @@ var App = {
       doc.text('FahrDoc', ml + 3, ph - 10);
       doc.setFont('helvetica', 'normal'); setText(TXT_MUTED);
       doc.text(' \u00b7 fahrdoc.app', ml + 3 + doc.getTextWidth('FahrDoc') + 0.6, ph - 10);
-      doc.text('Seite ' + p + ' / ' + pageCount, pw - mr, ph - 10, { align: 'right' });
+      doc.text(pdfT('pdfSeite') + ' ' + p + ' / ' + pageCount, pw - mr, ph - 10, { align: 'right' });
     }
 
-    // Filename: Bericht_Schueler_YYYY-MM-DD.pdf
-    var safeName = String(lesson.studentName || 'Schueler')
-      .replace(/[^a-zA-Z0-9_\- ]/g, '').replace(/\s+/g, '_').slice(0, 40) || 'Schueler';
+    // Filename — i18n + ASCII-sicher
+    var safeName = String(lesson.studentName || pdfT('pdfStudent') || 'Student')
+      .replace(/[^a-zA-Z0-9_\- ]/g, '').replace(/\s+/g, '_').slice(0, 40) || (pdfT('pdfStudent') || 'Student');
     var datePart = String(lesson.date || '').slice(0, 10) || new Date().toISOString().slice(0,10);
-    var filename = 'Fahrstunde_' + safeName + '_' + datePart + '.pdf';
+    var fileBase = String(pdfT('pdfDateiName') || 'Lesson').replace(/[^a-zA-Z0-9_\- ]/g, '').replace(/\s+/g, '_') || 'Lesson';
+    var filename = fileBase + '_' + safeName + '_' + datePart + '.pdf';
 
     // Web Share API (mit Datei) wenn unterstützt, sonst Download
     try {
