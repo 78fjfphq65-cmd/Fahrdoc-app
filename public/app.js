@@ -10248,7 +10248,13 @@ var App = {
       markers.forEach(function(m, i) {
         var lat = Number(m.lat), lng = Number(m.lng);
         var coordOk = !isNaN(lat) && !isNaN(lng);
-        var url = coordOk ? ('https://www.google.com/maps?q=' + lat.toFixed(6) + ',' + lng.toFixed(6)) : null;
+        // Street View direkt oeffnen statt nur Maps-Pin: pano-Action mit viewpoint=lat,lng
+        // Funktioniert plattformuebergreifend (Web, iOS, Android Google Maps App).
+        // Fallback Verhalten von Google selbst: wenn an dem Punkt kein Street View existiert,
+        // wird automatisch die normale Maps-Ansicht angezeigt.
+        var url = coordOk
+          ? ('https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + lat.toFixed(6) + ',' + lng.toFixed(6))
+          : null;
         // Reservierter Platz rechts für Link
         var linkLabel = pdfT('pdfInKarteOeffnen');
         setFn('normal'); doc.setFontSize(9);
