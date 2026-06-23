@@ -9838,7 +9838,11 @@ var App = {
             '<button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById(\'review-image-input\').click()">' +
               '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg> ' + t('bilderHochladen') + '</button>' +
           '</div></div>';
-        html += '<div style="display:flex;gap:var(--space-3);margin-top:var(--space-4);">' +
+        // Bericht-für-Schüler-Button (PDF mit Karte, Bewertung, Markierungen)
+        html += '<button class="btn btn-primary" style="width:100%;margin-top:var(--space-4);" onclick="App.openLessonReportPdf(\'' + lessonId + '\')">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;vertical-align:-3px;margin-right:6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>' +
+          (t('berichtFuerSchueler') || 'Bericht für Schüler senden') + '</button>';
+        html += '<div style="display:flex;gap:var(--space-3);margin-top:var(--space-3);">' +
           '<button class="btn btn-secondary flex-1" onclick="App.editLesson(\'' + lessonId + '\', \'' + studentId + '\')">' + t('bearbeiten') + '</button>' +
           '<button class="btn btn-danger flex-1" onclick="App.deleteLesson(\'' + lessonId + '\', \'' + studentId + '\')">' + t('loeschen') + '</button></div>';
       }
@@ -9905,6 +9909,320 @@ var App = {
       btn.innerHTML = '\ud83c\udf10 ' + t('notizenUebersetzen');
     }
     btn.disabled = false;
+  },
+
+  // ══════════════════════════════════════════
+  //  LESSON-BERICHT als PDF (für Schüler)
+  // ══════════════════════════════════════════
+  // Erzeugt eine PDF-Zusammenfassung einer einzelnen Fahrstunde:
+  // Kopfdaten, Routen-Karte (Static-Map), Fahrt-Stats, Bewertung,
+  // Markierungen mit klickbaren Maps-Links, Notizen.
+  // Versucht anschließend die Web-Share-API (mit Datei-Anhang),
+  // Fallback ist Download.
+  openLessonReportPdf: async function(lessonId) {
+    var self = this;
+    self.showToast(t('berichtWirdErstellt') || 'Bericht wird erstellt...');
+    var lesson;
+    try { lesson = await ApiClient.get('/api/lesson/' + lessonId); }
+    catch (err) { return self.showToast(t('fehler') + ': ' + (err.message || err)); }
+    if (!window.jspdf || !window.jspdf.jsPDF) return self.showToast('PDF-Bibliothek wird geladen, bitte nochmal versuchen...');
+
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    var pw = 210, ph = 297, ml = 18, mr = 18, mt = 18;
+    var cw = pw - ml - mr;
+    var y = mt;
+    var instr = AppState.currentUser || {};
+    var instrName = instr.name || instr.email || '';
+
+    var ensureSpace = function(needed) {
+      if (y + needed > ph - 18) { doc.addPage(); y = mt; }
+    };
+
+    // Header — Brand + Titel
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(15, 23, 23);
+    doc.text('Fahrstunden-Bericht', ml, y);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120, 120, 120);
+    doc.text('FahrDoc \u00b7 fahrdoc.app', pw - mr, y, { align: 'right' });
+    y += 3;
+    doc.setDrawColor(20, 184, 166); doc.setLineWidth(0.6);
+    doc.line(ml, y, ml + 32, y);
+    y += 8;
+
+    // Kopfdaten-Block
+    doc.setTextColor(15, 23, 23);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+    doc.text(lesson.studentName || '', ml, y); y += 6;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(80, 80, 80);
+    var kvY = y;
+    var col1x = ml, col2x = ml + cw / 2;
+    var addKV = function(label, value, x, yy) {
+      doc.setTextColor(140, 140, 140); doc.text(label, x, yy);
+      doc.setTextColor(15, 23, 23); doc.text(String(value || '\u2014'), x + 28, yy);
+    };
+    addKV('Datum', self.formatDate(lesson.date), col1x, kvY);
+    addKV('Dauer', self.formatDuration(lesson.duration), col2x, kvY);
+    kvY += 6;
+    addKV('Typ', tType ? tType(lesson.type) : (lesson.type || ''), col1x, kvY);
+    addKV('Klasse', lesson.license_class || lesson.licenseClass || '', col2x, kvY);
+    kvY += 6;
+    addKV('Fahrlehrer', instrName, col1x, kvY);
+    y = kvY + 8;
+
+    // ── Karte (nativ in jsPDF gezeichnet) + Stats ──
+    if (lesson.route && lesson.route.points && lesson.route.points.length > 1) {
+      ensureSpace(80);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(15, 23, 23);
+      doc.text('Route', ml, y); y += 4;
+      try { self._drawNativeRouteMap(doc, lesson.route, ml, y, cw, 65); } catch (e) { /* skip */ }
+      y += 65 + 3;
+      // Stats-Zeile
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(80, 80, 80);
+      var stats = [
+        (Number(lesson.route.distanceKm) || 0).toFixed(1) + ' km',
+        Math.round(Number(lesson.route.avgSpeedKmh) || 0) + ' km/h \u00d8',
+        ((lesson.route.markers || []).length) + ' Markierungen'
+      ];
+      doc.text(stats.join('  \u00b7  '), ml, y); y += 8;
+    }
+
+    // ── Bewertung ──
+    var hasAnyRating = lesson.ratings && Object.keys(lesson.ratings).some(function(k){
+      var v = lesson.ratings[k]; return typeof v === 'number' && v >= 1 && v <= 4;
+    });
+    if (hasAnyRating) {
+      ensureSpace(20);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(15, 23, 23);
+      doc.text('Bewertung', ml, y); y += 5;
+
+      var levelLabel = function(v) {
+        if (v === 1) return 'Sehr gut';
+        if (v === 2) return 'Gut';
+        if (v === 3) return 'Ausreichend';
+        if (v === 4) return 'Ungen\u00fcgend';
+        return '';
+      };
+      var levelColor = function(v) {
+        if (v === 1) return [22, 163, 74];     // green
+        if (v === 2) return [37, 99, 235];     // blue
+        if (v === 3) return [202, 138, 4];     // amber
+        if (v === 4) return [220, 38, 38];     // red
+        return [120, 120, 120];
+      };
+
+      evaluationGroupsWithLegacy(lesson.license_class || lesson.licenseClass, lesson.ratings).forEach(function(grp) {
+        var anyInGroup = grp.items.some(function(it){
+          var v = lesson.ratings[it]; return typeof v === 'number' && v >= 1 && v <= 4;
+        });
+        if (!anyInGroup) return;
+        ensureSpace(10);
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(120, 120, 120);
+        doc.text(String(grp.group).toUpperCase(), ml, y); y += 4;
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(15, 23, 23);
+        grp.items.forEach(function(item) {
+          var v = lesson.ratings[item];
+          if (typeof v !== 'number' || v < 1 || v > 4) return;
+          var note = (lesson.ratingNotes && lesson.ratingNotes[item]) || '';
+          var noteLines = note ? doc.splitTextToSize(String(note), cw - 60) : [];
+          var rowH = 5 + Math.max(0, noteLines.length) * 4;
+          ensureSpace(rowH + 2);
+          doc.setTextColor(15, 23, 23);
+          doc.text(String(item), ml, y);
+          var col = levelColor(v);
+          doc.setTextColor(col[0], col[1], col[2]);
+          doc.text(levelLabel(v), pw - mr, y, { align: 'right' });
+          y += 5;
+          if (noteLines.length) {
+            doc.setTextColor(110, 110, 110); doc.setFontSize(9);
+            doc.text(noteLines, ml + 3, y);
+            doc.setFontSize(10);
+            y += noteLines.length * 4;
+          }
+        });
+        y += 2;
+      });
+      y += 4;
+    }
+
+    // ── Markierungen mit Maps-Links ──
+    var markers = (lesson.route && lesson.route.markers) || [];
+    if (markers.length > 0) {
+      ensureSpace(15);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(15, 23, 23);
+      doc.text('Markierungen', ml, y); y += 5;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      markers.forEach(function(m, i) {
+        var lat = Number(m.lat), lng = Number(m.lng);
+        var coordOk = !isNaN(lat) && !isNaN(lng);
+        var url = coordOk ? ('https://www.google.com/maps?q=' + lat.toFixed(6) + ',' + lng.toFixed(6)) : null;
+        var noteLines = m.note ? doc.splitTextToSize(String(m.note), cw - 28) : [];
+        var rowH = 6 + noteLines.length * 4 + 4;
+        ensureSpace(rowH);
+        // Nummer-Badge (Kreis)
+        doc.setFillColor(20, 184, 166); doc.setDrawColor(20, 184, 166);
+        doc.circle(ml + 3, y - 1, 3, 'F');
+        doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+        doc.text(String(i + 1), ml + 3, y + 0.5, { align: 'center' });
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+        // Zeit + Maps-Link
+        doc.setTextColor(15, 23, 23);
+        doc.text(m.time || '', ml + 9, y);
+        if (url) {
+          doc.setTextColor(20, 184, 166);
+          doc.textWithLink('In Karte \u00f6ffnen \u203a', pw - mr, y, { align: 'right', url: url });
+        }
+        y += 5;
+        if (noteLines.length) {
+          doc.setTextColor(80, 80, 80);
+          doc.text(noteLines, ml + 9, y);
+          y += noteLines.length * 4;
+        }
+        y += 2;
+        // Trennlinie
+        doc.setDrawColor(229, 231, 235); doc.setLineWidth(0.2);
+        doc.line(ml, y, pw - mr, y);
+        y += 3;
+      });
+      y += 3;
+    }
+
+    // ── Notizen ──
+    if (lesson.notes && String(lesson.notes).trim()) {
+      ensureSpace(15);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(15, 23, 23);
+      doc.text('Notizen', ml, y); y += 5;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(60, 60, 60);
+      var nLines = doc.splitTextToSize(String(lesson.notes), cw);
+      nLines.forEach(function(ln) {
+        ensureSpace(5);
+        doc.text(ln, ml, y); y += 4.5;
+      });
+      y += 4;
+    }
+
+    // Footer auf jeder Seite
+    var pageCount = doc.internal.getNumberOfPages();
+    for (var p = 1; p <= pageCount; p++) {
+      doc.setPage(p);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(150, 150, 150);
+      doc.text('Erstellt mit FahrDoc \u00b7 fahrdoc.app', ml, ph - 10);
+      doc.text('Seite ' + p + ' / ' + pageCount, pw - mr, ph - 10, { align: 'right' });
+    }
+
+    // Filename: Bericht_Schueler_YYYY-MM-DD.pdf
+    var safeName = String(lesson.studentName || 'Schueler')
+      .replace(/[^a-zA-Z0-9_\- ]/g, '').replace(/\s+/g, '_').slice(0, 40) || 'Schueler';
+    var datePart = String(lesson.date || '').slice(0, 10) || new Date().toISOString().slice(0,10);
+    var filename = 'Fahrstunde_' + safeName + '_' + datePart + '.pdf';
+
+    // Web Share API (mit Datei) wenn unterstützt, sonst Download
+    try {
+      var blob = doc.output('blob');
+      var file = new File([blob], filename, { type: 'application/pdf' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'Fahrstunden-Bericht',
+          text: 'Bericht zur Fahrstunde vom ' + self.formatDate(lesson.date)
+        });
+        self.showToast(t('berichtGeteilt') || 'Bericht geteilt');
+        return;
+      }
+    } catch (shareErr) {
+      // Wenn der User abbricht, einfach speichern
+      if (shareErr && shareErr.name === 'AbortError') return;
+    }
+    doc.save(filename);
+    self.showToast(t('berichtErstellt') || 'Bericht erstellt');
+  },
+
+  // Zeichnet eine schematische Routen-Karte direkt in jsPDF.
+  // Keine externen API-Aufrufe — nur die GPS-Punkte werden auf Lat/Lng-Bounding-Box
+  // skaliert und als Polyline + nummerierte Marker dargestellt.
+  // Ergebnis: leichtgewichtige Visualisierung der Strecke ohne Hintergrund-Tiles.
+  _drawNativeRouteMap: function(doc, route, x, y, w, h) {
+    var pts = (route && route.points) || [];
+    var markers = (route && route.markers) || [];
+    if (pts.length < 2) return;
+
+    // Hintergrund + Rahmen
+    doc.setFillColor(244, 248, 247); doc.rect(x, y, w, h, 'F');
+    doc.setDrawColor(220, 226, 224); doc.setLineWidth(0.3);
+    doc.rect(x, y, w, h, 'S');
+
+    // Bounding-Box berechnen (alle Punkte + alle Marker)
+    var allPts = pts.slice();
+    markers.forEach(function(m) {
+      if (m && typeof m.lat === 'number' && typeof m.lng === 'number') {
+        allPts.push({ lat: m.lat, lng: m.lng });
+      }
+    });
+    var minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+    allPts.forEach(function(p) {
+      if (p.lat < minLat) minLat = p.lat;
+      if (p.lat > maxLat) maxLat = p.lat;
+      if (p.lng < minLng) minLng = p.lng;
+      if (p.lng > maxLng) maxLng = p.lng;
+    });
+    var dLat = Math.max(0.0005, maxLat - minLat);
+    var dLng = Math.max(0.0005, maxLng - minLng);
+    // Padding 8% innen
+    var padX = w * 0.08, padY = h * 0.08;
+    var ix = x + padX, iy = y + padY, iw = w - 2 * padX, ih = h - 2 * padY;
+    // Aspect-Ratio kompensieren (Lng-Skala mit cos(lat))
+    var midLat = (minLat + maxLat) / 2;
+    var lngScale = Math.cos(midLat * Math.PI / 180);
+    var dLngE = dLng * lngScale;
+    var sx, sy;
+    if (dLngE / iw > dLat / ih) { sx = iw / dLngE; sy = sx; }
+    else { sy = ih / dLat; sx = sy; }
+    var offsetX = ix + (iw - dLngE * sx) / 2;
+    var offsetY = iy + (ih - dLat * sy) / 2;
+    var project = function(p) {
+      return {
+        x: offsetX + (p.lng - minLng) * lngScale * sx,
+        y: offsetY + (maxLat - p.lat) * sy  // y inverted (north up)
+      };
+    };
+
+    // Polyline downsamplen für Performance
+    var maxLineSegments = 200;
+    var step = Math.max(1, Math.ceil(pts.length / maxLineSegments));
+    var sampled = [];
+    for (var i = 0; i < pts.length; i += step) sampled.push(pts[i]);
+    if (sampled[sampled.length - 1] !== pts[pts.length - 1]) sampled.push(pts[pts.length - 1]);
+
+    // Route zeichnen
+    doc.setDrawColor(20, 184, 166); doc.setLineWidth(1.2);
+    for (var k = 1; k < sampled.length; k++) {
+      var p1 = project(sampled[k - 1]);
+      var p2 = project(sampled[k]);
+      doc.line(p1.x, p1.y, p2.x, p2.y);
+    }
+
+    // Start-Punkt (grün)
+    var startP = project(pts[0]);
+    doc.setFillColor(34, 197, 94); doc.circle(startP.x, startP.y, 1.6, 'F');
+    doc.setDrawColor(255, 255, 255); doc.setLineWidth(0.4); doc.circle(startP.x, startP.y, 1.6, 'S');
+    // End-Punkt (rot)
+    var endP = project(pts[pts.length - 1]);
+    doc.setFillColor(239, 68, 68); doc.circle(endP.x, endP.y, 1.6, 'F');
+    doc.setDrawColor(255, 255, 255); doc.circle(endP.x, endP.y, 1.6, 'S');
+
+    // Markierungen (nummeriert, teal)
+    markers.forEach(function(m, idx) {
+      if (m && typeof m.lat === 'number' && typeof m.lng === 'number') {
+        var mp = project(m);
+        doc.setFillColor(20, 184, 166); doc.setDrawColor(255, 255, 255); doc.setLineWidth(0.5);
+        doc.circle(mp.x, mp.y, 2.4, 'F');
+        doc.circle(mp.x, mp.y, 2.4, 'S');
+        doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
+        doc.text(String(idx + 1), mp.x, mp.y + 0.8, { align: 'center' });
+      }
+    });
+
+    // Reset
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 23);
   },
 
   // ── Support / Feedback (via EmailJS) ──
