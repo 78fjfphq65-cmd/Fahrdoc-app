@@ -9929,85 +9929,140 @@ var App = {
 
     var jsPDF = window.jspdf.jsPDF;
     var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    var pw = 210, ph = 297, ml = 18, mr = 18, mt = 18;
+    var pw = 210, ph = 297, ml = 18, mr = 18, mt = 16;
     var cw = pw - ml - mr;
     var y = mt;
     var instr = AppState.currentUser || {};
     var instrName = instr.name || instr.email || '';
 
+    // Brand-Farben
+    var BRAND = [20, 184, 166];        // teal-500
+    var BRAND_DARK = [13, 148, 136];   // teal-600
+    var TXT = [15, 23, 23];
+    var TXT_MUTED = [115, 122, 122];
+    var BG_SOFT = [248, 250, 250];     // hellster Hintergrund
+    var BORDER = [228, 231, 231];
+
     var ensureSpace = function(needed) {
-      if (y + needed > ph - 18) { doc.addPage(); y = mt; }
+      if (y + needed > ph - 22) { doc.addPage(); y = mt; }
+    };
+    var setFill = function(c) { doc.setFillColor(c[0], c[1], c[2]); };
+    var setDraw = function(c) { doc.setDrawColor(c[0], c[1], c[2]); };
+    var setText = function(c) { doc.setTextColor(c[0], c[1], c[2]); };
+
+    // ══ Brand-Header-Streifen ══
+    setFill(BRAND); doc.rect(0, 0, pw, 4, 'F');
+    y = mt;
+
+    // Logo-Wortmarke + Untertitel
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); setText(BRAND_DARK);
+    doc.text('FahrDoc', ml, y);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); setText(TXT_MUTED);
+    doc.text('fahrdoc.app', pw - mr, y, { align: 'right' });
+    y += 7;
+
+    // Titel — gross
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(20); setText(TXT);
+    doc.text('Fahrstunden-Bericht', ml, y); y += 2;
+    setDraw(BRAND); doc.setLineWidth(0.8); doc.line(ml, y, ml + 18, y);
+    y += 9;
+
+    // ══ Kopfdaten-Karte ══
+    var headCardH = 36;
+    setFill(BG_SOFT); doc.roundedRect(ml, y, cw, headCardH, 2.5, 2.5, 'F');
+    setDraw(BORDER); doc.setLineWidth(0.3); doc.roundedRect(ml, y, cw, headCardH, 2.5, 2.5, 'S');
+    var inX = ml + 6, inY = y + 7;
+    setText(TXT); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text(lesson.studentName || '', inX, inY); inY += 7;
+
+    // 3-Spalten KV-Layout: Label klein drüber, Wert drunter
+    doc.setFontSize(9);
+    var colW = (cw - 12) / 3;
+    var fields = [
+      ['Datum',     self.formatDate(lesson.date)],
+      ['Dauer',     self.formatDuration(lesson.duration)],
+      ['Klasse',    lesson.license_class || lesson.licenseClass || ''],
+      ['Typ',       tType ? tType(lesson.type) : (lesson.type || '')],
+      ['Fahrlehrer', instrName]
+    ];
+    // Erste Reihe (3 Felder) + zweite Reihe (2 Felder)
+    for (var fi = 0; fi < fields.length; fi++) {
+      var row = Math.floor(fi / 3);
+      var col = fi % 3;
+      var fx = inX + col * colW;
+      var fy = inY + row * 11;
+      setText(TXT_MUTED); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+      doc.text(String(fields[fi][0]).toUpperCase(), fx, fy);
+      setText(TXT); doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+      doc.text(String(fields[fi][1] || '\u2014'), fx, fy + 5);
+    }
+    y += headCardH + 9;
+
+    // Section-Title-Helper (kleiner Akzent-Strich + Titel)
+    var sectionTitle = function(label) {
+      ensureSpace(10);
+      setDraw(BRAND); doc.setLineWidth(0.7);
+      doc.line(ml, y - 1, ml + 4, y - 1);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); setText(TXT);
+      doc.text(label, ml + 6.5, y); y += 6;
     };
 
-    // Header — Brand + Titel
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(15, 23, 23);
-    doc.text('Fahrstunden-Bericht', ml, y);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120, 120, 120);
-    doc.text('FahrDoc \u00b7 fahrdoc.app', pw - mr, y, { align: 'right' });
-    y += 3;
-    doc.setDrawColor(20, 184, 166); doc.setLineWidth(0.6);
-    doc.line(ml, y, ml + 32, y);
-    y += 8;
-
-    // Kopfdaten-Block
-    doc.setTextColor(15, 23, 23);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-    doc.text(lesson.studentName || '', ml, y); y += 6;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(80, 80, 80);
-    var kvY = y;
-    var col1x = ml, col2x = ml + cw / 2;
-    var addKV = function(label, value, x, yy) {
-      doc.setTextColor(140, 140, 140); doc.text(label, x, yy);
-      doc.setTextColor(15, 23, 23); doc.text(String(value || '\u2014'), x + 28, yy);
-    };
-    addKV('Datum', self.formatDate(lesson.date), col1x, kvY);
-    addKV('Dauer', self.formatDuration(lesson.duration), col2x, kvY);
-    kvY += 6;
-    addKV('Typ', tType ? tType(lesson.type) : (lesson.type || ''), col1x, kvY);
-    addKV('Klasse', lesson.license_class || lesson.licenseClass || '', col2x, kvY);
-    kvY += 6;
-    addKV('Fahrlehrer', instrName, col1x, kvY);
-    y = kvY + 8;
-
-    // ── Karte (nativ in jsPDF gezeichnet) + Stats ──
+    // ══ Karte + Stats-Pills ══
     if (lesson.route && lesson.route.points && lesson.route.points.length > 1) {
-      ensureSpace(80);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(15, 23, 23);
-      doc.text('Route', ml, y); y += 4;
-      try { self._drawNativeRouteMap(doc, lesson.route, ml, y, cw, 65); } catch (e) { /* skip */ }
-      y += 65 + 3;
-      // Stats-Zeile
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(80, 80, 80);
+      ensureSpace(85);
+      sectionTitle('Route');
+
+      // Stats-Pillen (über der Karte)
       var stats = [
-        (Number(lesson.route.distanceKm) || 0).toFixed(1) + ' km',
-        Math.round(Number(lesson.route.avgSpeedKmh) || 0) + ' km/h \u00d8',
-        ((lesson.route.markers || []).length) + ' Markierungen'
+        { label: 'Strecke', value: (Number(lesson.route.distanceKm) || 0).toFixed(1) + ' km' },
+        { label: '\u00d8 Tempo', value: Math.round(Number(lesson.route.avgSpeedKmh) || 0) + ' km/h' },
+        { label: 'Markierungen', value: String((lesson.route.markers || []).length) }
       ];
-      doc.text(stats.join('  \u00b7  '), ml, y); y += 8;
+      var pillW = (cw - 8) / 3, pillH = 12;
+      stats.forEach(function(s, i) {
+        var px = ml + i * (pillW + 4);
+        setFill(BG_SOFT); setDraw(BORDER); doc.setLineWidth(0.3);
+        doc.roundedRect(px, y, pillW, pillH, 1.8, 1.8, 'FD');
+        setText(TXT_MUTED); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+        doc.text(String(s.label).toUpperCase(), px + 3, y + 4.5);
+        setText(TXT); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+        doc.text(s.value, px + 3, y + 9.5);
+      });
+      y += pillH + 4;
+
+      // Karte
+      try { self._drawNativeRouteMap(doc, lesson.route, ml, y, cw, 60); } catch (e) { /* skip */ }
+      y += 60 + 8;
     }
 
-    // ── Bewertung ──
+    // ══ Bewertung als Karten-Liste mit Pills rechts ══
     var hasAnyRating = lesson.ratings && Object.keys(lesson.ratings).some(function(k){
       var v = lesson.ratings[k]; return typeof v === 'number' && v >= 1 && v <= 4;
     });
     if (hasAnyRating) {
-      ensureSpace(20);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(15, 23, 23);
-      doc.text('Bewertung', ml, y); y += 5;
+      sectionTitle('Bewertung');
 
-      var levelLabel = function(v) {
-        if (v === 1) return 'Sehr gut';
-        if (v === 2) return 'Gut';
-        if (v === 3) return 'Ausreichend';
-        if (v === 4) return 'Ungen\u00fcgend';
-        return '';
+      var levelMeta = function(v) {
+        if (v === 1) return { label: 'Sehr gut',    bg: [220, 252, 231], fg: [22, 101, 52],   accent: [34, 197, 94] };
+        if (v === 2) return { label: 'Gut',         bg: [219, 234, 254], fg: [30, 64, 175],   accent: [59, 130, 246] };
+        if (v === 3) return { label: 'Ausreichend', bg: [254, 243, 199], fg: [133, 77, 14],   accent: [234, 179, 8] };
+        if (v === 4) return { label: 'Ungen\u00fcgend', bg: [254, 226, 226], fg: [153, 27, 27],   accent: [239, 68, 68] };
+        return { label: '', bg: BG_SOFT, fg: TXT_MUTED, accent: BORDER };
       };
-      var levelColor = function(v) {
-        if (v === 1) return [22, 163, 74];     // green
-        if (v === 2) return [37, 99, 235];     // blue
-        if (v === 3) return [202, 138, 4];     // amber
-        if (v === 4) return [220, 38, 38];     // red
-        return [120, 120, 120];
+
+      // Pill-Renderer: gefüllter Hintergrund mit gerundeten Ecken, mittig vertikal, rechtsbündig
+      var drawPill = function(text, anchorRightX, centerY) {
+        var meta = arguments[3];
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+        var tw = doc.getTextWidth(text);
+        var pillPadX = 4, pillH = 6.5;
+        var pillW = tw + pillPadX * 2;
+        var px = anchorRightX - pillW;
+        var py = centerY - pillH / 2;
+        setFill(meta.bg);
+        doc.roundedRect(px, py, pillW, pillH, 1.6, 1.6, 'F');
+        setText(meta.fg);
+        doc.text(text, px + pillW / 2, centerY + 1.6, { align: 'center' });
       };
 
       evaluationGroupsWithLegacy(lesson.license_class || lesson.licenseClass, lesson.ratings).forEach(function(grp) {
@@ -10015,97 +10070,130 @@ var App = {
           var v = lesson.ratings[it]; return typeof v === 'number' && v >= 1 && v <= 4;
         });
         if (!anyInGroup) return;
-        ensureSpace(10);
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(120, 120, 120);
-        doc.text(String(grp.group).toUpperCase(), ml, y); y += 4;
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(15, 23, 23);
+        ensureSpace(12);
+        // Gruppen-Header
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); setText(TXT_MUTED);
+        doc.text(String(grp.group).toUpperCase(), ml, y);
+        y += 5;
+
+        // Items als Karten
         grp.items.forEach(function(item) {
           var v = lesson.ratings[item];
           if (typeof v !== 'number' || v < 1 || v > 4) return;
           var note = (lesson.ratingNotes && lesson.ratingNotes[item]) || '';
-          var noteLines = note ? doc.splitTextToSize(String(note), cw - 60) : [];
-          var rowH = 5 + Math.max(0, noteLines.length) * 4;
+          var meta = levelMeta(v);
+          // Pill-Breite für Item-Text-Begrenzung abschätzen
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+          var pillTw = doc.getTextWidth(meta.label) + 8;
+          var itemMaxW = cw - pillTw - 14;
+          // Notiz wrappen falls vorhanden
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+          var noteLines = note ? doc.splitTextToSize(String(note), cw - 14) : [];
+          var noteBlockH = noteLines.length ? (noteLines.length * 3.6 + 2) : 0;
+          var rowH = 10 + noteBlockH;
           ensureSpace(rowH + 2);
-          doc.setTextColor(15, 23, 23);
-          doc.text(String(item), ml, y);
-          var col = levelColor(v);
-          doc.setTextColor(col[0], col[1], col[2]);
-          doc.text(levelLabel(v), pw - mr, y, { align: 'right' });
-          y += 5;
+          // Hintergrund-Card
+          setFill(BG_SOFT);
+          doc.roundedRect(ml, y, cw, rowH, 1.8, 1.8, 'F');
+          // Linker Akzent-Streifen (4mm hoch, 1.2mm breit)
+          setFill(meta.accent);
+          doc.rect(ml, y, 1.2, rowH, 'F');
+          // Item-Name
+          setText(TXT); doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+          var itemLines = doc.splitTextToSize(String(item), itemMaxW);
+          doc.text(itemLines[0], ml + 4, y + 6.5);
+          // Pill rechts vertikal mittig zum Item-Namen
+          drawPill(meta.label, pw - mr - 2, y + 5.5, meta);
+          // Notiz drunter
           if (noteLines.length) {
-            doc.setTextColor(110, 110, 110); doc.setFontSize(9);
-            doc.text(noteLines, ml + 3, y);
-            doc.setFontSize(10);
-            y += noteLines.length * 4;
+            setText(TXT_MUTED); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+            var nY = y + 10.5;
+            noteLines.forEach(function(nl) {
+              doc.text(nl, ml + 4, nY);
+              nY += 3.6;
+            });
           }
+          y += rowH + 1.5;
         });
         y += 2;
       });
       y += 4;
     }
 
-    // ── Markierungen mit Maps-Links ──
+    // ── Markierungen mit Maps-Links (Card-Style) ──
     var markers = (lesson.route && lesson.route.markers) || [];
     if (markers.length > 0) {
-      ensureSpace(15);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(15, 23, 23);
-      doc.text('Markierungen', ml, y); y += 5;
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      sectionTitle('Markierungen');
       markers.forEach(function(m, i) {
         var lat = Number(m.lat), lng = Number(m.lng);
         var coordOk = !isNaN(lat) && !isNaN(lng);
         var url = coordOk ? ('https://www.google.com/maps?q=' + lat.toFixed(6) + ',' + lng.toFixed(6)) : null;
-        var noteLines = m.note ? doc.splitTextToSize(String(m.note), cw - 28) : [];
-        var rowH = 6 + noteLines.length * 4 + 4;
-        ensureSpace(rowH);
-        // Nummer-Badge (Kreis)
-        doc.setFillColor(20, 184, 166); doc.setDrawColor(20, 184, 166);
-        doc.circle(ml + 3, y - 1, 3, 'F');
-        doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-        doc.text(String(i + 1), ml + 3, y + 0.5, { align: 'center' });
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-        // Zeit + Maps-Link
-        doc.setTextColor(15, 23, 23);
-        doc.text(m.time || '', ml + 9, y);
+        // Reservierter Platz rechts für Link
+        var linkLabel = 'In Karte \u00f6ffnen \u203a';
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+        var linkW = url ? doc.getTextWidth(linkLabel) : 0;
+        var contentRight = pw - mr - 6 - (linkW ? linkW + 4 : 0);
+        var noteMaxW = contentRight - (ml + 13);
+        var noteLines = m.note ? doc.splitTextToSize(String(m.note), Math.max(20, noteMaxW)) : [];
+        // Karten-Höhe: Header-Zeile (Nummer + Zeit) + Notiz
+        var cardH = 9 + (noteLines.length ? (noteLines.length * 3.8 + 2) : 0);
+        ensureSpace(cardH + 3);
+        // Karte mit BG + Akzent links
+        setFill(BG_SOFT); doc.roundedRect(ml, y, cw, cardH, 1.8, 1.8, 'F');
+        setFill(BRAND); doc.rect(ml, y, 1.2, cardH, 'F');
+        // Nummer-Badge (Kreis) — vertikal zentriert in Header-Zeile
+        var badgeCy = y + 4.8;
+        setFill(BRAND);
+        doc.circle(ml + 5.5, badgeCy, 2.6, 'F');
+        setText([255, 255, 255]); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+        doc.text(String(i + 1), ml + 5.5, badgeCy + 1, { align: 'center' });
+        // Zeit
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); setText(TXT);
+        doc.text(m.time || '\u2014', ml + 11, y + 6);
+        // Maps-Link rechts
         if (url) {
-          doc.setTextColor(20, 184, 166);
-          doc.textWithLink('In Karte \u00f6ffnen \u203a', pw - mr, y, { align: 'right', url: url });
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); setText(BRAND_DARK);
+          doc.textWithLink(linkLabel, pw - mr - 6, y + 6, { align: 'right', url: url });
         }
-        y += 5;
+        // Notiz
         if (noteLines.length) {
-          doc.setTextColor(80, 80, 80);
-          doc.text(noteLines, ml + 9, y);
-          y += noteLines.length * 4;
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); setText(TXT_MUTED);
+          var noteY = y + 9.5;
+          noteLines.forEach(function(ln) { doc.text(ln, ml + 11, noteY); noteY += 3.8; });
         }
-        y += 2;
-        // Trennlinie
-        doc.setDrawColor(229, 231, 235); doc.setLineWidth(0.2);
-        doc.line(ml, y, pw - mr, y);
-        y += 3;
-      });
-      y += 3;
-    }
-
-    // ── Notizen ──
-    if (lesson.notes && String(lesson.notes).trim()) {
-      ensureSpace(15);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(15, 23, 23);
-      doc.text('Notizen', ml, y); y += 5;
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(60, 60, 60);
-      var nLines = doc.splitTextToSize(String(lesson.notes), cw);
-      nLines.forEach(function(ln) {
-        ensureSpace(5);
-        doc.text(ln, ml, y); y += 4.5;
+        y += cardH + 2;
       });
       y += 4;
+    }
+
+    // ── Notizen (Card-Style) ──
+    if (lesson.notes && String(lesson.notes).trim()) {
+      sectionTitle('Notizen');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      var nLines = doc.splitTextToSize(String(lesson.notes), cw - 10);
+      var notesCardH = nLines.length * 4.5 + 6;
+      ensureSpace(notesCardH + 3);
+      setFill(BG_SOFT); doc.roundedRect(ml, y, cw, notesCardH, 1.8, 1.8, 'F');
+      setFill(BRAND); doc.rect(ml, y, 1.2, notesCardH, 'F');
+      setText(TXT); doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      var nY = y + 5;
+      nLines.forEach(function(ln) { doc.text(ln, ml + 6, nY); nY += 4.5; });
+      y += notesCardH + 4;
     }
 
     // Footer auf jeder Seite
     var pageCount = doc.internal.getNumberOfPages();
     for (var p = 1; p <= pageCount; p++) {
       doc.setPage(p);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(150, 150, 150);
-      doc.text('Erstellt mit FahrDoc \u00b7 fahrdoc.app', ml, ph - 10);
+      // dezenter Trennstrich oberhalb
+      setDraw(BORDER); doc.setLineWidth(0.2);
+      doc.line(ml, ph - 14, pw - mr, ph - 14);
+      // kleiner teal Akzent-Punkt vor dem Brand-Namen
+      setFill(BRAND); doc.circle(ml + 1, ph - 10.8, 0.9, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); setText(BRAND_DARK);
+      doc.text('FahrDoc', ml + 3, ph - 10);
+      doc.setFont('helvetica', 'normal'); setText(TXT_MUTED);
+      doc.text(' \u00b7 fahrdoc.app', ml + 3 + doc.getTextWidth('FahrDoc') + 0.6, ph - 10);
       doc.text('Seite ' + p + ' / ' + pageCount, pw - mr, ph - 10, { align: 'right' });
     }
 
