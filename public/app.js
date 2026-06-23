@@ -9929,7 +9929,7 @@ var App = {
     var langs = (typeof LANGUAGES !== 'undefined' ? LANGUAGES : [
       { code:'de', name:'Deutsch', flag:'\ud83c\udde9\ud83c\uddea' },
       { code:'en', name:'English', flag:'\ud83c\uddec\ud83c\udde7' }
-    ]).filter(function(l){ return l.code !== 'ar'; });
+    ]);
 
     var modalId = 'pdf-lang-modal';
     var existing = document.getElementById(modalId);
@@ -9966,10 +9966,58 @@ var App = {
     });
   },
 
+  // Lazy-Loader fuer Amiri (arabische Schrift) als jsPDF VFS-Eintrag
+  _arabicFontPromise: null,
+  _loadArabicFontForPdf: function(doc) {
+    var self = this;
+    if (self._arabicFontBase64) {
+      // schon im Speicher -> direkt registrieren
+      try {
+        doc.addFileToVFS('Amiri-Regular.ttf', self._arabicFontBase64);
+        doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
+        doc.addFont('Amiri-Regular.ttf', 'Amiri', 'bold');
+      } catch (e) {}
+      return Promise.resolve(true);
+    }
+    if (self._arabicFontPromise) return self._arabicFontPromise.then(function(){
+      if (!self._arabicFontBase64) return false;
+      try {
+        doc.addFileToVFS('Amiri-Regular.ttf', self._arabicFontBase64);
+        doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
+        doc.addFont('Amiri-Regular.ttf', 'Amiri', 'bold');
+      } catch (e) {}
+      return true;
+    });
+    // PWA wird unter /app/* gemountet -> relativer Pfad, fallback /app/...
+    var fontUrl = 'Amiri-Regular.ttf';
+    try {
+      var base = (typeof location !== 'undefined' && location.pathname.indexOf('/app') === 0) ? '/app/' : '/';
+      fontUrl = base + 'Amiri-Regular.ttf';
+    } catch (e) {}
+    self._arabicFontPromise = fetch(fontUrl).then(function(r) {
+      if (!r.ok) throw new Error('font fetch failed');
+      return r.arrayBuffer();
+    }).then(function(buf) {
+      // ArrayBuffer -> Base64 in Chunks (Stack-Overflow-sicher)
+      var bytes = new Uint8Array(buf);
+      var chunk = 0x8000, binary = '';
+      for (var i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      self._arabicFontBase64 = btoa(binary);
+      try {
+        doc.addFileToVFS('Amiri-Regular.ttf', self._arabicFontBase64);
+        doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
+        doc.addFont('Amiri-Regular.ttf', 'Amiri', 'bold');
+      } catch (e) {}
+      return true;
+    }).catch(function() { return false; });
+    return self._arabicFontPromise;
+  },
+
   _generateLessonReportPdf: async function(lessonId, lang) {
     var self = this;
     lang = lang || 'de';
-    if (lang === 'ar') lang = 'en'; // Sicherheitsnetz: Helvetica kann kein RTL
     // pdfT: lookup key for lang, fallback de -> en -> key
     var pdfT = function(key) {
       var entry = (window.TRANSLATIONS || {})[key];
@@ -9990,6 +10038,36 @@ var App = {
     var instr = AppState.currentUser || {};
     var instrName = instr.name || instr.email || '';
 
+    // ── Arabisch: Font laden + RTL-Setup ──
+    var isAr = (lang === 'ar');
+    if (isAr) {
+      var ok = await self._loadArabicFontForPdf(doc);
+      if (!ok) {
+        self.showToast('Schriftart fuer Arabisch konnte nicht geladen werden — Bericht wird auf Englisch erstellt.');
+        lang = 'en';
+        isAr = false;
+      } else {
+        // setR2L NICHT setzen — jsPDFs Bidi-Engine + align:right liefert bessere Ergebnisse
+        try { doc.setLanguage('ar'); } catch (e) {}
+      }
+    }
+    // Font-Helper: bei Arabisch immer Amiri (kein Bold-Schnitt -> normal mit groesserer Size simulieren)
+    var fontFamily = isAr ? 'Amiri' : 'helvetica';
+    var setFn = function(style) {
+      doc.setFont(fontFamily, style || 'normal');
+    };
+    // Align-Helper: bei Arabisch wird linksbuendig -> rechtsbuendig gespiegelt
+    var ax = function(x) { return isAr ? (pw - x) : x; };
+    var aopt = function(opts) {
+      if (!isAr) return opts || {};
+      var o = {};
+      for (var k in (opts||{})) o[k] = opts[k];
+      // Standard links -> rechts; mittig bleibt mittig
+      if (!o.align || o.align === 'left') o.align = 'right';
+      else if (o.align === 'right') o.align = 'left';
+      return o;
+    };
+
     // Brand-Farben
     var BRAND = [20, 184, 166];        // teal-500
     var BRAND_DARK = [13, 148, 136];   // teal-600
@@ -10009,17 +10087,24 @@ var App = {
     setFill(BRAND); doc.rect(0, 0, pw, 4, 'F');
     y = mt;
 
-    // Logo-Wortmarke + Untertitel
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); setText(BRAND_DARK);
-    doc.text('FahrDoc', ml, y);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); setText(TXT_MUTED);
-    doc.text('fahrdoc.app', pw - mr, y, { align: 'right' });
+    // Logo-Wortmarke + Untertitel — bei Arabisch Seiten tauschen
+    setFn('bold'); doc.setFontSize(11); setText(BRAND_DARK);
+    doc.text('FahrDoc', isAr ? (pw - mr) : ml, y, isAr ? { align: 'right' } : {});
+    setFn('normal'); doc.setFontSize(9); setText(TXT_MUTED);
+    doc.text('fahrdoc.app', isAr ? ml : (pw - mr), y, isAr ? {} : { align: 'right' });
     y += 7;
 
     // Titel — gross
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(20); setText(TXT);
-    doc.text(pdfT('pdfTitel'), ml, y); y += 2;
-    setDraw(BRAND); doc.setLineWidth(0.8); doc.line(ml, y, ml + 18, y);
+    setFn('bold'); doc.setFontSize(20); setText(TXT);
+    if (isAr) {
+      doc.text(pdfT('pdfTitel'), pw - mr, y, { align: 'right' });
+    } else {
+      doc.text(pdfT('pdfTitel'), ml, y);
+    }
+    y += 2;
+    setDraw(BRAND); doc.setLineWidth(0.8);
+    if (isAr) doc.line(pw - mr - 18, y, pw - mr, y);
+    else      doc.line(ml, y, ml + 18, y);
     y += 9;
 
     // ══ Kopfdaten-Karte ══
@@ -10027,14 +10112,17 @@ var App = {
     setFill(BG_SOFT); doc.roundedRect(ml, y, cw, headCardH, 2.5, 2.5, 'F');
     setDraw(BORDER); doc.setLineWidth(0.3); doc.roundedRect(ml, y, cw, headCardH, 2.5, 2.5, 'S');
     var inX = ml + 6, inY = y + 7;
-    setText(TXT); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-    doc.text(lesson.studentName || '', inX, inY); inY += 7;
+    var inRight = pw - mr - 6;
+    setText(TXT); setFn('bold'); doc.setFontSize(13);
+    if (isAr) doc.text(lesson.studentName || '', inRight, inY, { align: 'right' });
+    else      doc.text(lesson.studentName || '', inX, inY);
+    inY += 7;
 
     // 3-Spalten KV-Layout: Label klein drüber, Wert drunter
     doc.setFontSize(9);
     var colW = (cw - 12) / 3;
     var fields = [
-      [pdfT('datum'),    self.formatDate(lesson.date)],
+      [pdfT('datum'),    self.formatDate(String(lesson.date || '').slice(0, 10))],
       [pdfT('dauer'),    self.formatDuration(lesson.duration)],
       [pdfT('klasse'),   lesson.license_class || lesson.licenseClass || ''],
       [pdfT('typ'),      tType ? tType(lesson.type) : (lesson.type || '')],
@@ -10044,12 +10132,22 @@ var App = {
     for (var fi = 0; fi < fields.length; fi++) {
       var row = Math.floor(fi / 3);
       var col = fi % 3;
-      var fx = inX + col * colW;
+      // Bei Arabisch: Spalten von rechts nach links lesen
+      var fx, txtOpts;
+      if (isAr) {
+        fx = inRight - col * colW;
+        txtOpts = { align: 'right' };
+      } else {
+        fx = inX + col * colW;
+        txtOpts = {};
+      }
       var fy = inY + row * 11;
-      setText(TXT_MUTED); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-      doc.text(String(fields[fi][0]).toUpperCase(), fx, fy);
-      setText(TXT); doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-      doc.text(String(fields[fi][1] || '\u2014'), fx, fy + 5);
+      setText(TXT_MUTED); setFn('normal'); doc.setFontSize(8);
+      // ASCII-Labels NICHT toUpperCase fuer Arabisch (es gibt keine Grossbuchstaben, aber Strip stoert)
+      var lbl = isAr ? String(fields[fi][0]) : String(fields[fi][0]).toUpperCase();
+      doc.text(lbl, fx, fy, txtOpts);
+      setText(TXT); setFn('bold'); doc.setFontSize(10);
+      doc.text(String(fields[fi][1] || '\u2014'), fx, fy + 5, txtOpts);
     }
     y += headCardH + 9;
 
@@ -10057,9 +10155,16 @@ var App = {
     var sectionTitle = function(label) {
       ensureSpace(10);
       setDraw(BRAND); doc.setLineWidth(0.7);
-      doc.line(ml, y - 1, ml + 4, y - 1);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); setText(TXT);
-      doc.text(label, ml + 6.5, y); y += 6;
+      if (isAr) {
+        doc.line(pw - mr - 4, y - 1, pw - mr, y - 1);
+        setFn('bold'); doc.setFontSize(12); setText(TXT);
+        doc.text(label, pw - mr - 6.5, y, { align: 'right' });
+      } else {
+        doc.line(ml, y - 1, ml + 4, y - 1);
+        setFn('bold'); doc.setFontSize(12); setText(TXT);
+        doc.text(label, ml + 6.5, y);
+      }
+      y += 6;
     };
 
     // ══ Karte + Stats-Pills ══
@@ -10075,13 +10180,17 @@ var App = {
       ];
       var pillW = (cw - 8) / 3, pillH = 12;
       stats.forEach(function(s, i) {
-        var px = ml + i * (pillW + 4);
+        // Bei Arabisch: Pillen von rechts nach links
+        var px = isAr ? (pw - mr - pillW - i * (pillW + 4)) : (ml + i * (pillW + 4));
         setFill(BG_SOFT); setDraw(BORDER); doc.setLineWidth(0.3);
         doc.roundedRect(px, y, pillW, pillH, 1.8, 1.8, 'FD');
-        setText(TXT_MUTED); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
-        doc.text(String(s.label).toUpperCase(), px + 3, y + 4.5);
-        setText(TXT); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-        doc.text(s.value, px + 3, y + 9.5);
+        setText(TXT_MUTED); setFn('normal'); doc.setFontSize(7.5);
+        var slbl = isAr ? String(s.label) : String(s.label).toUpperCase();
+        if (isAr) doc.text(slbl, px + pillW - 3, y + 4.5, { align: 'right' });
+        else      doc.text(slbl, px + 3, y + 4.5);
+        setText(TXT); setFn('bold'); doc.setFontSize(11);
+        if (isAr) doc.text(s.value, px + pillW - 3, y + 9.5, { align: 'right' });
+        else      doc.text(s.value, px + 3, y + 9.5);
       });
       y += pillH + 4;
 
@@ -10100,7 +10209,7 @@ var App = {
         var url = coordOk ? ('https://www.google.com/maps?q=' + lat.toFixed(6) + ',' + lng.toFixed(6)) : null;
         // Reservierter Platz rechts für Link
         var linkLabel = pdfT('pdfInKarteOeffnen');
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+        setFn('normal'); doc.setFontSize(9);
         var linkW = url ? doc.getTextWidth(linkLabel) : 0;
         var contentRight = pw - mr - 6 - (linkW ? linkW + 4 : 0);
         var noteMaxW = contentRight - (ml + 13);
@@ -10108,22 +10217,40 @@ var App = {
         var cardH = 9 + (noteLines.length ? (noteLines.length * 3.8 + 2) : 0);
         ensureSpace(cardH + 3);
         setFill(BG_SOFT); doc.roundedRect(ml, y, cw, cardH, 1.8, 1.8, 'F');
-        setFill(BRAND); doc.rect(ml, y, 1.2, cardH, 'F');
-        var badgeCy = y + 4.8;
+        // Akzent-Streifen: bei Arabisch rechts
         setFill(BRAND);
-        doc.circle(ml + 5.5, badgeCy, 2.6, 'F');
-        setText([255, 255, 255]); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-        doc.text(String(i + 1), ml + 5.5, badgeCy + 1, { align: 'center' });
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(10); setText(TXT);
-        doc.text(m.time || '\u2014', ml + 11, y + 6);
+        if (isAr) doc.rect(pw - mr - 1.2, y, 1.2, cardH, 'F');
+        else      doc.rect(ml, y, 1.2, cardH, 'F');
+        var badgeCy = y + 4.8;
+        // Badge: bei Arabisch rechts (5.5mm vom rechten Rand)
+        var badgeCx = isAr ? (pw - mr - 5.5) : (ml + 5.5);
+        setFill(BRAND);
+        doc.circle(badgeCx, badgeCy, 2.6, 'F');
+        setText([255, 255, 255]); setFn('bold'); doc.setFontSize(8);
+        doc.text(String(i + 1), badgeCx, badgeCy + 1, { align: 'center' });
+        setFn('bold'); doc.setFontSize(10); setText(TXT);
+        // Zeit: bei Arabisch direkt links vom Badge (also pw - mr - 11), rechtsbuendig
+        if (isAr) doc.text(m.time || '\u2014', pw - mr - 11, y + 6, { align: 'right' });
+        else      doc.text(m.time || '\u2014', ml + 11, y + 6);
         if (url) {
-          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); setText(BRAND_DARK);
-          doc.textWithLink(linkLabel, pw - mr - 6, y + 6, { align: 'right', url: url });
+          setFn('normal'); doc.setFontSize(9); setText(BRAND_DARK);
+          if (isAr) {
+            // Bei Arabisch: Link auf der linken Seite (logisches Ende), linksbuendig
+            doc.text(linkLabel, ml + 6, y + 6);
+            var _lw = doc.getTextWidth(linkLabel);
+            doc.link(ml + 6, y + 2, _lw, 6, { url: url });
+          } else {
+            doc.textWithLink(linkLabel, pw - mr - 6, y + 6, { align: 'right', url: url });
+          }
         }
         if (noteLines.length) {
-          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); setText(TXT_MUTED);
+          setFn('normal'); doc.setFontSize(9); setText(TXT_MUTED);
           var noteY = y + 9.5;
-          noteLines.forEach(function(ln) { doc.text(ln, ml + 11, noteY); noteY += 3.8; });
+          noteLines.forEach(function(ln) {
+            if (isAr) doc.text(ln, pw - mr - 11, noteY, { align: 'right' });
+            else      doc.text(ln, ml + 11, noteY);
+            noteY += 3.8;
+          });
         }
         y += cardH + 2;
       });
@@ -10154,7 +10281,7 @@ var App = {
       // Pill-Renderer: gefüllter Hintergrund mit gerundeten Ecken, mittig vertikal, rechtsbündig
       var drawPill = function(text, anchorRightX, centerY) {
         var meta = arguments[3];
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+        setFn('bold'); doc.setFontSize(9);
         var tw = doc.getTextWidth(text);
         var pillPadX = 4, pillH = 6.5;
         var pillW = tw + pillPadX * 2;
@@ -10174,8 +10301,10 @@ var App = {
         ensureSpace(12);
         // Gruppen-Header (uebersetzt wenn moeglich)
         var groupLabel = groupKeyMap[grp.group] ? pdfT(groupKeyMap[grp.group]) : String(grp.group);
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); setText(TXT_MUTED);
-        doc.text(String(groupLabel).toUpperCase(), ml, y);
+        setFn('bold'); doc.setFontSize(8.5); setText(TXT_MUTED);
+        var ghLbl = isAr ? String(groupLabel) : String(groupLabel).toUpperCase();
+        if (isAr) doc.text(ghLbl, pw - mr, y, { align: 'right' });
+        else      doc.text(ghLbl, ml, y);
         y += 5;
 
         // Items als Karten
@@ -10185,11 +10314,11 @@ var App = {
           var note = (lesson.ratingNotes && lesson.ratingNotes[item]) || '';
           var meta = levelMeta(v);
           // Pill-Breite für Item-Text-Begrenzung abschätzen
-          doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+          setFn('bold'); doc.setFontSize(9);
           var pillTw = doc.getTextWidth(meta.label) + 8;
           var itemMaxW = cw - pillTw - 14;
           // Notiz wrappen falls vorhanden
-          doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+          setFn('normal'); doc.setFontSize(9);
           var noteLines = note ? doc.splitTextToSize(String(note), cw - 14) : [];
           var noteBlockH = noteLines.length ? (noteLines.length * 3.6 + 2) : 0;
           var rowH = 10 + noteBlockH;
@@ -10197,21 +10326,29 @@ var App = {
           // Hintergrund-Card
           setFill(BG_SOFT);
           doc.roundedRect(ml, y, cw, rowH, 1.8, 1.8, 'F');
-          // Linker Akzent-Streifen (4mm hoch, 1.2mm breit)
+          // Akzent-Streifen: bei Arabisch rechts, sonst links
           setFill(meta.accent);
-          doc.rect(ml, y, 1.2, rowH, 'F');
-          // Item-Name
-          setText(TXT); doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+          if (isAr) doc.rect(pw - mr - 1.2, y, 1.2, rowH, 'F');
+          else      doc.rect(ml, y, 1.2, rowH, 'F');
+          // Item-Name + Pill spiegeln
+          setText(TXT); setFn('bold'); doc.setFontSize(10);
           var itemLines = doc.splitTextToSize(String(item), itemMaxW);
-          doc.text(itemLines[0], ml + 4, y + 6.5);
-          // Pill rechts vertikal mittig zum Item-Namen
-          drawPill(meta.label, pw - mr - 2, y + 5.5, meta);
+          if (isAr) {
+            doc.text(itemLines[0], pw - mr - 4, y + 6.5, { align: 'right' });
+            // Pill auf linker Seite (anchor = left edge -> wir geben den linken Ankerpunkt + pillW als Argument an drawPill)
+            // drawPill nimmt anchorRightX als rechter Rand -> bei AR uebergeben wir ml + pillTw + 2 als rechten Rand
+            drawPill(meta.label, ml + 2 + pillTw, y + 5.5, meta);
+          } else {
+            doc.text(itemLines[0], ml + 4, y + 6.5);
+            drawPill(meta.label, pw - mr - 2, y + 5.5, meta);
+          }
           // Notiz drunter
           if (noteLines.length) {
-            setText(TXT_MUTED); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+            setText(TXT_MUTED); setFn('normal'); doc.setFontSize(8.5);
             var nY = y + 10.5;
             noteLines.forEach(function(nl) {
-              doc.text(nl, ml + 4, nY);
+              if (isAr) doc.text(nl, pw - mr - 4, nY, { align: 'right' });
+              else      doc.text(nl, ml + 4, nY);
               nY += 3.6;
             });
           }
@@ -10225,15 +10362,21 @@ var App = {
     // ── Notizen (Card-Style) ──
     if (lesson.notes && String(lesson.notes).trim()) {
       sectionTitle(pdfT('notizen'));
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      setFn('normal'); doc.setFontSize(10);
       var nLines = doc.splitTextToSize(String(lesson.notes), cw - 10);
       var notesCardH = nLines.length * 4.5 + 6;
       ensureSpace(notesCardH + 3);
       setFill(BG_SOFT); doc.roundedRect(ml, y, cw, notesCardH, 1.8, 1.8, 'F');
-      setFill(BRAND); doc.rect(ml, y, 1.2, notesCardH, 'F');
-      setText(TXT); doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      setFill(BRAND);
+      if (isAr) doc.rect(pw - mr - 1.2, y, 1.2, notesCardH, 'F');
+      else      doc.rect(ml, y, 1.2, notesCardH, 'F');
+      setText(TXT); setFn('normal'); doc.setFontSize(10);
       var nY = y + 5;
-      nLines.forEach(function(ln) { doc.text(ln, ml + 6, nY); nY += 4.5; });
+      nLines.forEach(function(ln) {
+        if (isAr) doc.text(ln, pw - mr - 6, nY, { align: 'right' });
+        else      doc.text(ln, ml + 6, nY);
+        nY += 4.5;
+      });
       y += notesCardH + 4;
     }
 
@@ -10244,13 +10387,22 @@ var App = {
       // dezenter Trennstrich oberhalb
       setDraw(BORDER); doc.setLineWidth(0.2);
       doc.line(ml, ph - 14, pw - mr, ph - 14);
-      // kleiner teal Akzent-Punkt vor dem Brand-Namen
-      setFill(BRAND); doc.circle(ml + 1, ph - 10.8, 0.9, 'F');
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); setText(BRAND_DARK);
-      doc.text('FahrDoc', ml + 3, ph - 10);
-      doc.setFont('helvetica', 'normal'); setText(TXT_MUTED);
-      doc.text(' \u00b7 fahrdoc.app', ml + 3 + doc.getTextWidth('FahrDoc') + 0.6, ph - 10);
-      doc.text(pdfT('pdfSeite') + ' ' + p + ' / ' + pageCount, pw - mr, ph - 10, { align: 'right' });
+      if (isAr) {
+        // Punkt + Brand rechts, Seitenzahl links
+        setFill(BRAND); doc.circle(pw - mr - 1, ph - 10.8, 0.9, 'F');
+        setFn('bold'); doc.setFontSize(8); setText(BRAND_DARK);
+        doc.text('FahrDoc', pw - mr - 3, ph - 10, { align: 'right' });
+        setFn('normal'); setText(TXT_MUTED);
+        doc.text(' \u00b7 fahrdoc.app', pw - mr - 3 - doc.getTextWidth('FahrDoc') - 0.6, ph - 10, { align: 'right' });
+        doc.text(pdfT('pdfSeite') + ' ' + p + ' / ' + pageCount, ml, ph - 10);
+      } else {
+        setFill(BRAND); doc.circle(ml + 1, ph - 10.8, 0.9, 'F');
+        setFn('bold'); doc.setFontSize(8); setText(BRAND_DARK);
+        doc.text('FahrDoc', ml + 3, ph - 10);
+        setFn('normal'); setText(TXT_MUTED);
+        doc.text(' \u00b7 fahrdoc.app', ml + 3 + doc.getTextWidth('FahrDoc') + 0.6, ph - 10);
+        doc.text(pdfT('pdfSeite') + ' ' + p + ' / ' + pageCount, pw - mr, ph - 10, { align: 'right' });
+      }
     }
 
     // Filename — i18n + ASCII-sicher
