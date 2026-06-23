@@ -10503,6 +10503,72 @@ var App = {
       y += notesCardH + 4;
     }
 
+    // ── Bilder (falls vorhanden) ──
+    // lesson.images ist Array von { data: 'data:image/...;base64,...', filename: '...' }
+    if (lesson.images && lesson.images.length > 0) {
+      sectionTitle(pdfT('bilder'));
+      // Bildgroessen vorher laden, damit wir die echte Aspect-Ratio kennen
+      // Wir laden parallel und cachen Promises
+      var loadImg = function(src) {
+        return new Promise(function(resolve) {
+          var im = new Image();
+          im.onload = function() { resolve({ src: src, w: im.naturalWidth || 1, h: im.naturalHeight || 1 }); };
+          im.onerror = function() { resolve(null); };
+          im.src = src;
+        });
+      };
+      var loadedImgs = [];
+      for (var ii = 0; ii < lesson.images.length; ii++) {
+        var _imgEntry = lesson.images[ii];
+        if (_imgEntry && _imgEntry.data) {
+          var info = await loadImg(_imgEntry.data);
+          if (info) loadedImgs.push(info);
+        }
+      }
+      // Layout: 2 Bilder pro Reihe, max. 70mm hoch, gleichmaessig 4mm Abstand
+      var gap = 4;
+      var imgW = (cw - gap) / 2;
+      var maxImgH = 70;
+      for (var idx = 0; idx < loadedImgs.length; idx += 2) {
+        var leftImg = loadedImgs[idx];
+        var rightImg = loadedImgs[idx + 1] || null;
+        // Hoehen aus Aspect-Ratio berechnen, jeweils auf maxImgH gedeckelt
+        var leftH = Math.min(maxImgH, imgW * (leftImg.h / leftImg.w));
+        var rightH = rightImg ? Math.min(maxImgH, imgW * (rightImg.h / rightImg.w)) : 0;
+        var rowH = Math.max(leftH, rightH);
+        ensureSpace(rowH + 4);
+        // jsPDF.addImage erkennt das Format aus der Data-URL selber
+        try {
+          // Linkes Bild — bei AR rechts beginnen
+          var leftX = isAr ? (pw - mr - imgW) : ml;
+          var leftActualW = imgW;
+          // Falls Bild durch maxImgH gedeckelt wurde, Breite anpassen damit Aspect bleibt
+          var leftMaxW = imgW;
+          if (leftH < imgW * (leftImg.h / leftImg.w)) {
+            // Hoehe wurde auf maxImgH gedeckelt -> Breite reduziert
+            leftActualW = leftH * (leftImg.w / leftImg.h);
+            leftX = isAr ? (pw - mr - leftActualW) : ml;
+          } else {
+            leftActualW = leftMaxW;
+          }
+          doc.addImage(leftImg.src, leftX, y, leftActualW, leftH, undefined, 'FAST');
+        } catch (e) { /* ungueltiges Bild ueberspringen */ }
+        if (rightImg) {
+          try {
+            var rightX = isAr ? ml : (ml + imgW + gap);
+            var rightActualW = imgW;
+            if (rightH < imgW * (rightImg.h / rightImg.w)) {
+              rightActualW = rightH * (rightImg.w / rightImg.h);
+              rightX = isAr ? ml : (ml + imgW + gap);
+            }
+            doc.addImage(rightImg.src, rightX, y, rightActualW, rightH, undefined, 'FAST');
+          } catch (e) {}
+        }
+        y += rowH + gap;
+      }
+      y += 2;
+    }
+
     // Footer auf jeder Seite
     var pageCount = doc.internal.getNumberOfPages();
     for (var p = 1; p <= pageCount; p++) {
