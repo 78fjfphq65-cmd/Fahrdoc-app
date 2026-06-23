@@ -9966,53 +9966,89 @@ var App = {
     });
   },
 
-  // Lazy-Loader fuer Amiri (arabische Schrift) als jsPDF VFS-Eintrag
+  // ───────────── PDF-Schriften (Lazy-Load) ─────────────
+  // Wir laden externe TTFs nur bei Bedarf und cachen Base64 im Speicher.
+  // Amiri = arabische Schrift (RTL)
+  // NotoSans = Unicode-Latein (deckt tr/fr/cs/pl etc. komplett ab — Helvetica kann nur Latin-1)
+
   _arabicFontPromise: null,
-  _loadArabicFontForPdf: function(doc) {
+  _notoFontPromise: null,
+
+  // Generischer Lazy-Loader: laedt eine TTF und registriert sie als jsPDF-Font.
+  // fonts: [{file, alias, style}] — alle TTFs werden in den VFS gelegt und unter dem
+  //        gegebenen alias+style registriert.
+  _loadPdfFontGeneric: function(doc, cacheKey, fonts) {
     var self = this;
-    if (self._arabicFontBase64) {
-      // schon im Speicher -> direkt registrieren
+    var cacheData = self['_' + cacheKey + 'Data']; // object mit {filename: base64}
+    var cachePromise = '_' + cacheKey + 'Promise';
+
+    var register = function(data) {
       try {
-        doc.addFileToVFS('Amiri-Regular.ttf', self._arabicFontBase64);
-        doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
-        doc.addFont('Amiri-Regular.ttf', 'Amiri', 'bold');
+        fonts.forEach(function(f) {
+          if (data[f.file]) {
+            doc.addFileToVFS(f.file, data[f.file]);
+            doc.addFont(f.file, f.alias, f.style);
+          }
+        });
       } catch (e) {}
-      return Promise.resolve(true);
-    }
-    if (self._arabicFontPromise) return self._arabicFontPromise.then(function(){
-      if (!self._arabicFontBase64) return false;
-      try {
-        doc.addFileToVFS('Amiri-Regular.ttf', self._arabicFontBase64);
-        doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
-        doc.addFont('Amiri-Regular.ttf', 'Amiri', 'bold');
-      } catch (e) {}
+    };
+
+    if (cacheData) { register(cacheData); return Promise.resolve(true); }
+    if (self[cachePromise]) return self[cachePromise].then(function() {
+      var d = self['_' + cacheKey + 'Data'];
+      if (!d) return false;
+      register(d);
       return true;
     });
-    // PWA wird unter /app/* gemountet -> relativer Pfad, fallback /app/...
-    var fontUrl = 'Amiri-Regular.ttf';
+
+    // PWA wird unter /app/* gemountet -> relativer Pfad, fallback /
+    var base = '/';
     try {
-      var base = (typeof location !== 'undefined' && location.pathname.indexOf('/app') === 0) ? '/app/' : '/';
-      fontUrl = base + 'Amiri-Regular.ttf';
+      base = (typeof location !== 'undefined' && location.pathname.indexOf('/app') === 0) ? '/app/' : '/';
     } catch (e) {}
-    self._arabicFontPromise = fetch(fontUrl).then(function(r) {
-      if (!r.ok) throw new Error('font fetch failed');
-      return r.arrayBuffer();
-    }).then(function(buf) {
-      // ArrayBuffer -> Base64 in Chunks (Stack-Overflow-sicher)
+
+    var arr2base64 = function(buf) {
       var bytes = new Uint8Array(buf);
       var chunk = 0x8000, binary = '';
       for (var i = 0; i < bytes.length; i += chunk) {
         binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
       }
-      self._arabicFontBase64 = btoa(binary);
-      try {
-        doc.addFileToVFS('Amiri-Regular.ttf', self._arabicFontBase64);
-        doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
-        doc.addFont('Amiri-Regular.ttf', 'Amiri', 'bold');
-      } catch (e) {}
+      return btoa(binary);
+    };
+
+    // Eindeutige Dateinamen extrahieren (mehrere Aliase koennen dieselbe Datei nutzen)
+    var uniqueFiles = [];
+    var seen = {};
+    fonts.forEach(function(f) { if (!seen[f.file]) { seen[f.file] = 1; uniqueFiles.push(f.file); } });
+
+    self[cachePromise] = Promise.all(uniqueFiles.map(function(file) {
+      return fetch(base + file).then(function(r) {
+        if (!r.ok) throw new Error('font fetch failed: ' + file);
+        return r.arrayBuffer().then(function(buf) { return { file: file, b64: arr2base64(buf) }; });
+      });
+    })).then(function(results) {
+      var data = {};
+      results.forEach(function(r) { data[r.file] = r.b64; });
+      self['_' + cacheKey + 'Data'] = data;
+      register(data);
       return true;
     }).catch(function() { return false; });
-    return self._arabicFontPromise;
+
+    return self[cachePromise];
+  },
+
+  _loadArabicFontForPdf: function(doc) {
+    return this._loadPdfFontGeneric(doc, 'arabicFont', [
+      { file: 'Amiri-Regular.ttf', alias: 'Amiri', style: 'normal' },
+      { file: 'Amiri-Regular.ttf', alias: 'Amiri', style: 'bold' }
+    ]);
+  },
+
+  _loadNotoFontForPdf: function(doc) {
+    return this._loadPdfFontGeneric(doc, 'notoFont', [
+      { file: 'NotoSans-Regular.ttf', alias: 'NotoSans', style: 'normal' },
+      { file: 'NotoSans-Bold.ttf',    alias: 'NotoSans', style: 'bold'   }
+    ]);
   },
 
   _generateLessonReportPdf: async function(lessonId, lang) {
@@ -10038,8 +10074,9 @@ var App = {
     var instr = AppState.currentUser || {};
     var instrName = instr.name || instr.email || '';
 
-    // ── Arabisch: Font laden + RTL-Setup ──
+    // ── Schriften laden: Arabisch (Amiri+RTL) oder Latein (NotoSans fuer Unicode) ──
     var isAr = (lang === 'ar');
+    var notoLoaded = false;
     if (isAr) {
       var ok = await self._loadArabicFontForPdf(doc);
       if (!ok) {
@@ -10051,8 +10088,13 @@ var App = {
         try { doc.setLanguage('ar'); } catch (e) {}
       }
     }
-    // Font-Helper: bei Arabisch immer Amiri (kein Bold-Schnitt -> normal mit groesserer Size simulieren)
-    var fontFamily = isAr ? 'Amiri' : 'helvetica';
+    if (!isAr) {
+      // NotoSans laden fuer volle Unicode-Unterstuetzung (tr: şğİ, fr: âé, cs/pl etc.)
+      // Fallback ist Helvetica wenn TTFs nicht erreichbar sind — dann fehlen ggf. Sonderzeichen.
+      try { notoLoaded = await self._loadNotoFontForPdf(doc); } catch (e) { notoLoaded = false; }
+    }
+    // Font-Helper: Arabisch → Amiri, sonst NotoSans (wenn geladen), sonst Helvetica
+    var fontFamily = isAr ? 'Amiri' : (notoLoaded ? 'NotoSans' : 'helvetica');
     var setFn = function(style) {
       doc.setFont(fontFamily, style || 'normal');
     };
