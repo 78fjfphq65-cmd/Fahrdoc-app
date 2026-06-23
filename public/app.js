@@ -9544,7 +9544,12 @@ var App = {
         '<div id="image-preview-list" class="image-preview-list"></div>' +
       '</div></div>';
 
-    html += '<button class="btn btn-primary btn-full btn-lg" onclick="App.saveLessonSummary()">' + t('fahrstundeSpeichern') + '</button>';
+    // Sofort-Teilen-Button: speichert und oeffnet danach Sprach-Picker -> Share-Sheet/Download
+    html += '<button class="btn btn-secondary btn-full btn-lg mb-2" onclick="App.saveLessonSummary(true)" style="display:flex;align-items:center;justify-content:center;gap:8px;">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>' +
+      '<span>' + t('protokollSofortTeilen') + '</span>' +
+    '</button>';
+    html += '<button class="btn btn-primary btn-full btn-lg" onclick="App.saveLessonSummary(false)">' + t('fahrstundeSpeichern') + '</button>';
     document.getElementById('lesson-summary-content').innerHTML = html;
     this.renderPendingImages();
   },
@@ -9669,7 +9674,7 @@ var App = {
     wrap.outerHTML = _renderItemNoteHtml(task, existing, 'live');
   },
 
-  saveLessonSummary: async function() {
+  saveLessonSummary: async function(thenShare) {
     var lesson = AppState.activeLesson;
     if (!lesson) return;
     var notes = document.getElementById('lesson-notes') ? document.getElementById('lesson-notes').value : '';
@@ -9696,6 +9701,18 @@ var App = {
       // Zurueck zum Wochenplan-Dashboard
       this.navigate('instructor-dashboard');
       this.switchInstructorTab('dashboard');
+      // Falls 'Protokoll sofort teilen' geklickt wurde: Sprach-Picker oeffnen
+      // -> _generateLessonReportPdf nutzt Web Share API (mobil) bzw. faellt auf Download zurueck.
+      // resp kann je nach Server entweder die ID direkt oder {id, ...} liefern; beides abfangen.
+      if (thenShare) {
+        var newLessonId = (resp && (resp.id || resp.lessonId || resp.lesson_id)) || null;
+        if (newLessonId) {
+          // showLoading aus, damit Modal nicht hinter dem Spinner steckt
+          this.showLoading(false);
+          this.openLessonReportPdf(newLessonId);
+          return;
+        }
+      }
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }
     finally { this.showLoading(false); }
   },
@@ -10241,10 +10258,47 @@ var App = {
       y += 60 + 8;
     }
 
-    // ── Markierungen mit Maps-Links (direkt unter der Karte) ──
+    // ── Markierungen mit Street-View-Buttons (direkt unter der Karte) ──
     var markers = (lesson.route && lesson.route.markers) || [];
     if (markers.length > 0) {
       sectionTitle(pdfT('markierungen'));
+
+      // Hinweis-Banner oben: erklaert dem Schueler dass die Buttons klickbar sind
+      var hasAnyClickable = markers.some(function(_m) {
+        return !isNaN(Number(_m.lat)) && !isNaN(Number(_m.lng));
+      });
+      if (hasAnyClickable) {
+        setFn('normal'); doc.setFontSize(8.5);
+        var hinweisText = pdfT('pdfStreetViewHinweis');
+        var hinweisLines = doc.splitTextToSize(hinweisText, cw - 10);
+        var hinweisH = 4 + hinweisLines.length * 3.6 + 2;
+        ensureSpace(hinweisH + 2);
+        // Hellgruener Hintergrund mit Pin-Icon links
+        setFill([240, 253, 250]); // teal-50
+        doc.roundedRect(ml, y, cw, hinweisH, 1.4, 1.4, 'F');
+        setDraw([153, 246, 228]); doc.setLineWidth(0.3); // teal-200
+        doc.roundedRect(ml, y, cw, hinweisH, 1.4, 1.4, 'S');
+        // Pin-Icon (einfache Vektor-Form)
+        var pinX = isAr ? (pw - mr - 5) : (ml + 5);
+        var pinY = y + hinweisH / 2;
+        setFill(BRAND);
+        doc.circle(pinX, pinY - 0.6, 1.6, 'F');
+        // Pin-Spitze (Dreieck via 3 Linien)
+        setDraw(BRAND); doc.setLineWidth(0.6);
+        doc.triangle(pinX - 1.1, pinY + 0.2, pinX + 1.1, pinY + 0.2, pinX, pinY + 1.9, 'F');
+        setFill([255, 255, 255]); doc.circle(pinX, pinY - 0.6, 0.55, 'F');
+        // Text rechts vom Pin
+        setText([13, 90, 80]); setFn('normal'); doc.setFontSize(8.5);
+        var textX = isAr ? (pw - mr - 10) : (ml + 10);
+        var textY = y + 4.6;
+        hinweisLines.forEach(function(ln) {
+          if (isAr) doc.text(ln, textX, textY, { align: 'right' });
+          else      doc.text(ln, textX, textY);
+          textY += 3.6;
+        });
+        y += hinweisH + 3;
+      }
+
       markers.forEach(function(m, i) {
         var lat = Number(m.lat), lng = Number(m.lng);
         var coordOk = !isNaN(lat) && !isNaN(lng);
@@ -10255,14 +10309,24 @@ var App = {
         var url = coordOk
           ? ('https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + lat.toFixed(6) + ',' + lng.toFixed(6))
           : null;
-        // Reservierter Platz rechts für Link
-        var linkLabel = pdfT('pdfInKarteOeffnen');
+
+        // Layout: zweizeilig. Zeile 1 = Zeit + Notiz. Zeile 2 = auffaelliger Pill-Button.
+        var btnLabel = pdfT('pdfStreetViewBtn');
+        setFn('bold'); doc.setFontSize(9);
+        var btnTextW = doc.getTextWidth(btnLabel);
+        var btnPadX = 4;       // Padding links/rechts im Pill
+        var btnIconW = 4.2;    // Platz fuer das Pin-Icon vor dem Text
+        var btnW = btnIconW + btnTextW + btnPadX * 2;
+        var btnH = 7;
+
+        // Notiz-Bereich nimmt die ganze Breite ein (Button ist eigene Zeile)
         setFn('normal'); doc.setFontSize(9);
-        var linkW = url ? doc.getTextWidth(linkLabel) : 0;
-        var contentRight = pw - mr - 6 - (linkW ? linkW + 4 : 0);
-        var noteMaxW = contentRight - (ml + 13);
+        var noteMaxW = cw - 13 - 4; // 13 = Badge+Padding links, 4 = Atemraum rechts
         var noteLines = m.note ? doc.splitTextToSize(String(m.note), Math.max(20, noteMaxW)) : [];
-        var cardH = 9 + (noteLines.length ? (noteLines.length * 3.8 + 2) : 0);
+        // Karten-Hoehe = Kopfzeile (9) + Notizzeilen (falls vorhanden) + Button-Zeile (nur wenn url)
+        var noteBlockH = noteLines.length ? (noteLines.length * 3.8 + 2) : 0;
+        var btnBlockH = url ? (btnH + 3) : 0;
+        var cardH = 9 + noteBlockH + btnBlockH;
         ensureSpace(cardH + 3);
         setFill(BG_SOFT); doc.roundedRect(ml, y, cw, cardH, 1.8, 1.8, 'F');
         // Akzent-Streifen: bei Arabisch rechts
@@ -10280,17 +10344,7 @@ var App = {
         // Zeit: bei Arabisch direkt links vom Badge (also pw - mr - 11), rechtsbuendig
         if (isAr) doc.text(m.time || '\u2014', pw - mr - 11, y + 6, { align: 'right' });
         else      doc.text(m.time || '\u2014', ml + 11, y + 6);
-        if (url) {
-          setFn('normal'); doc.setFontSize(9); setText(BRAND_DARK);
-          if (isAr) {
-            // Bei Arabisch: Link auf der linken Seite (logisches Ende), linksbuendig
-            doc.text(linkLabel, ml + 6, y + 6);
-            var _lw = doc.getTextWidth(linkLabel);
-            doc.link(ml + 6, y + 2, _lw, 6, { url: url });
-          } else {
-            doc.textWithLink(linkLabel, pw - mr - 6, y + 6, { align: 'right', url: url });
-          }
-        }
+        // Notizen (volle Breite, da Button eigene Zeile)
         if (noteLines.length) {
           setFn('normal'); doc.setFontSize(9); setText(TXT_MUTED);
           var noteY = y + 9.5;
@@ -10299,6 +10353,27 @@ var App = {
             else      doc.text(ln, ml + 11, noteY);
             noteY += 3.8;
           });
+        }
+        // Auffaelliger Street-View-Pill-Button (eigene Zeile, unten in der Card)
+        if (url) {
+          var btnY = y + 9 + noteBlockH + 1;
+          var btnX = isAr ? (pw - mr - 6 - btnW) : (ml + 11);
+          // Pill-Hintergrund (gefuellt mit Brand-Farbe)
+          setFill(BRAND);
+          doc.roundedRect(btnX, btnY, btnW, btnH, 2.4, 2.4, 'F');
+          // Pin-Icon links im Button (weisser Kreis + Spitze)
+          var iconCX = btnX + btnPadX + btnIconW / 2 - 0.4;
+          var iconCY = btnY + btnH / 2 - 0.4;
+          setFill([255, 255, 255]);
+          doc.circle(iconCX, iconCY, 1.3, 'F');
+          doc.triangle(iconCX - 0.95, iconCY + 0.7, iconCX + 0.95, iconCY + 0.7, iconCX, iconCY + 2.1, 'F');
+          setFill(BRAND); doc.circle(iconCX, iconCY, 0.5, 'F');
+          // Button-Text
+          setText([255, 255, 255]); setFn('bold'); doc.setFontSize(9);
+          var textStartX = btnX + btnPadX + btnIconW;
+          doc.text(btnLabel, textStartX, btnY + btnH / 2 + 1.1);
+          // Klickbarer Bereich (ganzer Pill, nicht nur Text)
+          doc.link(btnX, btnY, btnW, btnH, { url: url });
         }
         y += cardH + 2;
       });
