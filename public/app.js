@@ -800,7 +800,7 @@ var App = {
     var subtitleEl = document.getElementById('signup-subtitle');
     if (subtitleEl) {
       if (role === 'school') {
-        subtitleEl.textContent = 'Fahrschule registrieren — 14 Tage gratis';
+        subtitleEl.textContent = 'Fahrschule registrieren — kostenlos';
       } else if (role === 'solo') {
         subtitleEl.textContent = 'FahrDoc Solo — als Einzel-Fahrlehrer';
       } else if (role === 'instructor') {
@@ -915,30 +915,9 @@ var App = {
     return '';
   },
 
-  // Vollbild-Lock-Screen wenn Trial abgelaufen oder Abo ausgelaufen
+  // Lock-Screen [DEAKTIVIERT 2026-07-14 - FahrDoc ist kostenlos] - No-op
   renderSoloLockScreen: function(sub) {
-    var isTrialExpired = sub && sub.state === 'trial_expired';
-    var title = isTrialExpired ? 'Dein Testzeitraum ist beendet' : 'Dein Abo ist abgelaufen';
-    var msg = isTrialExpired
-      ? 'Du hast FahrDoc 14 Tage gratis getestet. Schalte jetzt frei und nutze alle Funktionen ohne Einschränkung.'
-      : 'Reaktiviere dein FahrDoc-Abo, um wieder Schueler zu verwalten und Fahrstunden zu tracken.';
-    var screen = document.getElementById('screen-instructor-dashboard');
-    if (!screen) return;
-    var html = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:linear-gradient(135deg,#f8fafc,#e2e8f0);">' +
-      '<div style="max-width:480px;width:100%;background:#fff;border-radius:20px;padding:36px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.08);text-align:center;">' +
-        '<div style="font-size:64px;margin-bottom:12px;">🔒</div>' +
-        '<h1 style="font-size:24px;font-weight:700;color:#0f172a;margin:0 0 8px;">' + title + '</h1>' +
-        '<p style="font-size:15px;color:#64748b;line-height:1.5;margin:0 0 28px;">' + msg + '</p>' +
-        '<div style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border-radius:14px;padding:20px;margin-bottom:20px;">' +
-          '<div style="font-size:13px;color:#1e3a8a;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">FahrDoc</div>' +
-          '<div style="font-size:36px;font-weight:700;color:#0f172a;margin:4px 0;">14,99 €<span style="font-size:16px;font-weight:500;color:#64748b;">/Monat</span></div>' +
-          '<div style="font-size:13px;color:#475569;">Jederzeit kündbar · Unbegrenzte Schüler</div>' +
-        '</div>' +
-        '<button class="btn btn-primary btn-full" style="padding:14px;font-size:16px;font-weight:600;margin-bottom:12px;" onclick="App.startSoloCheckout()">Jetzt freischalten</button>' +
-        '<button class="btn btn-ghost btn-full" style="padding:12px;color:#64748b;" onclick="App.logout()">Abmelden</button>' +
-      '</div>' +
-    '</div>';
-    screen.innerHTML = html;
+    return;
   },
 
   applyBranding: function() {
@@ -5308,31 +5287,24 @@ var App = {
     if (!container) return;
     try {
       var sub = await ApiClient.get('/api/stripe/subscription');
-      var statusLabels = { trial: 'Testphase', active: 'Aktiv', free: 'Gratis-Abo', expired: 'Abgelaufen' };
-      var statusColors = { trial: 'warning', active: 'success', free: 'success', expired: 'error' };
-      var statusLabel = statusLabels[sub.status] || sub.status;
-      var statusColor = statusColors[sub.status] || 'muted';
-      var planLabel = sub.plan === 'ki' ? 'FahrDoc KI \u2728' : (sub.plan === 'classic' ? 'FahrDoc Classic' : 'Kein Tarif');
+      // [FahrDoc-Free-Umstellung 2026-07-14] Alle Nutzer sind gratis
+      var statusLabels = { trial: 'Kostenlos', active: 'Aktiv', free: 'Kostenlos', expired: 'Kostenlos' };
+      var statusColors = { trial: 'success', active: 'success', free: 'success', expired: 'success' };
+      var statusLabel = statusLabels[sub.status] || 'Kostenlos';
+      var statusColor = statusColors[sub.status] || 'success';
+      var planLabel = 'FahrDoc \u2014 kostenlos';
 
       var h = '<div class="card mb-4">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-2);">' +
           '<div><div style="font-size:var(--text-lg);font-weight:700;">' + planLabel + '</div>' +
-          (sub.days_remaining !== null && sub.status === 'trial' ? '<div style="font-size:var(--text-sm);color:var(--text-muted);">Testphase: noch ' + sub.days_remaining + ' Tag' + (sub.days_remaining === 1 ? '' : 'e') + '</div>' : '') +
-          (sub.current_period_end && sub.status === 'active' ? '<div style="font-size:var(--text-sm);color:var(--text-muted);">N\u00e4chste Abbuchung: ' + new Date(sub.current_period_end).toLocaleDateString('de-DE') + '</div>' : '') +
+          '<div style="font-size:var(--text-sm);color:var(--text-muted);">Dauerhaft gratis \u2014 keine Abbuchungen</div>' +
           '</div>' +
           '<span class="badge badge-' + statusColor + '">' + statusLabel + '</span>' +
         '</div>';
 
-      if (sub.cancel_at_period_end && sub.current_period_end) {
-        h += '<div style="padding:var(--space-3);background:#fff8e1;border-radius:var(--radius-md);margin-top:var(--space-3);font-size:var(--text-sm);">Abo wird zum ' + new Date(sub.current_period_end).toLocaleDateString('de-DE') + ' beendet.</div>';
-      }
-      if (!sub.active && sub.lock_reason) {
-        h += '<div style="padding:var(--space-3);background:#ffeaea;border-radius:var(--radius-md);margin-top:var(--space-3);font-size:var(--text-sm);color:#c62828;"><strong>App gesperrt:</strong> ' + sub.lock_reason + '</div>';
-      }
-
+      // [FahrDoc-Free-Umstellung 2026-07-14] Kein Sperr-Hinweis - Portal nur wenn Stripe-Historie existiert
       h += '<div style="display:flex;gap:var(--space-2);margin-top:var(--space-3);flex-wrap:wrap;">' +
-        '<button class="btn btn-primary" onclick="App.switchSchoolTab(\'abo\')">' + (sub.active ? 'Tarif \u00e4ndern' : 'Tarif w\u00e4hlen') + '</button>' +
-        (sub.has_stripe ? '<button class="btn btn-secondary" onclick="App.stripePortal()">Stripe-Portal</button>' : '') +
+        (sub.has_stripe ? '<button class="btn btn-secondary" onclick="App.stripePortal()">Rechnungen ansehen</button>' : '') +
       '</div>';
       h += '</div>';
       container.innerHTML = h;
