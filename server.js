@@ -28,40 +28,14 @@ const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'admin@fahrschule-we
 
 // Hilfsfunktion: Pruefe Trial/Abo-Status einer Schule
 // Gibt zurueck: { active: bool, status: 'trial'|'active'|'expired'|'free', daysRemaining, plan, lockReason }
+//
+// [FahrDoc-Free-Umstellung 2026-07-14]
+// FahrDoc ist jetzt komplett kostenlos. Die App wird nie mehr gesperrt.
+// Bestehende Stripe-Abos werden separat via cancel-Skript auf cancel_at_period_end gesetzt
+// -> keine neuen Abbuchungen, aktive Kunden behalten Zugang wie alle anderen.
+// Wir behalten die Funktion, damit Code der 'status'/'plan' konsumiert weiterlaeuft.
 function computeSubscriptionState(sub, schoolCreatedAt) {
-  var now = new Date();
-  // 1) Gratis-Abo vom Super-Admin
-  if (sub && sub.free_subscription) {
-    var until = sub.free_subscription_until ? new Date(sub.free_subscription_until) : null;
-    if (!until || until > now) {
-      return { active: true, status: 'free', plan: sub.plan || 'ki', daysRemaining: until ? Math.ceil((until - now) / 86400000) : 9999, lockReason: null };
-    }
-  }
-  // 2) Aktives Stripe-Abo
-  if (sub && sub.stripe_subscription_id && (sub.status === 'active' || sub.status === 'trialing')) {
-    return { active: true, status: 'active', plan: sub.plan || 'classic', daysRemaining: null, lockReason: null };
-  }
-  // 3) Manuelle Trial-Verlaengerung (Bestandsschutz oder Admin)
-  if (sub && sub.trial_extended_until) {
-    var ext = new Date(sub.trial_extended_until);
-    if (ext > now) {
-      return { active: true, status: 'trial', plan: 'classic', daysRemaining: Math.ceil((ext - now) / 86400000), lockReason: null };
-    }
-  }
-  // 4) 14-Tage-Free-Trial nach Registrierung
-  if (schoolCreatedAt) {
-    var created = new Date(schoolCreatedAt);
-    var trialEnd = new Date(created.getTime() + 14 * 86400000);
-    if (trialEnd > now) {
-      return { active: true, status: 'trial', plan: 'classic', daysRemaining: Math.ceil((trialEnd - now) / 86400000), lockReason: null };
-    }
-  }
-  // 5) Stripe-Abo abgelaufen oder gekuendigt
-  if (sub && sub.status === 'past_due') {
-    return { active: false, status: 'expired', plan: sub.plan || 'classic', daysRemaining: 0, lockReason: 'Zahlung fehlgeschlagen. Bitte Zahlungsmethode aktualisieren.' };
-  }
-  // 6) Trial abgelaufen, kein Abo
-  return { active: false, status: 'expired', plan: null, daysRemaining: 0, lockReason: 'Testphase abgelaufen. Bitte ein Abo abschliessen.' };
+  return { active: true, status: 'free', plan: 'free', daysRemaining: null, lockReason: null };
 }
 
 // Helper: Supabase-Result auf Fehler pruefen + werfen, damit Fehler nicht still verschluckt werden
@@ -300,32 +274,9 @@ async function authMiddleware(req, res, next) {
   req.user = user;
   req.sessionToken = token;
 
-  // SOLO LOCK: Bei abgelaufenem Trial / Abo nur Read + Auth + Stripe-Endpoints erlauben
-  if (user.role === 'instructor' && user.account_type === 'solo') {
-    var now = new Date();
-    var trialEnd = user.solo_trial_ends_at ? new Date(user.solo_trial_ends_at) : null;
-    var periodEnd = user.current_period_end ? new Date(user.current_period_end) : null;
-    var status = user.subscription_status;
-    var hasStripe = !!user.stripe_subscription_id;
-    var locked = false;
-    if (hasStripe && status === 'canceled' && (!periodEnd || periodEnd <= now)) locked = true;
-    else if (!hasStripe && trialEnd && trialEnd < now) locked = true;
-    // Aktives Abo (auch wenn cancel_at_period_end=true und Periode noch läuft) ist nicht locked
-    if (hasStripe && (status === 'active' || status === 'trialing' || status === 'past_due')) locked = false;
-    if (hasStripe && status === 'canceled' && periodEnd && periodEnd > now) locked = false;
-
-    if (locked) {
-      var path = req.path || '';
-      // HART sperren: nur Auth + Stripe + Read-only Profil erlauben (damit Lock-Screen rendern kann)
-      var allowed = path.indexOf('/api/stripe/') === 0
-        || path.indexOf('/api/auth/') === 0
-        || path === '/api/instructor/profile'
-        || path === '/api/notifications/unread-count';
-      if (!allowed) {
-        return res.status(402).json({ error: 'Abo erforderlich. Bitte schalte FahrDoc frei, um diese Aktion auszufuehren.', solo_locked: true });
-      }
-    }
-  }
+  // [FahrDoc-Free-Umstellung 2026-07-14]
+  // Solo-Lock komplett deaktiviert - FahrDoc ist ab jetzt gratis.
+  // Der urspruengliche Trial-/Abo-Lock steht als Kommentar hier drueber-drueber im git-Verlauf.
 
   next();
 }
@@ -1353,24 +1304,7 @@ app.post('/api/school/codes', authMiddleware, async (req, res) => {
     const { type } = req.body;
     if (!type || !['instructor', 'student'].includes(type)) return res.status(400).json({ error: 'Ungültiger Typ' });
 
-    // Code-Limit in der Testphase: max 2 Fahrlehrer-Codes (Schueler unbegrenzt)
-    if (type === 'instructor') {
-      const { data: subRow } = await supabase.from('subscriptions').select('*').eq('school_id', req.user.id).single();
-      const { data: schoolRow } = await supabase.from('schools').select('created_at').eq('id', req.user.id).single();
-      const state = computeSubscriptionState(subRow, schoolRow ? schoolRow.created_at : null);
-      if (state.status === 'trial') {
-        const { count: instructorCodeCount } = await supabase.from('invite_codes')
-          .select('id', { count: 'exact', head: true })
-          .eq('school_id', req.user.id)
-          .eq('type', 'instructor');
-        if ((instructorCodeCount || 0) >= 2) {
-          return res.status(402).json({
-            error: 'In der Testphase koennen maximal 2 Fahrlehrer-Codes erstellt werden. Bitte schliesse ein Abo ab, um weitere Fahrlehrer hinzuzufuegen.',
-            code: 'TRIAL_INSTRUCTOR_LIMIT'
-          });
-        }
-      }
-    }
+    // [FahrDoc-Free-Umstellung 2026-07-14] Trial-Fahrlehrer-Limit entfernt - FahrDoc ist gratis
 
     const prefix = type === 'instructor' ? 'FL' : 'FS';
     const code = prefix + '-' + crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -1487,14 +1421,13 @@ app.get('/api/instructor/dashboard', authMiddleware, async (req, res) => {
     }
 
     // Solo: kein school join, eigene Trial-Logik
+    // [FahrDoc-Free-Umstellung 2026-07-14] isExpired ist immer false - FahrDoc ist gratis
     if (isSolo) {
-      const trialEnd = req.user.solo_trial_ends_at;
-      const isExpired = trialEnd ? (new Date() > new Date(trialEnd) && req.user.subscription_status !== 'active') : false;
       return res.json({
         students, lessons: allLessons || [],
         school: null,
-        subscription: { plan: req.user.subscription_plan, status: req.user.subscription_status, trial_end: trialEnd },
-        isExpired,
+        subscription: { plan: req.user.subscription_plan, status: req.user.subscription_status, trial_end: req.user.solo_trial_ends_at },
+        isExpired: false,
         isSolo: true
       });
     }
@@ -1506,9 +1439,9 @@ app.get('/api/instructor/dashboard', authMiddleware, async (req, res) => {
     ]);
     const school = schoolRes.data;
     const sub = subRes.data;
-    const isExpired = sub ? (new Date() > new Date(sub.trial_end) && !sub.is_active) : false;
+    // [FahrDoc-Free-Umstellung 2026-07-14] isExpired ist immer false - FahrDoc ist gratis
 
-    res.json({ students, lessons: allLessons || [], school, subscription: sub, isExpired, isSolo: false });
+    res.json({ students, lessons: allLessons || [], school, subscription: sub, isExpired: false, isSolo: false });
   } catch (err) {
     console.error('Instructor dashboard error:', err);
     res.status(500).json({ error: 'Serverfehler' });
@@ -1776,7 +1709,7 @@ app.get('/api/student/overview', authMiddleware, async (req, res) => {
     }
 
     const instructorNames = (instructors || []).map(i => i.name).join(', ') || '—';
-    const isExpired = sub ? (new Date() > new Date(sub.trial_end) && !sub.is_active) : false;
+    // [FahrDoc-Free-Umstellung 2026-07-14] isExpired ist immer false - FahrDoc ist gratis
 
     res.json({
       lessons,
@@ -1784,7 +1717,7 @@ app.get('/api/student/overview', authMiddleware, async (req, res) => {
       instructorName: instructorNames,
       instructors: instructors || [],
       school,
-      isExpired
+      isExpired: false
     });
   } catch (err) {
     console.error('[student/overview] error:', err.message);
@@ -3145,62 +3078,25 @@ app.get('/api/stripe/subscription', authMiddleware, async (req, res) => {
 // STRIPE SOLO: Subscription-Status (Trial / Aktiv / Gekündigt / Abgelaufen)
 // ============================================
 app.get('/api/stripe/solo-subscription', authMiddleware, async (req, res) => {
+  // [FahrDoc-Free-Umstellung 2026-07-14]
+  // Solo ist ab jetzt kostenlos. Nie gesperrt, kein Trial, kein Checkout.
+  // Bestehende Stripe-Abos werden separat via cancel-Skript auf cancel_at_period_end gesetzt.
   try {
     if (req.user.role !== 'instructor' || req.user.account_type !== 'solo') {
       return res.status(403).json({ error: 'Nur für Solo-Fahrlehrer' });
     }
-
-    // Bei aktivem Stripe-Abo: live von Stripe syncen
-    if (stripe && req.user.stripe_subscription_id) {
-      try {
-        const stripeSub = await stripe.subscriptions.retrieve(req.user.stripe_subscription_id);
-        const updates = {
-          subscription_status: stripeSub.status,
-          current_period_end: new Date(stripeSub.current_period_end * 1000).toISOString(),
-          cancel_at_period_end: stripeSub.cancel_at_period_end
-        };
-        await supabase.from('instructors').update(updates).eq('id', req.user.id);
-        Object.assign(req.user, updates);
-      } catch (e) { /* offline: cached */ }
-    }
-
-    var now = new Date();
-    var trialEnd = req.user.solo_trial_ends_at ? new Date(req.user.solo_trial_ends_at) : null;
-    var periodEnd = req.user.current_period_end ? new Date(req.user.current_period_end) : null;
-    var status = req.user.subscription_status || null;
     var hasStripe = !!req.user.stripe_subscription_id;
-
-    var trialDaysLeft = trialEnd ? Math.max(0, Math.ceil((trialEnd - now) / (1000*60*60*24))) : null;
-    var trialExpired = trialEnd ? (trialEnd < now) : false;
-
-    // Effektiver State
-    var state = 'trial';
-    var locked = false;
-    if (hasStripe && (status === 'active' || status === 'trialing')) {
-      state = req.user.cancel_at_period_end ? 'cancelling' : 'active';
-    } else if (hasStripe && status === 'past_due') {
-      state = 'past_due';
-    } else if (hasStripe && status === 'canceled' && periodEnd && periodEnd > now) {
-      state = 'cancelled_grace';
-    } else if (hasStripe && status === 'canceled' && (!periodEnd || periodEnd <= now)) {
-      state = 'cancelled_expired'; locked = true;
-    } else if (trialExpired) {
-      state = 'trial_expired'; locked = true;
-    } else {
-      state = 'trial';
-    }
-
     res.json({
-      state: state,
-      locked: locked,
+      state: 'free',
+      locked: false,
       has_stripe: hasStripe,
-      status: status,
-      trial_ends_at: req.user.solo_trial_ends_at || null,
-      trial_days_left: trialDaysLeft,
-      trial_expired: trialExpired,
+      status: req.user.subscription_status || null,
+      trial_ends_at: null,
+      trial_days_left: null,
+      trial_expired: false,
       current_period_end: req.user.current_period_end || null,
       cancel_at_period_end: !!req.user.cancel_at_period_end,
-      price: 14.99,
+      price: 0,
       currency: 'EUR'
     });
   } catch (err) {
@@ -3456,16 +3352,11 @@ app.post('/api/ai/briefing/:studentId', authMiddleware, async (req, res) => {
     const isSolo = req.user.role === 'instructor' && req.user.account_type === 'solo';
     const studentId = req.params.studentId;
 
-    // --- Berechtigung + Plan-Check ---
+    // --- Berechtigung ---
+    // [FahrDoc-Free-Umstellung 2026-07-14] KI-Briefing ist ab jetzt fuer alle User gratis enthalten.
     let schoolId = null;
     let student = null;
     if (isSolo) {
-      // Solo: Trial- oder aktive Subscription muss laufen
-      const trialEnd = req.user.solo_trial_ends_at;
-      const inTrial = trialEnd ? (new Date() <= new Date(trialEnd)) : false;
-      const active = req.user.subscription_status === 'active' || inTrial;
-      if (!active) return res.status(402).json({ error: 'Testphase abgelaufen', lock: true });
-      // KI-Briefing ist in der Solo-Edition immer enthalten (kein separater KI-Tarif).
       const { data: s } = await supabase.from('students')
         .select('id, name, license_class, school_id, owner_instructor_id')
         .eq('id', studentId).eq('owner_instructor_id', req.user.id).maybeSingle();
@@ -3473,11 +3364,6 @@ app.post('/api/ai/briefing/:studentId', authMiddleware, async (req, res) => {
       student = s;
     } else {
       schoolId = req.user.role === 'school' ? req.user.id : req.user.school_id;
-      const { data: sub } = await supabase.from('subscriptions').select('*').eq('school_id', schoolId).maybeSingle();
-      const { data: school } = await supabase.from('schools').select('created_at').eq('id', schoolId).maybeSingle();
-      const state = computeSubscriptionState(sub, school?.created_at);
-      if (!state.active) return res.status(402).json({ error: 'Testphase abgelaufen', lock: true });
-      if (state.plan !== 'ki') return res.status(402).json({ error: 'KI-Briefing nur im FahrDoc KI Tarif verfügbar', upgrade: true });
       const { data: s } = await supabase.from('students')
         .select('id, name, license_class, school_id').eq('id', studentId).maybeSingle();
       if (!s || s.school_id !== schoolId) return res.status(404).json({ error: 'Schüler nicht gefunden' });

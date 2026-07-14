@@ -859,61 +859,29 @@ var App = {
       if (btn) { btn.disabled = false; btn.textContent = origText; }
     }
   },
-  // Solo-Abo-Card (im Profil-Tab): Plan + Status + Buttons
+  // Solo-Abo-Card (im Profil-Tab): Plan + Status
+  // [FahrDoc-Free-Umstellung 2026-07-14] Kein Preis mehr - FahrDoc ist gratis.
   soloAboCardHtml: function(sub) {
     if (!sub) return '';
     var row = function(label, val) {
       return '<div class="profile-row"><span class="profile-row-label">' + label + '</span><span class="profile-row-value">' + val + '</span></div>';
     };
-    var planLabel, statusLabel, actionBtns = '';
-    var endDate = sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString('de-DE') : '—';
-    var trialEndDate = sub.trial_ends_at ? new Date(sub.trial_ends_at).toLocaleDateString('de-DE') : '—';
-
-    if (sub.state === 'active') {
-      planLabel = 'FahrDoc Solo (14,99 €/Monat)';
-      statusLabel = '✓ Aktiv';
-      actionBtns = '<button class="btn btn-secondary btn-full" style="margin-top:12px;" onclick="App.openSoloPortal()">Abo verwalten</button>';
-    } else if (sub.state === 'cancelling') {
-      planLabel = 'FahrDoc Solo (gekündigt)';
-      statusLabel = 'Läuft bis ' + endDate;
-      actionBtns = '<button class="btn btn-secondary btn-full" style="margin-top:12px;" onclick="App.openSoloPortal()">Abo verwalten</button>';
-    } else if (sub.state === 'past_due') {
-      planLabel = 'FahrDoc Solo';
-      statusLabel = '⚠️ Zahlung fehlgeschlagen';
-      actionBtns = '<button class="btn btn-primary btn-full" style="margin-top:12px;" onclick="App.openSoloPortal()">Zahlung aktualisieren</button>';
-    } else if (sub.state === 'cancelled_grace') {
-      planLabel = 'FahrDoc Solo (läuft aus)';
-      statusLabel = 'Noch bis ' + endDate;
-      actionBtns = '<button class="btn btn-primary btn-full" style="margin-top:12px;" onclick="App.startSoloCheckout()">Erneut abonnieren</button>';
-    } else if (sub.state === 'cancelled_expired') {
-      planLabel = 'FahrDoc Solo (abgelaufen)';
-      statusLabel = 'Kein aktives Abo';
-      actionBtns = '<button class="btn btn-primary btn-full" style="margin-top:12px;" onclick="App.startSoloCheckout()">Jetzt freischalten – 14,99 €/Monat</button>';
-    } else if (sub.state === 'trial_expired') {
-      planLabel = 'FahrDoc Solo (Trial abgelaufen)';
-      statusLabel = 'Testzeitraum beendet';
-      actionBtns = '<button class="btn btn-primary btn-full" style="margin-top:12px;" onclick="App.startSoloCheckout()">Jetzt freischalten – 14,99 €/Monat</button>';
-    } else {
-      // trial (aktiv)
-      planLabel = 'FahrDoc Solo (Trial)';
-      statusLabel = sub.trial_days_left !== null ? 'Noch ' + sub.trial_days_left + ' Tage gratis' : 'Trial aktiv';
-      actionBtns = '<button class="btn btn-primary btn-full" style="margin-top:12px;" onclick="App.startSoloCheckout()">Jetzt freischalten – 14,99 €/Monat</button>';
+    var actionBtns = '';
+    // Wenn User frueher bezahlt hat: Portal-Link fuer Rechnungen/Kuendigen anbieten
+    if (sub.has_stripe) {
+      actionBtns = '<button class="btn btn-secondary btn-full" style="margin-top:12px;" onclick="App.openSoloPortal()">Rechnungen ansehen</button>';
     }
-
-    var endRow = (sub.state === 'active' || sub.state === 'cancelling' || sub.state === 'cancelled_grace') ?
-      row(sub.cancel_at_period_end ? 'Läuft bis' : 'Nächste Abbuchung', endDate) :
-      (sub.state === 'trial' ? row('Trial endet am', trialEndDate) : '');
-
     return '<div class="card mb-4">' +
       '<div class="section-title mb-3">Abo</div>' +
-      row('Plan', planLabel) +
-      row('Status', statusLabel) +
-      endRow +
+      row('Plan', 'FahrDoc \u2014 kostenlos') +
+      row('Status', '\u2713 Dauerhaft gratis') +
       actionBtns +
       '</div>';
   },
-  // Solo-Subscription-Banner HTML (sanfter Lock)
+  // Solo-Subscription-Banner HTML - [DEAKTIVIERT 2026-07-14]
   soloSubBannerHtml: function(sub) {
+    return '';
+    // Legacy-Code unter dieser Zeile wird nie erreicht (behalten fuer git-Referenz)
     if (!sub) return '';
     if (sub.state === 'active') return '';
     var box = function(emoji, title, msg, btnLabel, btnAction, kind) {
@@ -2266,14 +2234,9 @@ var App = {
   initSchoolDashboard: function() {
     var school = AppState.currentUser;
     document.getElementById('school-name-display').textContent = school.name;
+    // [FahrDoc-Free-Umstellung 2026-07-14] Trial-Banner deaktiviert - FahrDoc ist gratis
     var banner = document.getElementById('school-trial-banner');
-    var sub = school.subscription;
-    if (sub) {
-      var end = new Date(sub.trial_end); var now = new Date();
-      var diff = Math.ceil((end - now) / (1000 * 60 * 60 * 24));
-      if (diff > 0) { document.getElementById('school-trial-text').textContent = t('testphase') + ': ' + t('nochXTage', {n: diff}); banner.classList.remove('hidden'); }
-      else banner.classList.add('hidden');
-    }
+    if (banner) banner.classList.add('hidden');
     this.loadNotifications();
     this.switchSchoolTab('dashboard');
   },
@@ -3970,114 +3933,52 @@ var App = {
   },
 
   renderSchoolAboTab: async function() {
+    // [FahrDoc-Free-Umstellung 2026-07-14]
+    // FahrDoc ist ab jetzt komplett kostenlos. Kein Trial, kein Checkout, keine Sperre.
+    // Diese Seite zeigt nur noch: 'Alles kostenlos - so bleibt es.'
     var main = document.getElementById('school-main');
     try {
-      var sub = await ApiClient.get('/api/stripe/subscription');
-      App._lastSubState = sub;
-      var statusLabels = { trial: 'Testphase', active: 'Aktiv', free: 'Gratis-Abo', expired: 'Abgelaufen' };
-      var statusColors = { trial: 'warning', active: 'success', free: 'success', expired: 'error' };
-      var statusLabel = statusLabels[sub.status] || sub.status;
-      var statusColor = statusColors[sub.status] || 'muted';
-      var currentPlan = sub.plan || null;
-      var hasStripe = !!sub.has_stripe;
+      // Wir laden sub trotzdem, damit User mit einem bestehenden Stripe-Abo einen Link
+      // ins Stripe-Kundenportal zum Selbst-Kuendigen bekommen.
+      var sub = null;
+      try { sub = await ApiClient.get('/api/stripe/subscription'); App._lastSubState = sub; } catch (e) { /* nicht blockieren */ }
+      var hasStripe = !!(sub && sub.has_stripe);
 
-      var html = '<div class="page-padding" style="max-width:1100px;margin:0 auto;">';
+      var html = '<div class="page-padding" style="max-width:820px;margin:0 auto;">';
 
-      // Status-Header
-      html += '<div class="card mb-4" style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap;">' +
-        '<div><div style="font-size:var(--text-lg);font-weight:700;">Dein Abo</div>' +
-        '<div style="font-size:var(--text-sm);color:var(--text-muted);margin-top:4px;">' + (currentPlan === 'ki' ? 'FahrDoc KI' : (currentPlan === 'classic' ? 'FahrDoc Classic' : 'Noch kein Tarif gew\u00e4hlt')) + '</div></div>' +
-        '<span class="badge badge-' + statusColor + '" style="font-size:var(--text-sm);padding:6px 12px;">' + statusLabel + '</span>' +
+      // Hero: FahrDoc ist gratis
+      html += '<div class="card mb-4" style="background:linear-gradient(135deg,#0d9488 0%,#0f766e 100%);color:white;border:none;text-align:center;padding:var(--space-6);">' +
+        '<div style="font-size:44px;line-height:1;margin-bottom:12px;">\ud83c\udf89</div>' +
+        '<div style="font-size:var(--text-2xl,26px);font-weight:800;margin-bottom:8px;">FahrDoc ist jetzt kostenlos</div>' +
+        '<div style="font-size:var(--text-base);opacity:.92;line-height:1.5;max-width:520px;margin:0 auto;">Alle Funktionen bleiben f\u00fcr dich dauerhaft gratis nutzbar. Keine Testphase, keine Kreditkarte, keine versteckten Kosten.</div>' +
       '</div>';
 
-      // Trial-Info / Lock-Banner
-      if (sub.status === 'trial' && sub.days_remaining !== null) {
-        var urgent = sub.days_remaining <= 3;
-        html += '<div style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:' + (urgent ? '#ffeaea' : '#fff8e1') + ';border-radius:var(--radius-md);margin-bottom:var(--space-4);font-size:var(--text-sm);border-left:4px solid ' + (urgent ? '#c62828' : '#f9a825') + ';">' +
-          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>' +
-          '<div><strong>Testphase: noch ' + sub.days_remaining + ' Tag' + (sub.days_remaining === 1 ? '' : 'e') + '</strong><br><span style="color:var(--text-muted);">W\u00e4hle unten einen Tarif, um nahtlos weiterzunutzen.</span></div>' +
-        '</div>';
-      }
-      if (!sub.active && sub.lock_reason) {
-        html += '<div style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:#ffeaea;border-radius:var(--radius-md);margin-bottom:var(--space-4);font-size:var(--text-sm);border-left:4px solid #c62828;">' +
-          '<svg viewBox="0 0 24 24" fill="none" stroke="#c62828" stroke-width="2" style="width:20px;height:20px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
-          '<div><strong style="color:#c62828;">App gesperrt</strong><br>' + sub.lock_reason + '</div>' +
-        '</div>';
-      }
-      if (sub.cancel_at_period_end && sub.current_period_end) {
-        html += '<div style="padding:var(--space-3) var(--space-4);background:#fff8e1;border-radius:var(--radius-md);margin-bottom:var(--space-4);font-size:var(--text-sm);">Abo wird zum ' + new Date(sub.current_period_end).toLocaleDateString('de-DE') + ' beendet. Du kannst jederzeit re-aktivieren.</div>';
-      }
-
-      // Tarif-Karten
-      html += '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:var(--space-4);margin-bottom:var(--space-5);">';
-
-      // Classic-Karte
-      var classicActive = currentPlan === 'classic' && sub.active;
-      html += '<div class="card" style="display:flex;flex-direction:column;border:2px solid ' + (classicActive ? '#2e7d32' : 'var(--border-color)') + ';position:relative;">' +
-        (classicActive ? '<div style="position:absolute;top:-12px;right:16px;background:#2e7d32;color:#fff;padding:4px 12px;border-radius:12px;font-size:var(--text-xs);font-weight:600;">Aktiver Tarif</div>' : '') +
-        '<div style="font-size:var(--text-xl);font-weight:700;margin-bottom:8px;">FahrDoc Classic</div>' +
-        '<div style="margin-bottom:var(--space-3);"><span style="font-size:var(--text-3xl,32px);font-weight:800;">29,99 \u20ac</span><span style="color:var(--text-muted);font-size:var(--text-sm);"> / Fahrlehrer / Monat</span></div>' +
-        '<ul style="list-style:none;padding:0;margin:0 0 var(--space-4) 0;font-size:var(--text-sm);flex:1;">' +
-        '<li style="padding:6px 0;">\u2713 Unbegrenzte Sch\u00fcler</li>' +
-        '<li style="padding:6px 0;">\u2713 Skaliert pro Fahrlehrer</li>' +
-        '<li style="padding:6px 0;">\u2713 Kalender & Slot-Buchung</li>' +
-        '<li style="padding:6px 0;">\u2713 Schein-Verwaltung</li>' +
-        '<li style="padding:6px 0;">\u2713 PDF-Bescheinigungen</li>' +
-        '<li style="padding:6px 0;">\u2713 Email-Support</li>' +
+      // Feature-Karte
+      html += '<div class="card mb-4">' +
+        '<div style="font-size:var(--text-lg);font-weight:700;margin-bottom:var(--space-3);">Enthalten \u2014 f\u00fcr immer 0 \u20ac</div>' +
+        '<ul style="list-style:none;padding:0;margin:0;font-size:var(--text-sm);display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px 20px;">' +
+        '<li style="padding:4px 0;">\u2713 Unbegrenzte Sch\u00fcler</li>' +
+        '<li style="padding:4px 0;">\u2713 Fahrstunden-Doku mit GPS-Route</li>' +
+        '<li style="padding:4px 0;">\u2713 Bewertungen & Fehler-Markierungen</li>' +
+        '<li style="padding:4px 0;">\u2713 PDF-Bericht f\u00fcr Sch\u00fcler (6 Sprachen)</li>' +
+        '<li style="padding:4px 0;">\u2713 Kalender & Terminplanung</li>' +
+        '<li style="padding:4px 0;">\u2713 Schein-Verwaltung</li>' +
+        '<li style="padding:4px 0;">\u2713 PDF-Bescheinigungen</li>' +
+        '<li style="padding:4px 0;">\u2713 KI-Briefing vor jeder Fahrstunde</li>' +
         '</ul>' +
-        (classicActive ? '<button class="btn btn-secondary btn-full" disabled>Aktueller Tarif</button>' :
-         '<button class="btn ' + (currentPlan === 'ki' ? 'btn-secondary' : 'btn-primary') + ' btn-full" onclick="App.stripeCheckout(\'classic\')">' + (hasStripe ? 'Zu Classic wechseln' : 'Classic w\u00e4hlen') + '</button>') +
       '</div>';
 
-      // KI-Karte (highlighted)
-      var kiActive = currentPlan === 'ki' && sub.active;
-      html += '<div class="card" style="display:flex;flex-direction:column;border:2px solid ' + (kiActive ? '#2e7d32' : '#1565c0') + ';position:relative;background:linear-gradient(180deg, #f3f8ff 0%, #ffffff 100%);">' +
-        (kiActive ? '<div style="position:absolute;top:-12px;right:16px;background:#2e7d32;color:#fff;padding:4px 12px;border-radius:12px;font-size:var(--text-xs);font-weight:600;">Aktiver Tarif</div>' :
-          '<div style="position:absolute;top:-12px;right:16px;background:#1565c0;color:#fff;padding:4px 12px;border-radius:12px;font-size:var(--text-xs);font-weight:600;">Empfohlen</div>') +
-        '<div style="font-size:var(--text-xl);font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px;">FahrDoc KI <span style="font-size:18px;">\u2728</span></div>' +
-        '<div style="margin-bottom:var(--space-3);"><span style="font-size:var(--text-3xl,32px);font-weight:800;">39,99 \u20ac</span><span style="color:var(--text-muted);font-size:var(--text-sm);"> / Fahrlehrer / Monat</span></div>' +
-        '<ul style="list-style:none;padding:0;margin:0 0 var(--space-4) 0;font-size:var(--text-sm);flex:1;">' +
-        '<li style="padding:6px 0;"><strong>Alles aus Classic</strong></li>' +
-        '<li style="padding:6px 0;color:#1565c0;">\u2728 <strong>KI-Briefing</strong> vor jeder Fahrstunde</li>' +
-        '<li style="padding:6px 0;color:#1565c0;">\u2728 Automatische Lernfortschritt-Analyse</li>' +
-        '<li style="padding:6px 0;color:#1565c0;">\u2728 Unbegrenzte KI-Anfragen</li>' +
-        '<li style="padding:6px 0;">\u2713 Priorit\u00e4ts-Support</li>' +
-        '</ul>' +
-        (kiActive ? '<button class="btn btn-secondary btn-full" disabled>Aktueller Tarif</button>' :
-         '<button class="btn btn-primary btn-full" onclick="App.stripeCheckout(\'ki\')">' + (hasStripe ? 'Zu KI upgraden' : 'KI w\u00e4hlen') + '</button>') +
-      '</div>';
-
-      html += '</div>';
-
-      // Abo verwalten (nur wenn Stripe-Abo existiert)
+      // Wenn noch ein aktives Stripe-Abo besteht -> Info + Portal-Link
       if (hasStripe) {
-        // Plaetze-Info wenn vorhanden
-        var seatsBlock = '';
-        if (sub.seats && sub.seats > 0) {
-          var totalPrice = (sub.total_price || (sub.seats * (sub.unit_price || 0))).toFixed(2).replace('.', ',');
-          var unit = (sub.unit_price || 0).toFixed(2).replace('.', ',');
-          seatsBlock = '<div class="card mb-4" style="text-align:center;">' +
-            '<div style="font-weight:600;margin-bottom:8px;">Fahrlehrer-Pl\u00e4tze</div>' +
-            '<div style="display:flex;justify-content:center;gap:24px;margin-bottom:var(--space-3);">' +
-              '<div><div style="font-size:28px;font-weight:800;color:#1565c0;">' + sub.seats + '</div><div style="font-size:12px;color:var(--text-muted);">gebucht</div></div>' +
-              '<div><div style="font-size:28px;font-weight:800;color:' + ((sub.used_instructor_seats||0) >= sub.seats ? '#f57c00' : '#2e7d32') + ';">' + (sub.used_instructor_seats || 0) + '</div><div style="font-size:12px;color:var(--text-muted);">belegt</div></div>' +
-            '</div>' +
-            '<p style="font-size:var(--text-sm);color:var(--text-muted);margin-bottom:var(--space-3);">' + totalPrice + ' \u20ac / Monat (' + sub.seats + ' \u00d7 ' + unit + ' \u20ac)</p>' +
-            '<button class="btn btn-primary" onclick="App.openSeatsAdjustModal()">Pl\u00e4tze anpassen</button>' +
-          '</div>';
-        }
-        html += seatsBlock;
-        html += '<div class="card mb-4" style="text-align:center;">' +
-          '<div style="font-weight:600;margin-bottom:8px;">Abo verwalten</div>' +
-          '<p style="font-size:var(--text-sm);color:var(--text-muted);margin-bottom:var(--space-3);">Rechnungen, Zahlungsmethode oder K\u00fcndigung</p>' +
-          '<button class="btn btn-secondary" onclick="App.stripePortal()">Zum Stripe-Kundenportal</button>' +
+        html += '<div class="card mb-4" style="border-left:4px solid #0d9488;">' +
+          '<div style="font-weight:700;margin-bottom:8px;">Dein bisheriges Abo</div>' +
+          '<p style="font-size:var(--text-sm);color:var(--text-muted);margin:0 0 var(--space-3) 0;line-height:1.6;">Du hattest zuvor ein bezahltes FahrDoc-Abo. Wir haben deine Zahlungen zum Ende des aktuellen Abrechnungszeitraums gestoppt \u2014 es wird nichts mehr abgebucht. Du kannst die App unver\u00e4ndert weiter nutzen.</p>' +
+          '<button class="btn btn-secondary btn-sm" onclick="App.stripePortal()">Rechnungen ansehen</button>' +
         '</div>';
       }
 
-      // Hinweis bei Trial-Status auf Testphase ohne Karte
-      if (!hasStripe) {
-        html += '<p style="font-size:var(--text-xs);color:var(--text-muted);text-align:center;margin-top:var(--space-2);">Erste Zahlung erst nach Tarif-Auswahl. Jederzeit k\u00fcndbar.</p>';
-      }
+      // Danke-Note
+      html += '<p style="font-size:var(--text-xs);color:var(--text-muted);text-align:center;margin-top:var(--space-4);line-height:1.5;">Danke, dass du FahrDoc nutzt. Wenn du magst, empfiehl uns weiter \u2014 das hilft uns am meisten.</p>';
 
       html += '</div>';
       main.innerHTML = html;
@@ -4385,54 +4286,20 @@ var App = {
   },
 
   // ============================================================
-  // LOCK-OVERLAY: zeigt sich wenn Testphase/Abo abgelaufen
+  // LOCK-OVERLAY: [DEAKTIVIERT seit 2026-07-14 - FahrDoc ist gratis]
+  // Wir behalten die Funktion als No-Op, damit bestehende Aufrufer nicht brechen
+  // und ein evtl. vom vorherigen Deploy noch angezeigtes Overlay entfernt wird.
   // ============================================================
   checkSubscriptionLock: async function() {
-    if (!AppState.currentUser || AppState.currentUser.role !== 'school') return;
-    try {
-      var sub = await ApiClient.get('/api/stripe/subscription');
-      App._lastSubState = sub;
-      var overlay = document.getElementById('subscription-lock-overlay');
-      if (!sub.active) {
-        if (!overlay) {
-          overlay = document.createElement('div');
-          overlay.id = 'subscription-lock-overlay';
-          overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px);';
-          document.body.appendChild(overlay);
-        }
-        overlay.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:560px;width:100%;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,0.3);text-align:center;">' +
-          '<div style="font-size:48px;margin-bottom:12px;">\ud83d\udd12</div>' +
-          '<h2 style="font-size:24px;font-weight:700;margin:0 0 8px;">Testphase abgelaufen</h2>' +
-          '<p style="color:#666;margin:0 0 24px;font-size:15px;">' + (sub.lock_reason || 'Bitte ein Abo abschliessen, um FahrDoc weiter zu nutzen.') + '</p>' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">' +
-            '<button class="btn btn-secondary" onclick="App.stripeCheckout(\'classic\')" style="padding:14px;"><strong>Classic</strong><br><span style="font-size:13px;">ab 29,99\u20ac / Fahrlehrer</span></button>' +
-            '<button class="btn btn-primary" onclick="App.stripeCheckout(\'ki\')" style="padding:14px;"><strong>KI \u2728</strong><br><span style="font-size:13px;">ab 39,99\u20ac / Fahrlehrer</span></button>' +
-          '</div>' +
-          '<button class="btn btn-link" onclick="App.stripePortal()" style="font-size:13px;color:#666;">Bestehendes Abo verwalten</button>' +
-        '</div>';
-        overlay.style.display = 'flex';
-      } else if (overlay) {
-        overlay.style.display = 'none';
-      }
-      // Banner bei wenigen Tagen Trial
-      if (sub.status === 'trial' && sub.days_remaining !== null && sub.days_remaining <= 3) {
-        App.showTrialBanner(sub.days_remaining);
-      }
-    } catch(e) { /* nicht blockieren */ }
+    // Falls von einem alten Deploy noch ein Lock-Overlay im DOM sitzt -> entfernen
+    var overlay = document.getElementById('subscription-lock-overlay');
+    if (overlay) overlay.remove();
+    var banner = document.getElementById('global-trial-banner');
+    if (banner) { banner.remove(); document.body.style.paddingTop = ''; }
   },
 
   showTrialBanner: function(days) {
-    var banner = document.getElementById('global-trial-banner');
-    if (!banner) {
-      banner = document.createElement('div');
-      banner.id = 'global-trial-banner';
-      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#fff8e1;border-bottom:2px solid #f9a825;padding:10px 16px;text-align:center;font-size:14px;z-index:1500;display:flex;align-items:center;justify-content:center;gap:12px;';
-      document.body.appendChild(banner);
-      document.body.style.paddingTop = '44px';
-    }
-    banner.innerHTML = '<span><strong>Testphase: noch ' + days + ' Tag' + (days === 1 ? '' : 'e') + '</strong></span>' +
-      '<button class="btn btn-sm btn-primary" onclick="App.switchTab(\'school-abo\')">Tarif w\u00e4hlen</button>' +
-      '<button onclick="this.parentElement.remove();document.body.style.paddingTop=\'\'" style="background:transparent;border:none;font-size:18px;cursor:pointer;padding:0 8px;color:#666;">\u00d7</button>';
+    // [DEAKTIVIERT seit 2026-07-14] - kein Trial-Banner mehr, FahrDoc ist gratis
   },
 
   changePasswordHtml: function() {
@@ -5673,8 +5540,7 @@ var App = {
       '<div class="solo-hero-badge">FahrDoc Solo</div>' +
       '<h2 class="solo-hero-title">Hallo, ' + inst.name + '</h2>' +
       '<p class="solo-hero-sub">Deine Fahrstunden — dokumentiert wie vom Prüfer.</p>' +
-      (trialDaysLeft !== null && soloSub && soloSub.state === 'trial' ? '<div class="solo-hero-trial">⏳ Noch <strong>' + trialDaysLeft + '</strong> Tage gratis</div>' : '') +
-      (soloSub && soloSub.state === 'active' && !soloSub.cancel_at_period_end ? '<div class="solo-hero-trial" style="background:rgba(34,197,94,0.15);color:#15803d;">✓ Abo aktiv</div>' : '') +
+      // [FahrDoc-Free-Umstellung 2026-07-14] Kein Trial-Countdown mehr - FahrDoc ist gratis
     '</div>';
 
     // Stats-Cards
