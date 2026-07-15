@@ -5569,6 +5569,19 @@ var App = {
       var html = '<div class="page-padding"><div class="profile-header">' + this.avatarHtml(profile.name, 'lg') +
         '<h3>' + profile.name + '</h3><p class="text-xs text-muted">FahrDoc Solo — Einzel-Fahrlehrer</p></div>' +
         this.soloSubBannerHtml(soloSub) +
+        (AppState.currentUser && AppState.currentUser.is_super_admin ?
+          '<div class="card mb-4" style="border:1px solid var(--primary);background:linear-gradient(135deg,#f0fdfa,#ecfeff);cursor:pointer;" onclick="App.openSoloAdminScreen()">' +
+            '<div style="display:flex;align-items:center;gap:12px;">' +
+              '<div style="width:44px;height:44px;border-radius:12px;background:var(--primary);display:flex;align-items:center;justify-content:center;flex-shrink:0;">' +
+                '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 6v6c0 5 3.4 9.5 8 10 4.6-.5 8-5 8-10V6l-8-4z"/><path d="M9 12l2 2 4-4"/></svg>' +
+              '</div>' +
+              '<div style="flex:1;">' +
+                '<div style="font-weight:700;font-size:15px;color:#0f172a;">Super-Admin-Bereich</div>' +
+                '<div style="font-size:13px;color:#475569;">Registrierungen der Solo-Fahrlehrer einsehen</div>' +
+              '</div>' +
+              '<div style="color:var(--primary);font-size:20px;">›</div>' +
+            '</div>' +
+          '</div>' : '') +
         '<div class="card mb-4"><div class="section-title mb-3">Persönliche Daten</div>' +
           '<form id="solo-profile-form" onsubmit="App.saveInstructorProfile(event)">' +
             '<div class="form-group mb-3"><label class="form-label">Name</label><input class="form-input" type="text" id="inst-profile-name" value="' + profile.name + '"></div>' +
@@ -5582,6 +5595,150 @@ var App = {
     } catch (err) {
       main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">Fehler: ' + err.message + '</p></div>';
     }
+  },
+
+  // ============================================
+  // SOLO SUPER-ADMIN: Vollbild-Screen mit Stats + Liste
+  // ============================================
+  openSoloAdminScreen: async function() {
+    if (!(AppState.currentUser && AppState.currentUser.is_super_admin)) {
+      this.showToast('Keine Berechtigung');
+      return;
+    }
+    var overlay = document.getElementById('solo-admin-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'solo-admin-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;background:var(--bg,#f8fafc);z-index:1500;overflow-y:auto;';
+      document.body.appendChild(overlay);
+    }
+    overlay.innerHTML =
+      '<div style="position:sticky;top:0;background:#fff;border-bottom:1px solid #e2e8f0;padding:14px 16px;display:flex;align-items:center;gap:12px;z-index:2;">' +
+        '<button class="icon-btn" onclick="App.closeSoloAdminScreen()" aria-label="Zur\u00fcck" style="width:36px;height:36px;">' +
+          '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>' +
+        '</button>' +
+        '<div><div style="font-weight:700;font-size:16px;color:#0f172a;">Super-Admin</div><div style="font-size:12px;color:#64748b;">Solo-Registrierungen</div></div>' +
+      '</div>' +
+      '<div id="solo-admin-content" style="padding:16px;max-width:960px;margin:0 auto;">' +
+        '<div style="text-align:center;padding:40px;"><div class="loading-spinner"></div></div>' +
+      '</div>';
+    document.body.style.overflow = 'hidden';
+    try {
+      var statsPromise = ApiClient.get('/api/admin/solo/stats');
+      var listPromise = ApiClient.get('/api/admin/solo/instructors');
+      var stats = await statsPromise;
+      var list = await listPromise;
+      this.renderSoloAdminContent(stats, list);
+    } catch (err) {
+      var c = document.getElementById('solo-admin-content');
+      if (c) c.innerHTML = '<div class="card" style="color:#c62828;">Fehler: ' + (err.message || err) + '</div>';
+    }
+  },
+
+  closeSoloAdminScreen: function() {
+    var overlay = document.getElementById('solo-admin-overlay');
+    if (overlay) overlay.remove();
+    document.body.style.overflow = '';
+  },
+
+  renderSoloAdminContent: function(stats, list) {
+    var c = document.getElementById('solo-admin-content');
+    if (!c) return;
+    var self = this;
+    var fmtDate = function(iso) {
+      if (!iso) return '\u2014';
+      try { return new Date(iso).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' }); }
+      catch (e) { return iso; }
+    };
+    var kpi = function(label, value, sub) {
+      return '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;">' +
+        '<div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">' + label + '</div>' +
+        '<div style="font-size:26px;font-weight:700;color:#0f172a;margin-top:4px;line-height:1;">' + value + '</div>' +
+        (sub ? '<div style="font-size:12px;color:#94a3b8;margin-top:4px;">' + sub + '</div>' : '') +
+      '</div>';
+    };
+    var statusBadge = function(inst) {
+      // Priorit\u00e4t: verifiziert-Flag, Stripe-Historie, sonst kostenlos
+      if (!inst.verified) {
+        return '<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:600;">Nicht best\u00e4tigt</span>';
+      }
+      if (inst.has_stripe) {
+        var openLabel = inst.current_period_end && new Date(inst.current_period_end).getTime() > Date.now() ? 'Ehem. Abo (l\u00e4uft aus)' : 'Ehem. Abo';
+        return '<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#e0f2fe;color:#075985;font-size:11px;font-weight:600;">' + openLabel + '</span>';
+      }
+      return '<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-size:11px;font-weight:600;">Kostenlos</span>';
+    };
+    var rows = (list && list.instructors) || [];
+    var tableRows = rows.map(function(r) {
+      var contact = '<div style="font-weight:600;color:#0f172a;">' + (r.name || '\u2014') + (r.is_super_admin ? ' <span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;margin-left:4px;">Admin</span>' : '') + '</div>' +
+                     '<div style="font-size:12px;color:#64748b;">' + (r.email || '') + '</div>' +
+                     (r.phone ? '<div style="font-size:12px;color:#94a3b8;">' + r.phone + '</div>' : '');
+      return '<tr style="border-bottom:1px solid #f1f5f9;">' +
+        '<td style="padding:12px 10px;vertical-align:top;">' + contact + '</td>' +
+        '<td style="padding:12px 10px;vertical-align:top;white-space:nowrap;font-size:13px;color:#334155;">' + fmtDate(r.created_at) + '</td>' +
+        '<td style="padding:12px 10px;vertical-align:top;">' + statusBadge(r) + '</td>' +
+        '<td style="padding:12px 10px;vertical-align:top;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:#0f172a;">' + r.lessons_count + '</td>' +
+      '</tr>';
+    }).join('');
+
+    var emptyState = '<div style="padding:32px;text-align:center;color:#64748b;">Keine Solo-Fahrlehrer registriert.</div>';
+
+    c.innerHTML =
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;">' +
+        kpi('Gesamt', stats.solo_total, 'Solo-Fahrlehrer') +
+        kpi('Neu (7 Tage)', stats.solo_new_7d) +
+        kpi('Neu (30 Tage)', stats.solo_new_30d) +
+        kpi('Best\u00e4tigt', stats.solo_verified) +
+        kpi('Mit Stripe-Historie', stats.solo_with_stripe_history, stats.solo_stripe_open_period + ' laufen bis Periodenende') +
+      '</div>' +
+      '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">' +
+        '<div style="padding:14px 16px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">' +
+          '<div style="font-weight:700;color:#0f172a;">Alle Solo-Fahrlehrer <span style="color:#64748b;font-weight:400;">(' + rows.length + ')</span></div>' +
+          '<input id="solo-admin-search" type="search" placeholder="Nach Name oder E-Mail suchen\u2026" oninput="App.filterSoloAdminList(this.value)" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;min-width:220px;">' +
+        '</div>' +
+        (rows.length === 0 ? emptyState :
+          '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:14px;">' +
+            '<thead><tr style="background:#f8fafc;color:#475569;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">' +
+              '<th style="text-align:left;padding:10px;font-weight:600;">Fahrlehrer</th>' +
+              '<th style="text-align:left;padding:10px;font-weight:600;">Registriert</th>' +
+              '<th style="text-align:left;padding:10px;font-weight:600;">Status</th>' +
+              '<th style="text-align:right;padding:10px;font-weight:600;">Fahrstunden</th>' +
+            '</tr></thead>' +
+            '<tbody id="solo-admin-tbody">' + tableRows + '</tbody>' +
+          '</table></div>'
+        ) +
+      '</div>' +
+      '<div style="font-size:12px;color:#94a3b8;text-align:center;margin-top:20px;">Stand: ' + new Date().toLocaleString('de-DE') + '</div>';
+
+    // F\u00fcr die Client-Suche merken
+    AppState._soloAdminRows = rows;
+    AppState._soloAdminHelpers = { statusBadge: statusBadge, fmtDate: fmtDate };
+  },
+
+  filterSoloAdminList: function(term) {
+    var tbody = document.getElementById('solo-admin-tbody');
+    if (!tbody) return;
+    var rows = AppState._soloAdminRows || [];
+    var h = AppState._soloAdminHelpers || {};
+    var q = String(term || '').trim().toLowerCase();
+    var filtered = q ? rows.filter(function(r) {
+      return (r.name && r.name.toLowerCase().indexOf(q) !== -1) || (r.email && r.email.toLowerCase().indexOf(q) !== -1);
+    }) : rows;
+    if (filtered.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" style="padding:24px;text-align:center;color:#94a3b8;">Keine Treffer</td></tr>';
+      return;
+    }
+    tbody.innerHTML = filtered.map(function(r) {
+      var contact = '<div style="font-weight:600;color:#0f172a;">' + (r.name || '\u2014') + (r.is_super_admin ? ' <span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;margin-left:4px;">Admin</span>' : '') + '</div>' +
+                    '<div style="font-size:12px;color:#64748b;">' + (r.email || '') + '</div>' +
+                    (r.phone ? '<div style="font-size:12px;color:#94a3b8;">' + r.phone + '</div>' : '');
+      return '<tr style="border-bottom:1px solid #f1f5f9;">' +
+        '<td style="padding:12px 10px;vertical-align:top;">' + contact + '</td>' +
+        '<td style="padding:12px 10px;vertical-align:top;white-space:nowrap;font-size:13px;color:#334155;">' + h.fmtDate(r.created_at) + '</td>' +
+        '<td style="padding:12px 10px;vertical-align:top;">' + h.statusBadge(r) + '</td>' +
+        '<td style="padding:12px 10px;vertical-align:top;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:#0f172a;">' + r.lessons_count + '</td>' +
+      '</tr>';
+    }).join('');
   },
 
   // ============================================

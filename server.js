@@ -260,7 +260,7 @@ async function authMiddleware(req, res, next) {
     if (data) { user = data; user.role = 'school'; }
   } else if (session.user_role === 'instructor') {
     const { data } = await supabase.from('instructors')
-      .select('id, name, email, phone, school_id, verified, account_type, subscription_plan, subscription_status, solo_trial_ends_at, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id')
+      .select('id, name, email, phone, school_id, verified, account_type, subscription_plan, subscription_status, solo_trial_ends_at, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id, is_super_admin')
       .eq('id', session.user_id).single();
     if (data) { user = data; user.role = 'instructor'; }
   } else if (session.user_role === 'student') {
@@ -377,7 +377,7 @@ app.post('/api/auth/login', async (req, res) => {
       fullUser.role = 'school';
     } else if (role === 'instructor') {
       const { data } = await supabase.from('instructors')
-        .select('id, name, email, phone, school_id, verified, account_type, subscription_plan, subscription_status, solo_trial_ends_at').eq('id', user.id).single();
+        .select('id, name, email, phone, school_id, verified, account_type, subscription_plan, subscription_status, solo_trial_ends_at, is_super_admin').eq('id', user.id).single();
       fullUser = data;
       fullUser.role = 'instructor';
     } else {
@@ -3178,6 +3178,107 @@ app.post('/api/stripe/solo-portal', authMiddleware, async (req, res) => {
 function isSuperAdmin(req) {
   return req.user && req.user.email && req.user.email.toLowerCase() === SUPER_ADMIN_EMAIL;
 }
+
+// SUPER-ADMIN fuer die Solo-Ansicht: Solo-Instructor mit is_super_admin=true
+function isSoloSuperAdmin(req) {
+  return req.user && req.user.role === 'instructor' && req.user.account_type === 'solo' && req.user.is_super_admin === true;
+}
+
+// SOLO-SUPER-ADMIN: Stats-Kacheln fuer Solo-Registrierungen
+app.get('/api/admin/solo/stats', authMiddleware, async (req, res) => {
+  if (!isSoloSuperAdmin(req)) return res.status(403).json({ error: 'Keine Berechtigung' });
+  try {
+    const { data: solos } = await supabase
+      .from('instructors')
+      .select('id, created_at, verified, stripe_customer_id, current_period_end, cancel_at_period_end')
+      .eq('account_type', 'solo');
+    const rows = solos || [];
+    const total = rows.length;
+    const now = Date.now();
+    const cutoff7 = now - 7 * 24 * 3600 * 1000;
+    const cutoff30 = now - 30 * 24 * 3600 * 1000;
+    let new7 = 0, new30 = 0, verified = 0, withStripe = 0, stripeStillOpen = 0;
+    rows.forEach(function(r) {
+      const t = r.created_at ? new Date(r.created_at).getTime() : 0;
+      if (t >= cutoff7) new7++;
+      if (t >= cutoff30) new30++;
+      if (r.verified) verified++;
+      if (r.stripe_customer_id) {
+        withStripe++;
+        // Abo laeuft noch aktiv bis Periodenende (auch mit cancel_at_period_end)
+        if (r.current_period_end && new Date(r.current_period_end).getTime() > now) stripeStillOpen++;
+      }
+    });
+    res.json({
+      solo_total: total,
+      solo_new_7d: new7,
+      solo_new_30d: new30,
+      solo_verified: verified,
+      solo_with_stripe_history: withStripe,
+      solo_stripe_open_period: stripeStillOpen
+    });
+  } catch (err) {
+    console.error('[Solo Admin Stats Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// SOLO-SUPER-ADMIN: Liste aller Solo-Fahrlehrer
+app.get('/api/admin/solo/instructors', authMiddleware, async (req, res) => {
+  if (!isSoloSuperAdmin(req)) return res.status(403).json({ error: 'Keine Berechtigung' });
+  try {
+    const search = String(req.query.search || '').trim().toLowerCase();
+    let q = supabase
+      .from('instructors')
+      .select('id, name, email, phone, created_at, verified, subscription_status, solo_trial_ends_at, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id, is_super_admin')
+      .eq('account_type', 'solo')
+      .order('created_at', { ascending: false });
+    const { data: solos } = await q;
+    let rows = solos || [];
+    if (search) {
+      rows = rows.filter(function(r) {
+        return (r.name && r.name.toLowerCase().includes(search))
+            || (r.email && r.email.toLowerCase().includes(search));
+      });
+    }
+    // Fahrstunden-Count pro Instructor (best-effort, sonst 0)
+    const ids = rows.map(function(r) { return r.id; });
+    const lessonCounts = {};
+    if (ids.length > 0) {
+      try {
+        const { data: lessons } = await supabase
+          .from('lessons')
+          .select('instructor_id')
+          .in('instructor_id', ids);
+        (lessons || []).forEach(function(l) {
+          lessonCounts[l.instructor_id] = (lessonCounts[l.instructor_id] || 0) + 1;
+        });
+      } catch (e) { console.warn('[Solo Admin] lessons count failed:', e.message); }
+    }
+    const out = rows.map(function(r) {
+      return {
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        phone: r.phone,
+        created_at: r.created_at,
+        verified: !!r.verified,
+        subscription_status: r.subscription_status,
+        solo_trial_ends_at: r.solo_trial_ends_at,
+        current_period_end: r.current_period_end,
+        cancel_at_period_end: !!r.cancel_at_period_end,
+        has_stripe: !!r.stripe_customer_id,
+        has_active_stripe_sub: !!r.stripe_subscription_id,
+        is_super_admin: !!r.is_super_admin,
+        lessons_count: lessonCounts[r.id] || 0
+      };
+    });
+    res.json({ total: out.length, instructors: out });
+  } catch (err) {
+    console.error('[Solo Admin List Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // SUPER-ADMIN: Statistik-Dashboard
 app.get('/api/admin/stats', authMiddleware, async (req, res) => {
