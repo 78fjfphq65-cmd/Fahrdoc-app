@@ -5613,13 +5613,13 @@ var App = {
       document.body.appendChild(overlay);
     }
     overlay.innerHTML =
-      '<div style="position:sticky;top:0;background:#fff;border-bottom:1px solid #e2e8f0;padding:14px 16px;display:flex;align-items:center;gap:12px;z-index:2;">' +
+      '<div style="position:sticky;top:0;background:#fff;border-bottom:1px solid #e2e8f0;padding:calc(14px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) 14px calc(16px + env(safe-area-inset-left));display:flex;align-items:center;gap:12px;z-index:2;">' +
         '<button class="icon-btn" onclick="App.closeSoloAdminScreen()" aria-label="Zur\u00fcck" style="width:36px;height:36px;">' +
           '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>' +
         '</button>' +
         '<div><div style="font-weight:700;font-size:16px;color:#0f172a;">Super-Admin</div><div style="font-size:12px;color:#64748b;">Solo-Registrierungen</div></div>' +
       '</div>' +
-      '<div id="solo-admin-content" style="padding:16px;max-width:960px;margin:0 auto;">' +
+      '<div id="solo-admin-content" style="padding:16px 16px calc(16px + env(safe-area-inset-bottom));max-width:960px;margin:0 auto;">' +
         '<div style="text-align:center;padding:40px;"><div class="loading-spinner"></div></div>' +
       '</div>';
     document.body.style.overflow = 'hidden';
