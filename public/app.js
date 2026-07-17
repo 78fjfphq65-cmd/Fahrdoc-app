@@ -642,7 +642,10 @@ var App = {
     this.applyTheme();
     if (AppState.currentUser) {
       if (AppState.currentUser.role === 'school') this.renderSchoolDashboardTab();
-      if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
+      if (AppState.currentUser.role === 'instructor') {
+        if (this.isSolo()) this.renderSoloDashboardTab();
+        else this.renderInstructorDashboardTab();
+      }
       if (AppState.currentUser.role === 'student') this.renderStudentOverview();
     }
   },
@@ -5589,6 +5592,18 @@ var App = {
             '<div class="form-group mb-3"><label class="form-label">Telefon</label><input class="form-input" type="tel" id="inst-profile-phone" value="' + (profile.phone || '') + '"></div>' +
             '<button type="submit" class="btn btn-primary btn-full">Änderungen speichern</button></form></div>' +
         trialInfo +
+        // Support & Feedback card
+        '<div class="card mb-4"><div class="section-title mb-3">' + t('supportFeedback') + '</div>' +
+          '<div class="form-group mb-3"><label class="form-label">' + t('feedbackKategorie') + '</label>' +
+            '<select class="form-select" id="feedback-category">' +
+              '<option value="bug">' + t('katBug') + '</option>' +
+              '<option value="verbesserung">' + t('katVerbesserung') + '</option>' +
+              '<option value="frage">' + t('katFrage') + '</option>' +
+              '<option value="sonstiges">' + t('katSonstiges') + '</option>' +
+            '</select></div>' +
+          '<div class="form-group mb-3"><label class="form-label">' + t('feedbackNachricht') + '</label>' +
+            '<textarea class="form-textarea" id="feedback-message" rows="4" placeholder="' + t('feedbackPlaceholder') + '"></textarea></div>' +
+          '<button class="btn btn-primary btn-full" onclick="App.sendFeedback()">' + t('feedbackSenden') + '</button></div>' +
         this.changePasswordHtml() +
         '<button class="btn btn-secondary btn-full" style="margin-top:20px" onclick="App.logout()">Abmelden</button></div>';
       main.innerHTML = html;
