@@ -642,9 +642,13 @@ app.post('/api/auth/resend-code', async (req, res) => {
     const { userId, role, email } = req.body;
     if (!userId || !email) return res.status(400).json({ error: 'Fehlende Daten' });
 
-    // Invalidate old codes
+    // Invalidate old codes: delete them entirely so a user who enters
+    // an older code (still in their inbox) gets a clean "not found" error
+    // instead of being silently blocked by used=1. Also prevents the bug
+    // where the account stayed verified=0 even after resend, because the
+    // resend path only marked codes used without touching schools.verified.
     await supabase.from('verification_codes')
-      .update({ used: 1 })
+      .delete()
       .eq('user_id', userId).eq('type', 'email_verify').eq('used', 0);
 
     // Get user name
