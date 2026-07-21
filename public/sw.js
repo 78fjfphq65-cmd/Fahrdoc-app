@@ -3,7 +3,7 @@
    Caching strategy: Network-first for API calls,
    Cache-first for static assets.
    ============================================ */
-const CACHE_NAME = 'fahrdoc-v98-solo-theme-feedback';
+const CACHE_NAME = 'fahrdoc-v99-collapse-textbausteine';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -11,6 +11,7 @@ const STATIC_ASSETS = [
   './style.css',
   './base.css',
   './i18n.js',
+  './textbausteine.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

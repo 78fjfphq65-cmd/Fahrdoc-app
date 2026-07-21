@@ -1018,6 +1018,121 @@
   gap: var(--space-3);
 }
 
+/* ── Kollapsibler Gruppen-Head ── */
+.pfep-group-head {
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: rgba(0,0,0,0);
+}
+.pfep-group-head:hover {
+  background: var(--color-surface-offset);
+}
+.pfep-group-head:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+.pfep-group-head-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.pfep-group-chevron {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  transition: transform 0.2s ease;
+  display: inline-block;
+  line-height: 1;
+}
+.pfep-group[data-collapsed="1"] .pfep-group-chevron {
+  /* Zugeklappt: Chevron zeigt nach rechts (Konvention: aufklappen → nach unten) */
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+.pfep-group[data-collapsed="1"] .pfep-group-body {
+  display: none;
+}
+.pfep-group[data-collapsed="1"] .pfep-group-head {
+  border-bottom: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pfep-group-chevron { transition: none; }
+}
+
+/* ── Baustein-Chips (im Notiz-Popup + Marker-Modal) ── */
+.baustein-chips {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--color-border);
+}
+.baustein-chips-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+.baustein-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.baustein-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+  -webkit-tap-highlight-color: rgba(0,0,0,0);
+}
+.baustein-chip:hover {
+  background: color-mix(in srgb, var(--color-surface) 85%, var(--color-primary) 15%);
+  border-color: var(--color-primary);
+}
+.baustein-chip:active {
+  transform: scale(0.97);
+}
+
+/* Tab-Bar für Marker-Bausteine (nach Kategorien) */
+.baustein-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+.baustein-tab {
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.baustein-tab:hover {
+  background: var(--color-surface-offset);
+  color: var(--color-text);
+}
+.baustein-tab.active {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+.baustein-panel.hidden {
+  display: none;
+}
+
 .pfep-item {
   border-radius: var(--radius-md);
   /* Sanfter Teal-Tint statt grau – hebt sich klar von der beige Surface ab,

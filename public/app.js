@@ -9515,10 +9515,15 @@ var App = {
         if (typeof v === 'number' && v >= 1 && v <= 4) groupRated++;
       });
       var statusComplete = groupRated === grp.items.length ? ' complete' : '';
-      html += '<div class="pfep-group" data-group="' + meta.cls + '">' +
-        '<div class="pfep-group-head">' +
+      // Kollapsibel: Gruppen starten zugeklappt (data-collapsed="1").
+      // Klick auf Head toggelt via App.toggleEvalGroup.
+      html += '<div class="pfep-group" data-group="' + meta.cls + '" data-collapsed="1">' +
+        '<div class="pfep-group-head" onclick="App.toggleEvalGroup(this)" role="button" tabindex="0" aria-expanded="false">' +
           '<div class="pfep-group-title"><span class="pfep-group-icon ' + meta.cls + '">' + meta.icon + '</span>' + grp.group + '</div>' +
-          '<div class="pfep-group-status' + statusComplete + '" data-group-status="' + meta.cls + '">' + groupRated + ' / ' + grp.items.length + ' bewertet</div>' +
+          '<div class="pfep-group-head-right">' +
+            '<div class="pfep-group-status' + statusComplete + '" data-group-status="' + meta.cls + '">' + groupRated + ' / ' + grp.items.length + ' bewertet</div>' +
+            '<span class="pfep-group-chevron" aria-hidden="true">\u25BE</span>' +
+          '</div>' +
         '</div>' +
         '<div class="pfep-group-body">';
       grp.items.forEach(function(task) {
@@ -9655,12 +9660,69 @@ var App = {
   },
 
   // ── Notiz pro Bewertung: Live-Maske ──
+  // Kollapsibler Gruppen-Header (Bewertungs-Abschnitte).
+  // Toggle-Verhalten:
+  //  - Klick auf .pfep-group-head schaltet data-collapsed am Parent-.pfep-group um
+  //  - CSS versteckt .pfep-group-body und rotiert das Chevron
+  //  - Init: alle Gruppen sind standardmäßig zugeklappt (im Markup gesetzt)
+  toggleEvalGroup: function(headEl) {
+    if (!headEl) return;
+    var group = headEl.closest ? headEl.closest('.pfep-group') : null;
+    if (!group) return;
+    var isCollapsed = group.getAttribute('data-collapsed') === '1';
+    group.setAttribute('data-collapsed', isCollapsed ? '0' : '1');
+  },
+
+  // Kategorie-Wechsel im Marker-Baustein-Modal (Tab-Klick).
+  _switchMarkerBausteinCat: function(tabEl) {
+    if (!tabEl) return;
+    var cat = tabEl.getAttribute('data-cat');
+    var container = tabEl.closest ? tabEl.closest('.baustein-chips') : null;
+    if (!container) return;
+    container.querySelectorAll('.baustein-tab').forEach(function(t) { t.classList.toggle('active', t === tabEl); });
+    container.querySelectorAll('.baustein-panel').forEach(function(p) {
+      p.classList.toggle('hidden', p.getAttribute('data-cat') !== cat);
+    });
+  },
+
+  // Rendert Baustein-Chips für ein Bewertungs-Item ins Notiz-Editor-Textarea.
+  // Fokussiert die Textarea nach Einfügen und triggert kein Save (User bestätigt manuell).
+  insertBausteinIntoTextarea: function(textareaId, text) {
+    var ta = document.getElementById(textareaId);
+    if (!ta) return;
+    var prev = (ta.value || '').trim();
+    var addition = String(text || '').trim();
+    if (!addition) return;
+    ta.value = prev ? (prev + '; ' + addition) : addition;
+    ta.focus();
+    try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
+  },
+
+  // Baustein-Chips-HTML für ein konkretes Bewertungs-Item.
+  // Wird ins Notiz-Popup injiziert.
+  _bausteineChipsHtml: function(task, textareaId) {
+    if (!window.FahrdocBausteine) return '';
+    var list = window.FahrdocBausteine.forItem(task);
+    if (!list || !list.length) return '';
+    var chips = list.map(function(b) {
+      var safeB = String(b).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+      var safeLabel = _escapeAttr(b);
+      return '<button type="button" class="baustein-chip" onclick="App.insertBausteinIntoTextarea(\'' + textareaId + '\', \'' + safeB + '\')">' + safeLabel + '</button>';
+    }).join('');
+    return '<div class="baustein-chips" role="toolbar" aria-label="Textbausteine">' +
+      '<div class="baustein-chips-label">Textbausteine</div>' +
+      '<div class="baustein-chips-row">' + chips + '</div>' +
+    '</div>';
+  },
+
   openItemNote: function(task) {
     var wrap = document.getElementById('note-' + _slugifyTask(task));
     if (!wrap) return;
     var current = AppState.summaryRatingNotes[task] || '';
+    var taId = 'note-ta-' + _slugifyTask(task);
     wrap.innerHTML = '<div class="pfep-note-editor">' +
-      '<textarea maxlength="1000" placeholder="Notiz zu dieser Bewertung\u2026">' + _escapeAttr(current) + '</textarea>' +
+      '<textarea id="' + taId + '" maxlength="1000" placeholder="Notiz zu dieser Bewertung\u2026">' + _escapeAttr(current) + '</textarea>' +
+      this._bausteineChipsHtml(task, taId) +
       '<div class="pfep-note-editor-actions">' +
         '<button type="button" class="pfep-note-btn" onclick="App.cancelItemNote(\'' + task + '\')">Abbrechen</button>' +
         '<button type="button" class="pfep-note-btn primary" onclick="App.saveItemNote(\'' + task + '\')">Speichern</button>' +
@@ -10810,10 +10872,18 @@ var App = {
           if (typeof v === 'number' && v >= 1 && v <= 4) gRated++;
         });
         var statusComplete = gRated === grp.items.length ? ' complete' : '';
-        html += '<div class="pfep-group" data-group="edit-' + meta.cls + '">' +
-          '<div class="pfep-group-head">' +
+        // Kollapsibel im Edit-Modal: Gruppen mit bereits vorhandenen Bewertungen
+        // starten aufgeklappt (der Lehrer will sie schnell sehen), leere Gruppen
+        // starten zugeklappt für eine kompakte Übersicht.
+        var initCollapsed = gRated === 0 ? '1' : '0';
+        var initExpanded = gRated === 0 ? 'false' : 'true';
+        html += '<div class="pfep-group" data-group="edit-' + meta.cls + '" data-collapsed="' + initCollapsed + '">' +
+          '<div class="pfep-group-head" onclick="App.toggleEvalGroup(this)" role="button" tabindex="0" aria-expanded="' + initExpanded + '">' +
             '<div class="pfep-group-title"><span class="pfep-group-icon ' + meta.cls + '">' + meta.icon + '</span>' + grp.group + '</div>' +
-            '<div class="pfep-group-status' + statusComplete + '" data-group-status="edit-' + meta.cls + '">' + gRated + ' / ' + grp.items.length + ' bewertet</div>' +
+            '<div class="pfep-group-head-right">' +
+              '<div class="pfep-group-status' + statusComplete + '" data-group-status="edit-' + meta.cls + '">' + gRated + ' / ' + grp.items.length + ' bewertet</div>' +
+              '<span class="pfep-group-chevron" aria-hidden="true">\u25BE</span>' +
+            '</div>' +
           '</div>' +
           '<div class="pfep-group-body">';
         grp.items.forEach(function(task) {
@@ -10884,8 +10954,10 @@ var App = {
     var wrap = document.getElementById('edit-note-' + _slugifyTask(task));
     if (!wrap) return;
     var current = (AppState._editRatingNotes && AppState._editRatingNotes[task]) || '';
+    var taId = 'edit-note-ta-' + _slugifyTask(task);
     wrap.innerHTML = '<div class="pfep-note-editor">' +
-      '<textarea maxlength="1000" placeholder="Notiz zu dieser Bewertung\u2026">' + _escapeAttr(current) + '</textarea>' +
+      '<textarea id="' + taId + '" maxlength="1000" placeholder="Notiz zu dieser Bewertung\u2026">' + _escapeAttr(current) + '</textarea>' +
+      this._bausteineChipsHtml(task, taId) +
       '<div class="pfep-note-editor-actions">' +
         '<button type="button" class="pfep-note-btn" onclick="App.cancelItemNoteEdit(\'' + task + '\')">Abbrechen</button>' +
         '<button type="button" class="pfep-note-btn primary" onclick="App.saveItemNoteEdit(\'' + task + '\')">Speichern</button>' +
@@ -11569,11 +11641,37 @@ var App = {
     }
 
     // Show custom modal instead of prompt() (mobile-friendly)
+    // Baustein-Kategorien für Marker-Notizen (nicht Item-bezogen).
+    var markerCats = (window.FahrdocBausteine && window.FahrdocBausteine.forMarker) ? window.FahrdocBausteine.forMarker() : null;
+    var bausteineHtml = '';
+    if (markerCats) {
+      var catKeys = Object.keys(markerCats);
+      var tabsHtml = catKeys.map(function(cat, idx) {
+        var safeCat = _escapeAttr(cat);
+        var activeCls = idx === 0 ? ' active' : '';
+        return '<button type="button" class="baustein-tab' + activeCls + '" data-cat="' + safeCat + '" onclick="App._switchMarkerBausteinCat(this)">' + safeCat + '</button>';
+      }).join('');
+      var panelsHtml = catKeys.map(function(cat, idx) {
+        var chips = markerCats[cat].map(function(b) {
+          var safeB = String(b).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+          var safeLabel = _escapeAttr(b);
+          return '<button type="button" class="baustein-chip" onclick="App.insertBausteinIntoTextarea(\'marker-note-input\', \'' + safeB + '\')">' + safeLabel + '</button>';
+        }).join('');
+        var hidden = idx === 0 ? '' : ' hidden';
+        return '<div class="baustein-chips-row baustein-panel' + hidden + '" data-cat="' + _escapeAttr(cat) + '">' + chips + '</div>';
+      }).join('');
+      bausteineHtml = '<div class="baustein-chips" role="toolbar" aria-label="Textbausteine">' +
+        '<div class="baustein-chips-label">Textbausteine</div>' +
+        '<div class="baustein-tabs">' + tabsHtml + '</div>' +
+        panelsHtml +
+      '</div>';
+    }
     var html = '<div style="margin-bottom:var(--space-3);">' +
       '<label class="form-label">' + t('markierungNotiz') + '</label>' +
       '<textarea id="marker-note-input" class="form-input" rows="3" ' +
       'placeholder="' + t('markierungNotizPlaceholder') + '" ' +
       'style="width:100%;resize:vertical;"></textarea>' +
+      bausteineHtml +
       '</div>' +
       '<div style="display:flex;gap:var(--space-2);">' +
       '<button class="btn btn-secondary flex-1" onclick="App.closeModalForce()">' + t('abbrechen') + '</button>' +
