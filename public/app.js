@@ -11463,20 +11463,52 @@ var App = {
       center: center, zoom: 15,
       disableDefaultUI: true, zoomControl: true,
       mapTypeControl: false, streetViewControl: false,
-      styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }]
+      // Dezenter Map-Stil: POIs aus, feineres Grid, gedämpftere Farben.
+      // So sticht die Route optisch stärker heraus statt in der Karte zu ertrinken.
+      styles: [
+        { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+        { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+        { featureType: 'road', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+        { featureType: 'landscape', stylers: [{ saturation: -20 }, { lightness: 5 }] },
+        { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ saturation: -30 }] }
+      ]
+    });
+
+    // === Doppellinien-Casing für die Route ===
+    // Zwei Polylines uebereinander:
+    //   1. Casing (Kontur): breiter, dunkles Teal mit reduzierter Opacity
+    //      — sorgt fuer den weichen Uebergang zur Karte.
+    //   2. Top (Kernlinie): duenner, kraeftiges Teal, volle Opacity.
+    // Beide teilen sich dieselbe path-Referenz via LineSymbol,
+    // damit sie beim Push synchron bleiben — wir pushen aber auf beide.
+    AppState.mapPolylineCasing = new google.maps.Polyline({
+      path: [],
+      strokeColor: '#0C4E54',      // Dunkleres Teal fuer Casing
+      strokeOpacity: 0.55,
+      strokeWeight: 9,
+      zIndex: 1,
+      map: AppState.map
     });
     AppState.mapPolyline = new google.maps.Polyline({
-      path: [], strokeColor: '#2A9D8F', strokeOpacity: 1.0,
-      strokeWeight: 4, map: AppState.map
+      path: [],
+      strokeColor: '#20808D',      // Nexus Chart-Teal (heller Kern)
+      strokeOpacity: 1.0,
+      strokeWeight: 5,
+      zIndex: 2,
+      map: AppState.map
     });
-    // Current position marker (pulsing blue dot)
+    // Current position marker: dezenter blauer Dot mit weissem Ring
+    // (statt Pfeil — wirkt cleaner und rotiert nicht falsch bei stehendem Auto)
     AppState.mapCurrentPos = new google.maps.Marker({
       map: AppState.map,
+      zIndex: 5,
       icon: {
-        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-        scale: 6, fillColor: '#4285F4', fillOpacity: 1,
-        strokeColor: '#ffffff', strokeWeight: 2,
-        rotation: 0
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 8,
+        fillColor: '#1a73e8',
+        fillOpacity: 1,
+        strokeColor: '#ffffff',
+        strokeWeight: 3
       }
     });
   },
@@ -11556,10 +11588,14 @@ var App = {
         if (gpsStatusEl) gpsStatusEl.classList.add('active');
         if (gpsTextEl) gpsTextEl.textContent = t('gpsAktiv');
 
-        // Update map
+        // Update map — Punkt auf Kern-Linie UND Casing-Linie pushen,
+        // damit die Doppellinie synchron wächst.
         if (AppState.map && AppState.mapPolyline) {
-          var path = AppState.mapPolyline.getPath();
-          path.push(new google.maps.LatLng(smoothLat, smoothLng));
+          var latLng = new google.maps.LatLng(smoothLat, smoothLng);
+          AppState.mapPolyline.getPath().push(latLng);
+          if (AppState.mapPolylineCasing) {
+            AppState.mapPolylineCasing.getPath().push(latLng);
+          }
           AppState.mapCurrentPos.setPosition({ lat: smoothLat, lng: smoothLng });
           AppState.map.panTo({ lat: smoothLat, lng: smoothLng });
           // Rotate map to driving direction
@@ -11752,14 +11788,36 @@ var App = {
     var map = new google.maps.Map(mapEl, {
       center: { lat: 52.52, lng: 13.405 }, zoom: 14,
       disableDefaultUI: true, zoomControl: true,
-      mapTypeControl: false, streetViewControl: false
+      mapTypeControl: false, streetViewControl: false,
+      // Gleicher dezenter Stil wie in initRouteMap für konsistentes Look-and-Feel
+      styles: [
+        { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+        { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+        { featureType: 'road', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+        { featureType: 'landscape', stylers: [{ saturation: -20 }, { lightness: 5 }] },
+        { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ saturation: -30 }] }
+      ]
     });
 
-    // Draw polyline
+    // Draw polyline mit Doppellinien-Casing (Kontur + Kern)
     var path = route.points.map(function(p) { return { lat: p.lat, lng: p.lng }; });
+    // Casing (Kontur): breiter, halbtransparent, dunkler Teal
     new google.maps.Polyline({
-      path: path, strokeColor: '#2A9D8F', strokeOpacity: 1.0,
-      strokeWeight: 4, map: map
+      path: path,
+      strokeColor: '#0C4E54',
+      strokeOpacity: 0.55,
+      strokeWeight: 9,
+      zIndex: 1,
+      map: map
+    });
+    // Top (Kern): dünner, kräftig
+    new google.maps.Polyline({
+      path: path,
+      strokeColor: '#20808D',
+      strokeOpacity: 1.0,
+      strokeWeight: 5,
+      zIndex: 2,
+      map: map
     });
 
     // Add numbered markers (clickable → Street View)
