@@ -9367,6 +9367,8 @@ var App = {
     // Initialize route tracking
     this.initRouteMap();
     this.startGPS();
+    // Schnellmarkierungs-Bar auch dann rendern wenn Google Maps noch nicht geladen ist
+    this._mountQuickMarkerBar();
   },
 
   toggleLessonPause: function() {
@@ -9427,6 +9429,8 @@ var App = {
       // Initialize route tracking
       this.initRouteMap();
       this.startGPS();
+      // Schnellmarkierungs-Bar unabhängig von Maps-Verfügbarkeit rendern
+      this._mountQuickMarkerBar();
     } catch(e) { this.showToast(t('fehler') + ': ' + e.message); }
   },
 
@@ -11531,8 +11535,15 @@ var App = {
       }
     });
 
-    // Quick-Marker-Bar in den dafür vorgesehenen Container einfügen.
-    // Idempotent: wenn schon vorhanden, nicht doppeln.
+    // Quick-Marker-Bar-Rendering: siehe _mountQuickMarkerBar (Panel-unabhängig).
+    this._mountQuickMarkerBar();
+  },
+
+  // Baut die 5-Button-Bar in den Container unter der Actions-Row.
+  // Wird sowohl von initRouteMap als auch von der Lesson-Screen-Init
+  // aufgerufen — falls Google Maps noch nicht geladen ist, ist die Bar
+  // trotzdem sofort da. Idempotent.
+  _mountQuickMarkerBar: function() {
     var qmContainer = document.getElementById('quick-marker-bar-container');
     if (qmContainer && !qmContainer.querySelector('.quick-marker-bar')) {
       qmContainer.innerHTML = this.renderQuickMarkerBar();
