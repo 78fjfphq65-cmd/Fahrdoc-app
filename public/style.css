@@ -4795,3 +4795,153 @@ html[dir="rtl"] .notif-panel {
   font-size: var(--text-sm);
   color: #c62828;
 }
+
+/* ============================================
+   QUICK-MARKER-BAR — 5 farbige Ein-Tap-Buttons
+   Sitzt zwischen Karte und Bottom-Panel.
+   Horizontal scrollbar auf schmalen Bildschirmen,
+   sonst equal-width Grid. Immer sichtbar während
+   der Fahrstunde damit der Fahrlehrer mit einem
+   Blick tippen kann ohne Modal-Interruption.
+   ============================================ */
+#quick-marker-bar-container {
+  flex: 0 0 auto;
+  padding: 8px 10px 6px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+[data-theme="dark"] #quick-marker-bar-container {
+  background: rgba(20, 24, 28, 0.92);
+  border-top-color: rgba(255, 255, 255, 0.08);
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+
+.quick-marker-bar {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  width: 100%;
+}
+
+.quick-marker-btn {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border-radius: 12px;
+  background: var(--qm-color, #3B82F6);
+  color: #fff;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 1.15;
+  min-height: 56px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: transform 120ms cubic-bezier(.2,.7,.2,1),
+              box-shadow 200ms ease,
+              filter 200ms ease;
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
+  position: relative;
+}
+.quick-marker-btn:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+.quick-marker-btn:active {
+  transform: scale(0.94);
+  filter: brightness(0.92);
+}
+.quick-marker-btn:focus-visible {
+  outline: 2px solid var(--qm-stroke, #1D4ED8);
+  outline-offset: 2px;
+}
+
+.quick-marker-icon {
+  font-size: 18px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+}
+.quick-marker-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* Puls-Effekt nach Klick (visuelle Bestätigung dass Marker gesetzt wurde) */
+@keyframes quick-marker-flash {
+  0%   { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 0 0 0 var(--qm-color, #3B82F6); }
+  40%  { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 0 0 10px rgba(255, 255, 255, 0); transform: scale(1.06); }
+  100% { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 0 0 0 rgba(255, 255, 255, 0); }
+}
+.quick-marker-btn-flash {
+  animation: quick-marker-flash 550ms cubic-bezier(.2,.7,.2,1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .quick-marker-btn-flash { animation: none; }
+  .quick-marker-btn { transition: none; }
+}
+
+/* Auf sehr schmalen Bildschirmen (< 360px) Label kleiner, Icon größer */
+@media (max-width: 360px) {
+  .quick-marker-btn { padding: 6px 2px; min-height: 52px; }
+  .quick-marker-label { font-size: 9px; }
+  .quick-marker-icon { font-size: 16px; }
+  .quick-marker-bar { gap: 4px; }
+  #quick-marker-bar-container { padding: 6px 6px 4px; }
+}
+
+/* ============================================
+   MARKER-KATEGORIE-CHIP im Review
+   Kleiner farbiger Badge neben Marker-Nummer,
+   damit man auf einen Blick die Kategorie sieht.
+   ============================================ */
+.route-marker-category-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  margin-right: 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.route-marker-category-chip-icon { font-size: 12px; }
+
+/* "Notiz nachtragen"-Button in der Marker-Liste */
+.route-marker-add-note-btn {
+  appearance: none;
+  border: 1px dashed var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 6px;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.route-marker-add-note-btn:hover {
+  background: var(--color-surface-offset);
+  color: var(--color-text);
+  border-color: var(--color-primary);
+  border-style: solid;
+}

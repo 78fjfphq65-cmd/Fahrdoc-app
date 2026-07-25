@@ -1930,12 +1930,23 @@ app.put('/api/lessons/:id', authMiddleware, async (req, res) => {
       .select('*').eq('id', req.params.id).eq('instructor_id', req.user.id).single();
     if (!lesson) return res.status(404).json({ error: 'Fahrstunde nicht gefunden' });
 
-    const { type, notes, ratings, ratingNotes, images } = req.body;
+    const { type, notes, ratings, ratingNotes, images, markers } = req.body;
     const updates = {};
     if (type) updates.type = type;
     if (notes !== undefined) updates.notes = notes;
     if (Object.keys(updates).length > 0) {
       await supabase.from('lessons').update(updates).eq('id', req.params.id);
+    }
+
+    // Marker-Notiz-Nachtrag: Wenn der Fahrlehrer im Review eine Notiz zu einem
+    // Quick-Marker nachtraegt, kommt hier `markers` als kompletter Array an.
+    // Wir aktualisieren nur die markers-Spalte in lesson_routes, ohne route_data
+    // (GPS-Punkte) oder distance/avg_speed anzufassen.
+    if (markers && Array.isArray(markers)) {
+      const upd = await supabase.from('lesson_routes')
+        .update({ markers: JSON.stringify(markers) })
+        .eq('lesson_id', req.params.id);
+      if (upd.error) console.error('[PUT /api/lessons/:id] lesson_routes markers update error:', upd.error.message);
     }
 
     if (ratings && typeof ratings === 'object') {

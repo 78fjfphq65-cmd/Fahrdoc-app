@@ -9905,12 +9905,31 @@ var App = {
         html += '<div id="review-route-map" style="height:250px;border-radius:var(--radius-md);overflow:hidden;margin-bottom:var(--space-3);"></div>';
         if (lesson.route.markers.length > 0) {
           html += '<div class="route-markers-list">';
+          var self = this;
           lesson.route.markers.forEach(function(m, i) {
             var safeNote = (m.note || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            // Kategorie-Badge (nur wenn Kategorie gesetzt — backward compatible mit alten Markern)
+            var cat = self._findMarkerCategory(m.category);
+            var catChip = '';
+            var numBg = '';
+            if (cat) {
+              catChip = '<span class="route-marker-category-chip" style="background:' + cat.color + ';">' +
+                '<span class="route-marker-category-chip-icon">' + cat.icon + '</span>' +
+                cat.shortLabel + '</span>';
+              numBg = ' style="background:' + cat.color + ';"';
+            }
             html += '<div class="route-marker-item" data-sv-lat="' + m.lat + '" data-sv-lng="' + m.lng + '" data-sv-note="' + safeNote + '">';
-            html += '<div class="route-marker-num">' + (i + 1) + '</div>';
-            html += '<div class="route-marker-info"><div class="route-marker-time">' + m.time + '</div>';
-            if (m.note) html += '<div class="route-marker-note">' + safeNote + '</div>';
+            html += '<div class="route-marker-num"' + numBg + '>' + (i + 1) + '</div>';
+            html += '<div class="route-marker-info">';
+            html += '<div class="route-marker-time">' + catChip + m.time + '</div>';
+            if (m.note) {
+              html += '<div class="route-marker-note">' + safeNote + '</div>';
+            } else if (fromRole === 'instructor') {
+              // Notiz noch nicht nachgetragen — Button zum Nachtragen zeigen
+              html += '<button type="button" class="route-marker-add-note-btn"' +
+                ' onclick="event.stopPropagation(); App.editMarkerNote(\'' + lessonId + '\', ' + i + ');">' +
+                '✎ Notiz nachtragen</button>';
+            }
             html += '</div>';
             html += '<div class="route-marker-sv-icon">' + t('tippeFuerStreetView') + '</div>';
             html += '</div>';
@@ -11511,6 +11530,13 @@ var App = {
         strokeWeight: 3
       }
     });
+
+    // Quick-Marker-Bar in den dafür vorgesehenen Container einfügen.
+    // Idempotent: wenn schon vorhanden, nicht doppeln.
+    var qmContainer = document.getElementById('quick-marker-bar-container');
+    if (qmContainer && !qmContainer.querySelector('.quick-marker-bar')) {
+      qmContainer.innerHTML = this.renderQuickMarkerBar();
+    }
   },
 
   startGPS: function() {
@@ -11651,30 +11677,283 @@ var App = {
     if (markerEl) markerEl.textContent = AppState.routeMarkers.length;
   },
 
-  addRouteMarker: function() {
-    var self = this;
-    var markerLat, markerLng;
-    var usedGps = false;
+  // ==============================
+  // MARKER-KATEGORIEN (Quick-Marker)
+  // ==============================
+  // 5 Beobachtungskategorien = Ein-Tap-Buttons unten auf der Karte.
+  // Jede Kategorie hat: key (interner Marker.category), label (UI),
+  // shortLabel (kurz für Buttons), color (Marker-Farbe + Chip-Farbe), stroke.
+  MARKER_CATEGORIES: [
+    { key: 'verkehrsbeobachtung',
+      label: 'Verkehrsbeobachtung',
+      shortLabel: 'Beobachtung',
+      icon: '👁',
+      color: '#3B82F6',  // Blau
+      stroke: '#1D4ED8' },
+    { key: 'fahrzeugpositionierung',
+      label: 'Fahrzeugpositionierung',
+      shortLabel: 'Position',
+      icon: '🏴',
+      color: '#8B5CF6',  // Violett
+      stroke: '#6D28D9' },
+    { key: 'geschwindigkeitsanpassung',
+      label: 'Geschwindigkeitsanpassung',
+      shortLabel: 'Tempo',
+      icon: '⚡',
+      // WCAG-tauglicher Orange-Ton (kontrast weiß >= 3:1 fuer Buttons mit großer Schrift)
+      color: '#D97706',
+      stroke: '#B45309' },
+    { key: 'kommunikation',
+      label: 'Kommunikation',
+      shortLabel: 'Kommunikation',
+      icon: '🔈',
+      // WCAG-tauglicher Grün-Ton
+      color: '#059669',
+      stroke: '#047857' },
+    { key: 'fahrzeugbedienung',
+      label: 'Fahrzeugbedienung/Umweltbewusste Fahrweise',
+      shortLabel: 'Bedienung',
+      icon: '⚙️',
+      color: '#EF4444',  // Rot
+      stroke: '#B91C1C' }
+  ],
 
-    // 1) Try last known GPS position (set even for lower-accuracy readings)
+  // Findet Kategorie-Config zu einem key. Fallback = null (= generischer Marker ohne Kategorie).
+  _findMarkerCategory: function(key) {
+    if (!key) return null;
+    for (var i = 0; i < this.MARKER_CATEGORIES.length; i++) {
+      if (this.MARKER_CATEGORIES[i].key === key) return this.MARKER_CATEGORIES[i];
+    }
+    return null;
+  },
+
+  // Ermittelt aktuelle GPS-Position mit Fallback-Kette.
+  // Return: { lat, lng, usedGps } oder null (wenn Karte noch nicht bereit).
+  _resolveMarkerPosition: function() {
     if (AppState.lastGpsPosition) {
-      markerLat = AppState.lastGpsPosition.lat;
-      markerLng = AppState.lastGpsPosition.lng;
-      usedGps = true;
-    } else if (AppState.bestEffortPosition) {
-      // 2) Fallback: any GPS reading we received (even low accuracy)
-      markerLat = AppState.bestEffortPosition.lat;
-      markerLng = AppState.bestEffortPosition.lng;
-      usedGps = true;
-    } else if (AppState.map) {
-      // 3) Fallback: map center
+      return { lat: AppState.lastGpsPosition.lat, lng: AppState.lastGpsPosition.lng, usedGps: true };
+    }
+    if (AppState.bestEffortPosition) {
+      return { lat: AppState.bestEffortPosition.lat, lng: AppState.bestEffortPosition.lng, usedGps: true };
+    }
+    if (AppState.map) {
       var center = AppState.map.getCenter();
-      markerLat = center.lat();
-      markerLng = center.lng();
-    } else {
+      return { lat: center.lat(), lng: center.lng(), usedGps: false };
+    }
+    return null;
+  },
+
+  // =========================================
+  // QUICK-MARKER: Kategorie-Tap = sofort setzen
+  // =========================================
+  // Wird von den 5 farbigen Buttons unten auf der Karte gerufen.
+  // Kein Modal, keine Notiz. Marker landet direkt an aktueller GPS-Position
+  // mit Kategorie-Farbe. Notiz kann später im Fahrstunden-Review nachgetragen werden.
+  addQuickMarker: function(categoryKey) {
+    var cat = this._findMarkerCategory(categoryKey);
+    if (!cat) return;
+    var pos = this._resolveMarkerPosition();
+    if (!pos) {
       this.showToast(t('gpsWirdGesucht'));
       return;
     }
+    var now = new Date();
+    var timeStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    var marker = {
+      lat: pos.lat,
+      lng: pos.lng,
+      time: timeStr,
+      note: '',
+      category: cat.key,
+      categoryLabel: cat.label
+    };
+    AppState.routeMarkers.push(marker);
+
+    // Marker auf der Karte in Kategorie-Farbe
+    if (AppState.map) {
+      var idx = AppState.routeMarkers.length;
+      var mapMarker = new google.maps.Marker({
+        position: { lat: marker.lat, lng: marker.lng },
+        map: AppState.map,
+        label: {
+          text: String(idx), color: '#fff', fontWeight: 'bold', fontSize: '12px'
+        },
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 14,
+          fillColor: cat.color,
+          fillOpacity: 1,
+          strokeColor: cat.stroke,
+          strokeWeight: 2
+        },
+        title: cat.label + ' • ' + timeStr
+      });
+      AppState.mapMarkerObjects.push(mapMarker);
+
+      // Kurze visuelle Bestätigung: Button pulsiert kurz
+      this._flashQuickMarkerButton(categoryKey);
+    }
+
+    this.updateRouteStats(null);
+    // Kurzer Toast bestaetigt Kategorie ohne dass der Lehrer wegschauen muss
+    this.showToast(cat.icon + ' ' + cat.shortLabel + (pos.usedGps ? '' : ' (Kartenmitte)'));
+  },
+
+  // Kurzer Puls-Effekt am gerade gedrueckten Button (visuelle Bestaetigung).
+  _flashQuickMarkerButton: function(categoryKey) {
+    var btn = document.querySelector('.quick-marker-btn[data-cat="' + categoryKey + '"]');
+    if (!btn) return;
+    btn.classList.add('quick-marker-btn-flash');
+    setTimeout(function() {
+      btn.classList.remove('quick-marker-btn-flash');
+    }, 600);
+  },
+
+  // Baut die 5 Quick-Marker-Buttons als HTML. Wird beim Rendern des Lesson-Panels
+  // eingebaut. Fahrschule (Plus) und Solo teilen sich diese Buttons.
+  renderQuickMarkerBar: function() {
+    var self = this;
+    var html = '<div class="quick-marker-bar" role="toolbar" aria-label="Schnellmarkierung">';
+    this.MARKER_CATEGORIES.forEach(function(cat) {
+      html += '<button type="button"' +
+        ' class="quick-marker-btn"' +
+        ' data-cat="' + cat.key + '"' +
+        ' onclick="App.addQuickMarker(\'' + cat.key + '\')"' +
+        ' style="--qm-color:' + cat.color + ';--qm-stroke:' + cat.stroke + ';"' +
+        ' aria-label="' + cat.label + '">' +
+        '<span class="quick-marker-icon" aria-hidden="true">' + cat.icon + '</span>' +
+        '<span class="quick-marker-label">' + cat.shortLabel + '</span>' +
+      '</button>';
+    });
+    html += '</div>';
+    return html;
+  },
+
+  // ──── MARKER NOTE NACHTRAGEN ────
+  // Wird im Fahrstunden-Review aufgerufen wenn der Fahrlehrer später
+  // eine Notiz zu einem der farbigen Quick-Marker hinzufügen will.
+  // Öffnet ein kleines Modal mit Textbausteinen (Marker-Kategorie-Bausteine).
+  editMarkerNote: async function(lessonId, markerIdx) {
+    var self = this;
+    try {
+      // Aktuelle Fahrstunde inkl. route laden — wir nehmen den frischen Stand
+      // aus dem Backend um Race-Conditions zu vermeiden.
+      var lesson = await ApiClient.get('/api/lesson/' + lessonId);
+      if (!lesson || !lesson.route || !Array.isArray(lesson.route.markers)) {
+        this.showToast(t('fehler') + ': Marker nicht gefunden');
+        return;
+      }
+      var marker = lesson.route.markers[markerIdx];
+      if (!marker) {
+        this.showToast(t('fehler') + ': Marker nicht gefunden');
+        return;
+      }
+
+      // Baustein-Chips — wenn der Marker eine Kategorie hat, nutzen wir
+      // die passende Baustein-Gruppe; sonst die generische Marker-Baustein-Liste.
+      var bausteineHtml = '';
+      var markerCats = (window.FahrdocBausteine && window.FahrdocBausteine.forMarker)
+        ? window.FahrdocBausteine.forMarker() : null;
+      if (markerCats) {
+        var catKeys = Object.keys(markerCats);
+        var tabsHtml = catKeys.map(function(cat, idx) {
+          var safeCat = _escapeAttr(cat);
+          var activeCls = idx === 0 ? ' active' : '';
+          return '<button type="button" class="baustein-tab' + activeCls + '" data-cat="' + safeCat + '" onclick="App._switchMarkerBausteinCat(this)">' + safeCat + '</button>';
+        }).join('');
+        var panelsHtml = catKeys.map(function(cat, idx) {
+          var chips = markerCats[cat].map(function(b) {
+            var safeB = String(b).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+            var safeLabel = _escapeAttr(b);
+            return '<button type="button" class="baustein-chip" onclick="App.insertBausteinIntoTextarea(\'marker-edit-note-input\', \'' + safeB + '\')">' + safeLabel + '</button>';
+          }).join('');
+          var hidden = idx === 0 ? '' : ' hidden';
+          return '<div class="baustein-chips-row baustein-panel' + hidden + '" data-cat="' + _escapeAttr(cat) + '">' + chips + '</div>';
+        }).join('');
+        bausteineHtml = '<div class="baustein-chips" role="toolbar" aria-label="Textbausteine">' +
+          '<div class="baustein-chips-label">Textbausteine</div>' +
+          '<div class="baustein-tabs">' + tabsHtml + '</div>' +
+          panelsHtml +
+        '</div>';
+      }
+
+      // Kategorie-Header zeigen, damit der Fahrlehrer sofort sieht welchen Marker er editiert
+      var cat = this._findMarkerCategory(marker.category);
+      var headerHtml = '';
+      if (cat) {
+        headerHtml = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:var(--space-2);padding:8px 12px;border-radius:8px;background:' + cat.color + ';color:#fff;font-weight:600;">' +
+          '<span style="font-size:16px;">' + cat.icon + '</span>' +
+          '<span>' + cat.label + ' • ' + marker.time + '</span>' +
+          '</div>';
+      } else {
+        headerHtml = '<div style="font-size:12px;color:var(--color-text-muted);margin-bottom:var(--space-2);">' + marker.time + '</div>';
+      }
+
+      var existingNote = (marker.note || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      var html = headerHtml +
+        '<div style="margin-bottom:var(--space-3);">' +
+        '<label class="form-label">' + t('markierungNotiz') + '</label>' +
+        '<textarea id="marker-edit-note-input" class="form-input" rows="3" ' +
+        'placeholder="' + t('markierungNotizPlaceholder') + '" ' +
+        'style="width:100%;resize:vertical;">' + existingNote + '</textarea>' +
+        bausteineHtml +
+        '</div>' +
+        '<div style="display:flex;gap:var(--space-2);">' +
+        '<button class="btn btn-secondary flex-1" onclick="App.closeModalForce()">' + t('abbrechen') + '</button>' +
+        '<button class="btn btn-primary flex-1" id="marker-edit-note-save">💾 ' + t('speichern') + '</button>' +
+        '</div>';
+      this.openModal('Notiz zum Marker', html);
+
+      // Focus + Cursor ans Ende
+      setTimeout(function() {
+        var ta = document.getElementById('marker-edit-note-input');
+        if (ta) {
+          ta.focus();
+          ta.setSelectionRange(ta.value.length, ta.value.length);
+        }
+      }, 100);
+
+      var saveBtn = document.getElementById('marker-edit-note-save');
+      if (saveBtn) {
+        saveBtn.onclick = async function() {
+          var ta = document.getElementById('marker-edit-note-input');
+          var newNote = ta ? ta.value.trim() : '';
+          self.closeModalForce();
+          try {
+            self.showLoading(true);
+            // Kompletten markers-Array bauen, den einen Marker aktualisieren
+            var updatedMarkers = lesson.route.markers.slice();
+            updatedMarkers[markerIdx] = Object.assign({}, updatedMarkers[markerIdx], { note: newNote });
+            await ApiClient.put('/api/lessons/' + lessonId, {
+              type: lesson.type,
+              notes: lesson.notes,
+              ratings: lesson.ratings,
+              markers: updatedMarkers
+            });
+            AppState._cachedData.instructorDash = null;
+            self.showToast('Notiz gespeichert');
+            // Review neu laden damit Nutzer die neue Notiz sofort sieht
+            self.showLessonReview(lessonId, lesson.student_id || lesson.studentId, 'instructor');
+          } catch (err) {
+            self.showToast(t('fehler') + ': ' + err.message);
+          } finally {
+            self.showLoading(false);
+          }
+        };
+      }
+    } catch (err) {
+      this.showToast(t('fehler') + ': ' + err.message);
+    }
+  },
+
+  addRouteMarker: function() {
+    var self = this;
+    var pos = this._resolveMarkerPosition();
+    if (!pos) {
+      this.showToast(t('gpsWirdGesucht'));
+      return;
+    }
+    var markerLat = pos.lat, markerLng = pos.lng, usedGps = pos.usedGps;
 
     // Show custom modal instead of prompt() (mobile-friendly)
     // Baustein-Kategorien für Marker-Notizen (nicht Item-bezogen).
@@ -11821,15 +12100,21 @@ var App = {
     });
 
     // Add numbered markers (clickable → Street View)
+    // Farbe folgt der Quick-Marker-Kategorie; Fallback = rotes Legacy-Design
+    // für Marker aus älteren Fahrstunden ohne category-Feld.
+    var self = this;
     route.markers.forEach(function(m, i) {
+      var cat = self._findMarkerCategory && self._findMarkerCategory(m.category);
+      var fill = cat ? cat.color : '#e74c3c';
+      var stroke = cat ? cat.stroke : '#c0392b';
       var mapMarker = new google.maps.Marker({
         position: { lat: m.lat, lng: m.lng },
         map: map,
         label: { text: String(i + 1), color: '#fff', fontWeight: 'bold', fontSize: '12px' },
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
-          scale: 14, fillColor: '#e74c3c', fillOpacity: 1,
-          strokeColor: '#c0392b', strokeWeight: 2
+          scale: 14, fillColor: fill, fillOpacity: 1,
+          strokeColor: stroke, strokeWeight: 2
         }
       });
       mapMarker.addListener('click', function() {
