@@ -4804,19 +4804,27 @@ html[dir="rtl"] .notif-panel {
    der Fahrstunde damit der Fahrlehrer mit einem
    Blick tippen kann ohne Modal-Interruption.
    ============================================ */
+/* Container sitzt jetzt INNERHALB des lesson-map-panel, direkt unter der
+   Actions-Row mit Pause/Markieren/Beenden. Kein eigener Background nötig
+   — nur ein dezenter Trenner nach oben und etwas Luft. */
 #quick-marker-bar-container {
-  flex: 0 0 auto;
-  padding: 8px 10px 6px;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  margin-top: 8px;
+  padding-top: 10px;
   border-top: 1px solid rgba(0, 0, 0, 0.06);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
 }
 [data-theme="dark"] #quick-marker-bar-container {
-  background: rgba(20, 24, 28, 0.92);
   border-top-color: rgba(255, 255, 255, 0.08);
-  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+/* Kleines Label über der Bar erklärt was die Buttons machen —
+   verhindert dass Fahrlehrer sich fragen wofür die 5 farbigen Buttons sind. */
+.quick-marker-bar-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: 6px;
+  padding-left: 2px;
 }
 
 .quick-marker-bar {

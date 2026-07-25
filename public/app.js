@@ -11813,7 +11813,8 @@ var App = {
   // eingebaut. Fahrschule (Plus) und Solo teilen sich diese Buttons.
   renderQuickMarkerBar: function() {
     var self = this;
-    var html = '<div class="quick-marker-bar" role="toolbar" aria-label="Schnellmarkierung">';
+    var html = '<div class="quick-marker-bar-label">Schnellmarkierung</div>';
+    html += '<div class="quick-marker-bar" role="toolbar" aria-label="Schnellmarkierung">';
     this.MARKER_CATEGORIES.forEach(function(cat) {
       html += '<button type="button"' +
         ' class="quick-marker-btn"' +
