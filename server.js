@@ -3549,6 +3549,71 @@ app.post('/api/ai/briefing/:studentId', authMiddleware, async (req, res) => {
 });
 
 // ============================================
+// AI TRANSLATE (Batch)
+// ============================================
+// Nimmt { texts: ["...", ...], targetLang: 'en'|'tr'|'ar'|'es'|'fr'|'de', sourceLang?: 'auto'|'de'|... }
+// Antwort: { translations: ["...", ...] } — gleiche Reihenfolge & Länge.
+// Wird v.a. beim PDF-Export genutzt um User-Freitexte (Notizen) zu übersetzen.
+app.post('/api/ai/translate', authMiddleware, async (req, res) => {
+  if (!genAI) return res.status(503).json({ error: 'KI-Service nicht konfiguriert' });
+  try {
+    const texts = Array.isArray(req.body && req.body.texts) ? req.body.texts : [];
+    const targetLang = String((req.body && req.body.targetLang) || '').toLowerCase();
+    const sourceLang = String((req.body && req.body.sourceLang) || 'auto').toLowerCase();
+    const ALLOWED = ['de', 'en', 'tr', 'ar', 'es', 'fr'];
+    if (!ALLOWED.includes(targetLang)) {
+      return res.status(400).json({ error: 'targetLang muss eine der Sprachen sein: ' + ALLOWED.join(', ') });
+    }
+    if (texts.length === 0) return res.json({ translations: [] });
+    if (texts.length > 50) return res.status(400).json({ error: 'Maximal 50 Texte pro Anfrage' });
+    // Leere / nur-Whitespace-Texte direkt durchreichen; nur echte Strings uebersetzen
+    const items = texts.map((t, i) => ({ i: i, text: String(t == null ? '' : t) }));
+    const nonEmpty = items.filter(it => it.text.trim().length > 0);
+    if (nonEmpty.length === 0) return res.json({ translations: items.map(it => it.text) });
+
+    const LANG_NAMES = {
+      de: 'German', en: 'English', tr: 'Turkish', ar: 'Arabic', es: 'Spanish', fr: 'French'
+    };
+    const targetName = LANG_NAMES[targetLang];
+    const sourceHint = ALLOWED.includes(sourceLang) ? (' The source language is ' + LANG_NAMES[sourceLang] + '.') : '';
+
+    // Prompt: Model soll strikt JSON-Array zurueckgeben, gleiche Reihenfolge, gleiche Laenge.
+    // Ratings/Skills bleiben identisch — wir uebergeben nur Notizen-Freitexte.
+    const numbered = nonEmpty.map((it, idx) => '[' + (idx + 1) + '] ' + it.text).join('\n---\n');
+    const prompt = 'You are a translation engine for a driving-school documentation app. Translate the following ' + nonEmpty.length + ' short texts (driving-lesson notes from an instructor) into ' + targetName + '.' + sourceHint + '\n\nRules:\n- Return ONLY a JSON array of strings, in the SAME order, with EXACTLY ' + nonEmpty.length + ' items.\n- Preserve numbers, punctuation and line breaks.\n- Do NOT translate proper names (student names, street names).\n- If a text is already in ' + targetName + ', return it unchanged.\n- No commentary, no markdown fences, just the JSON array.\n\nTexts:\n' + numbered;
+
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      generationConfig: { responseMimeType: 'application/json' }
+    });
+    const result = await model.generateContent(prompt);
+    let raw = (result.response.text() || '').trim();
+    // Falls trotzdem in ```json ... ``` gewrappt: cleanup
+    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    let arr;
+    try {
+      arr = JSON.parse(raw);
+    } catch (e) {
+      console.warn('[AI Translate] JSON parse failed, raw=', raw.slice(0, 300));
+      return res.status(502).json({ error: 'KI-Antwort war kein JSON' });
+    }
+    if (!Array.isArray(arr) || arr.length !== nonEmpty.length) {
+      return res.status(502).json({ error: 'KI-Antwort hat falsche Laenge (' + (Array.isArray(arr) ? arr.length : 'kein Array') + ' statt ' + nonEmpty.length + ')' });
+    }
+
+    // Uebersetzungen zurueck ins volle Array einsortieren (leere Slots bleiben leer)
+    const out = items.map(it => it.text);
+    nonEmpty.forEach((it, idx) => {
+      out[it.i] = String(arr[idx] == null ? it.text : arr[idx]);
+    });
+    res.json({ translations: out });
+  } catch (err) {
+    console.error('[AI Translate Error]', err);
+    res.status(500).json({ error: 'Uebersetzung fehlgeschlagen: ' + err.message });
+  }
+});
+
+// ============================================
 // VEHICLES
 // ============================================
 app.get('/api/school/vehicles', authMiddleware, async (req, res) => {

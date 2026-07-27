@@ -10178,6 +10178,61 @@ var App = {
     catch (err) { return self.showToast(t('fehler') + ': ' + (err.message || err)); }
     if (!window.jspdf || !window.jspdf.jsPDF) return self.showToast('PDF-Bibliothek wird geladen, bitte nochmal versuchen...');
 
+    // ── Freitext-Notizen übersetzen (falls Zielsprache != Deutsch) ──
+    // Wir sammeln alle User-Freitexte (lesson.notes, marker.note, ratingNotes[item]),
+    // schicken sie in EINEM Batch-Call ans Backend (/api/ai/translate) und ersetzen
+    // die Werte auf einer flachen Kopie des lesson-Objekts. Bei Fehlern fallen wir
+    // lautlos auf die Originalwerte zurueck — der Rest des PDFs ist bereits uebersetzt.
+    if (lang && lang !== 'de') {
+      try {
+        var _texts = [];
+        var _slots = []; // { target: 'lesson.notes' | 'marker' | 'rating', idx: ..., key: ... }
+        if (lesson.notes && String(lesson.notes).trim()) {
+          _slots.push({ target: 'notes' });
+          _texts.push(String(lesson.notes));
+        }
+        var _markers = (lesson.route && Array.isArray(lesson.route.markers)) ? lesson.route.markers : [];
+        _markers.forEach(function(m, i) {
+          if (m && m.note && String(m.note).trim()) {
+            _slots.push({ target: 'marker', idx: i });
+            _texts.push(String(m.note));
+          }
+        });
+        var _rn = lesson.ratingNotes || {};
+        var _rnKeys = Object.keys(_rn);
+        _rnKeys.forEach(function(k) {
+          if (_rn[k] && String(_rn[k]).trim()) {
+            _slots.push({ target: 'rating', key: k });
+            _texts.push(String(_rn[k]));
+          }
+        });
+        if (_texts.length > 0) {
+          var _resp = await ApiClient.post('/api/ai/translate', {
+            texts: _texts, targetLang: lang, sourceLang: 'de'
+          });
+          var _tr = (_resp && Array.isArray(_resp.translations)) ? _resp.translations : null;
+          if (_tr && _tr.length === _texts.length) {
+            // flache Kopien anlegen damit wir das AppState-Objekt nicht mutieren
+            lesson = Object.assign({}, lesson);
+            if (lesson.route) lesson.route = Object.assign({}, lesson.route, {
+              markers: (lesson.route.markers || []).map(function(m) { return Object.assign({}, m); })
+            });
+            lesson.ratingNotes = Object.assign({}, lesson.ratingNotes || {});
+            _slots.forEach(function(slot, i) {
+              var v = _tr[i];
+              if (v == null) return;
+              if (slot.target === 'notes') lesson.notes = v;
+              else if (slot.target === 'marker' && lesson.route && lesson.route.markers[slot.idx]) lesson.route.markers[slot.idx].note = v;
+              else if (slot.target === 'rating') lesson.ratingNotes[slot.key] = v;
+            });
+          }
+        }
+      } catch (trErr) {
+        // still, fallback = Original-Notizen (Bericht wird trotzdem erstellt)
+        console.warn('[PDF translate] fallback to original notes:', trErr && trErr.message);
+      }
+    }
+
     var jsPDF = window.jspdf.jsPDF;
     var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     var pw = 210, ph = 297, ml = 18, mr = 18, mt = 16;
