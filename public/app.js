@@ -10321,12 +10321,12 @@ var App = {
       y += 6;
     };
 
-    // ══ Karte + Stats-Pills ══
+    // ══ Route-Stats-Pills (Karte auf Wunsch entfernt — nur Stats bleiben) ══
     if (lesson.route && lesson.route.points && lesson.route.points.length > 1) {
-      ensureSpace(85);
+      ensureSpace(20);
       sectionTitle(pdfT('pdfRoute'));
 
-      // Stats-Pillen (über der Karte)
+      // Stats-Pillen
       var stats = [
         { label: pdfT('strecke'),      value: (Number(lesson.route.distanceKm) || 0).toFixed(1) + ' km' },
         { label: pdfT('pdfTempo'),     value: Math.round(Number(lesson.route.avgSpeedKmh) || 0) + ' km/h' },
@@ -10346,11 +10346,7 @@ var App = {
         if (isAr) doc.text(s.value, px + pillW - 3, y + 9.5, { align: 'right' });
         else      doc.text(s.value, px + 3, y + 9.5);
       });
-      y += pillH + 4;
-
-      // Karte
-      try { self._drawNativeRouteMap(doc, lesson.route, ml, y, cw, 60); } catch (e) { /* skip */ }
-      y += 60 + 8;
+      y += pillH + 6;
     }
 
     // ── Markierungen mit Street-View-Buttons (direkt unter der Karte) ──
@@ -10439,6 +10435,30 @@ var App = {
         // Zeit: bei Arabisch direkt links vom Badge (also pw - mr - 11), rechtsbuendig
         if (isAr) doc.text(m.time || '\u2014', pw - mr - 11, y + 6, { align: 'right' });
         else      doc.text(m.time || '\u2014', ml + 11, y + 6);
+        // Optional: Kategorie-Chip rechts oben (falls gesetzt) — uebersetzt
+        if (m.category) {
+          // Kategorie key → deutscher Name in EVAL_ITEM_KEY_MAP über MARKER_CATEGORIES
+          var _catCfg = (self._findMarkerCategory ? self._findMarkerCategory(m.category) : null);
+          var _catLbl = '';
+          if (_catCfg && _catCfg.label) {
+            _catLbl = (typeof EVAL_ITEM_KEY_MAP !== 'undefined' && EVAL_ITEM_KEY_MAP[_catCfg.label])
+              ? pdfT(EVAL_ITEM_KEY_MAP[_catCfg.label])
+              : String(_catCfg.label);
+          }
+          if (_catLbl) {
+            setFn('normal'); doc.setFontSize(7.5); setText(TXT_MUTED);
+            var _chipTw = doc.getTextWidth(_catLbl);
+            var _chipPad = 2.4, _chipH = 4.6;
+            var _chipW = _chipTw + _chipPad * 2;
+            var _chipY = y + 3.4;
+            var _chipX = isAr ? (ml + 4) : (pw - mr - _chipW - 4);
+            setFill([245, 245, 244]); setDraw([214, 211, 209]); doc.setLineWidth(0.2);
+            doc.roundedRect(_chipX, _chipY, _chipW, _chipH, 1.2, 1.2, 'FD');
+            setText(TXT_MUTED);
+            doc.text(_catLbl, _chipX + _chipW / 2, _chipY + _chipH / 2 + 1.1, { align: 'center' });
+            setFn('bold'); doc.setFontSize(10); setText(TXT);
+          }
+        }
         // Notizen (volle Breite, da Button eigene Zeile)
         if (noteLines.length) {
           setFn('normal'); doc.setFontSize(9); setText(TXT_MUTED);
@@ -10531,6 +10551,10 @@ var App = {
           if (typeof v !== 'number' || v < 1 || v > 4) return;
           var note = (lesson.ratingNotes && lesson.ratingNotes[item]) || '';
           var meta = levelMeta(v);
+          // Item-Name uebersetzen falls in EVAL_ITEM_KEY_MAP vorhanden
+          var itemLabel = (typeof EVAL_ITEM_KEY_MAP !== 'undefined' && EVAL_ITEM_KEY_MAP[item])
+            ? pdfT(EVAL_ITEM_KEY_MAP[item])
+            : String(item);
           // Pill-Breite für Item-Text-Begrenzung abschätzen
           setFn('bold'); doc.setFontSize(9);
           var pillTw = doc.getTextWidth(meta.label) + 8;
@@ -10550,7 +10574,7 @@ var App = {
           else      doc.rect(ml, y, 1.2, rowH, 'F');
           // Item-Name + Pill spiegeln
           setText(TXT); setFn('bold'); doc.setFontSize(10);
-          var itemLines = doc.splitTextToSize(String(item), itemMaxW);
+          var itemLines = doc.splitTextToSize(itemLabel, itemMaxW);
           if (isAr) {
             doc.text(itemLines[0], pw - mr - 4, y + 6.5, { align: 'right' });
             // Pill auf linker Seite (anchor = left edge -> wir geben den linken Ankerpunkt + pillW als Argument an drawPill)

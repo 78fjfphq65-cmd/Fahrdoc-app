@@ -542,7 +542,39 @@ var TRANSLATIONS = {
   slotGeloescht: { de:'Slot gelöscht', en:'Slot deleted', tr:'Slot silindi', ar:'تم حذف الموعد', es:'Slot eliminado', fr:'Créneau supprimé' },
   angebotGeloescht: { de:'Angebot gelöscht', en:'Offer deleted', tr:'Teklif silindi', ar:'تم حذف العرض', es:'Oferta eliminada', fr:'Offre supprimée' },
   slotLoeschenBestaetigung: { de:'Diesen Slot wirklich löschen?', en:'Really delete this slot?', tr:'Bu slotu silmek istiyor musunuz?', ar:'هل تريد حقا حذف هذا الموعد؟', es:'¿Eliminar este slot?', fr:'Vraiment supprimer ce créneau?' },
-  angebotLoeschenBestaetigung: { de:'Komplettes Angebot löschen? Offene Slots werden entfernt, bereits gebuchte Fahrstunden bleiben bestehen.', en:'Delete entire offer? Open slots will be removed, booked lessons remain.', tr:'Tüm teklifi sil? Açık slotlar silinir, rezerve edilen dersler kalır.', ar:'حذف العرض بالكامل؟ ستتم إزالة المواعيد المفتوحة وتبقى الدروس المحجوزة.', es:'¿Eliminar toda la oferta? Los slots abiertos se eliminarán, las clases reservadas permanecen.', fr:'Supprimer toute l\'offre? Les créneaux ouverts seront supprimés, les leçons réservées restent.' }
+  angebotLoeschenBestaetigung: { de:'Komplettes Angebot löschen? Offene Slots werden entfernt, bereits gebuchte Fahrstunden bleiben bestehen.', en:'Delete entire offer? Open slots will be removed, booked lessons remain.', tr:'Tüm teklifi sil? Açık slotlar silinir, rezerve edilen dersler kalır.', ar:'حذف العرض بالكامل؟ ستتم إزالة المواعيد المفتوحة وتبقى الدروس المحجوزة.', es:'¿Eliminar toda la oferta? Los slots abiertos se eliminarán, las clases reservadas permanecen.', fr:'Supprimer toute l\'offre? Les créneaux ouverts seront supprimés, les leçons réservées restent.' },
+
+  // ── Bewertungs-Items übersetzt (via EVAL_ITEM_KEY_MAP) ──
+  // Beobachtungskategorien
+  evalVerkehrsbeobachtung:      { de:'Verkehrsbeobachtung', en:'Traffic observation', tr:'Trafik gözlemi', ar:'مراقبة المرور', es:'Observación del tráfico', fr:'Observation de la circulation' },
+  evalFahrzeugpositionierung:   { de:'Fahrzeugpositionierung', en:'Vehicle positioning', tr:'Araç konumlandırma', ar:'تحديد موقع السيارة', es:'Posicionamiento del vehículo', fr:'Positionnement du véhicule' },
+  evalGeschwindigkeitsanpassung:{ de:'Geschwindigkeitsanpassung', en:'Speed adjustment', tr:'Hız ayarı', ar:'تعديل السرعة', es:'Ajuste de velocidad', fr:'Adaptation de la vitesse' },
+  evalKommunikation:            { de:'Kommunikation', en:'Communication', tr:'İletişim', ar:'التواصل', es:'Comunicación', fr:'Communication' },
+  evalFahrzeugbedienung:        { de:'Fahrzeugbedienung/Umweltbewusste Fahrweise', en:'Vehicle operation / Eco-friendly driving', tr:'Araç kullanımı / Çevre dostu sürüş', ar:'تشغيل المركبة / القيادة الصديقة للبيئة', es:'Manejo del vehículo / Conducción ecológica', fr:'Utilisation du véhicule / Conduite écologique' },
+  // Fahraufgaben im Straßenverkehr
+  evalKurven:                   { de:'Kurven befahren', en:'Cornering', tr:'Viraj alma', ar:'قيادة المنعطفات', es:'Tomar curvas', fr:'Prise de virages' },
+  evalUeberholen:               { de:'Vorbeifahren / Überholen / Begegnen', en:'Passing / Overtaking / Meeting', tr:'Geçme / Sollama / Karşılaşma', ar:'المرور / التجاوز / المواجهة', es:'Adelantar / rebasar / cruzar', fr:'Dépassement / croisement' },
+  evalAbbiegenKreuzung:         { de:'Abbiegen / Kreuzungen / Einmündungen', en:'Turning / Intersections / Junctions', tr:'Dönüşler / kavşaklar / birleşim yerleri', ar:'الانعطاف / التقاطعات / التقاطعات T', es:'Girar / cruces / incorporaciones', fr:'Tourner / intersections / jonctions' },
+  evalKreisverkehr:             { de:'Kreisverkehr', en:'Roundabout', tr:'Dönel kavşak', ar:'دوار', es:'Rotonda', fr:'Rond-point' },
+  evalFahrstreifenwechsel:      { de:'Fahrstreifenwechsel', en:'Lane change', tr:'Şerit değiştirme', ar:'تغيير الحارة', es:'Cambio de carril', fr:'Changement de voie' },
+  evalAutobahn:                 { de:'Autobahn / Kraftfahrstraße', en:'Motorway / Expressway', tr:'Otoyol / ekspres yol', ar:'الطريق السريع', es:'Autopista / vía rápida', fr:'Autoroute / voie rapide' },
+  evalBahnuebergang:            { de:'Bahnübergang', en:'Railway crossing', tr:'Demiryolu geçidi', ar:'ممر القطار', es:'Paso a nivel', fr:'Passage à niveau' },
+  evalHaltestellen:             { de:'Haltestellen / Fußgängerüberwege', en:'Bus stops / Pedestrian crossings', tr:'Duraklar / yaya geçitleri', ar:'محطات / ممرات المشاة', es:'Paradas / pasos de peatones', fr:'Arrêts / passages piétons' },
+  // Grundfahraufgaben B
+  evalAbbremsen:                { de:'Abbremsen mit höchstmöglicher Verzögerung', en:'Emergency braking (max. deceleration)', tr:'Maksimum yavaşlama ile fren', ar:'الفرملة بأقصى تباطؤ', es:'Frenado con máxima deceleración', fr:'Freinage à décélération maximale' },
+  evalRueckwaertsAbbiegen:      { de:'Rückwärtsfahren mit Abbiegen', en:'Reversing with turn', tr:'Dönüşlü geri gitme', ar:'الرجوع للخلف مع الانعطاف', es:'Marcha atrás con giro', fr:'Marche arrière avec virage' },
+  evalUmkehren:                 { de:'Umkehren', en:'Turning around', tr:'Geriye dönüş', ar:'الدوران', es:'Media vuelta', fr:'Faire demi-tour' },
+  evalEinparkenLaengs:          { de:'Einparken längs', en:'Parallel parking', tr:'Paralel park', ar:'ركن موازي', es:'Aparcamiento en línea', fr:'Stationnement en créneau' },
+  evalEinparkenQuer:            { de:'Einparken quer', en:'Perpendicular parking', tr:'Dik park', ar:'ركن عمودي', es:'Aparcamiento en batería', fr:'Stationnement en bataille' },
+  // Grundfahraufgaben A (Motorrad)
+  evalSlalomSchritt:            { de:'Slalom mit Schrittgeschwindigkeit', en:'Slalom at walking pace', tr:'Yürüyüş hızında slalom', ar:'سلالوم بسرعة المشي', es:'Eslalon al paso', fr:'Slalom à allure de marche' },
+  evalAusweichenOhne:           { de:'Ausweichen ohne Abbremsen', en:'Evasion without braking', tr:'Frenlemeden kavıs alma', ar:'التفادي دون فرملة', es:'Esquiva sin frenar', fr:'Évitement sans freinage' },
+  evalAusweichenNach:           { de:'Ausweichen nach Abbremsen', en:'Evasion after braking', tr:'Frenlemeden sonra kavıs alma', ar:'التفادي بعد الفرملة', es:'Esquiva después de frenar', fr:'Évitement après freinage' },
+  evalSlalom:                   { de:'Slalom', en:'Slalom', tr:'Slalom', ar:'سلالوم', es:'Eslalon', fr:'Slalom' },
+  evalLangerSlalom:             { de:'Langer Slalom', en:'Long slalom', tr:'Uzun slalom', ar:'سلالوم طويل', es:'Eslalon largo', fr:'Slalom long' },
+  evalSchrittGeradeaus:         { de:'Fahren mit Schrittgeschwindigkeit geradeaus', en:'Straight riding at walking pace', tr:'Yürüyüş hızında düz sürüş', ar:'القيادة مستقيمًا بسرعة المشي', es:'Conducción recta al paso', fr:'Conduite droite à allure de marche' },
+  evalStopAndGo:                { de:'Stop and Go', en:'Stop and Go', tr:'Dur-Kalk', ar:'توقف وانطلاق', es:'Parar y arrancar', fr:'Arrêt et redémarrage' },
+  evalKreisfahrt:               { de:'Kreisfahrt', en:'Circular ride', tr:'Dairesel sürüş', ar:'القيادة الدائرية', es:'Marcha circular', fr:'Trajet circulaire' }
 };
 
 // ── Day names by language ──
@@ -588,6 +620,43 @@ var SKILL_KEY_MAP = {
   'Einparken': 'einparken', 'Geschwindigkeit': 'geschwindigkeit',
   'Verkehrszeichen': 'verkehrszeichen', 'Schulterblick': 'schulterblick',
   'Allgemeines Fahrverhalten': 'allgFahrverhalten'
+};
+
+// ── Bewertungs-Items (5 Beobachtungskategorien + 8 Fahraufgaben + 5 GFA-B + 9 GFA-A) ──
+// Die App speichert Items intern mit deutschen Namen. Fuer die Anzeige
+// (v.a. im PDF) mappen wir sie hier auf i18n-Keys, die dann pro Sprache
+// aufgeloest werden.
+var EVAL_ITEM_KEY_MAP = {
+  // Beobachtungskategorien
+  'Verkehrsbeobachtung': 'evalVerkehrsbeobachtung',
+  'Fahrzeugpositionierung': 'evalFahrzeugpositionierung',
+  'Geschwindigkeitsanpassung': 'evalGeschwindigkeitsanpassung',
+  'Kommunikation': 'evalKommunikation',
+  'Fahrzeugbedienung/Umweltbewusste Fahrweise': 'evalFahrzeugbedienung',
+  // Fahraufgaben im Strassenverkehr
+  'Kurven befahren': 'evalKurven',
+  'Vorbeifahren / Überholen / Begegnen': 'evalUeberholen',
+  'Abbiegen / Kreuzungen / Einmündungen': 'evalAbbiegenKreuzung',
+  'Kreisverkehr': 'evalKreisverkehr',
+  'Fahrstreifenwechsel': 'evalFahrstreifenwechsel',
+  'Autobahn / Kraftfahrstraße': 'evalAutobahn',
+  'Bahnübergang': 'evalBahnuebergang',
+  'Haltestellen / Fußgängerüberwege': 'evalHaltestellen',
+  // Grundfahraufgaben B
+  'Abbremsen mit höchstmöglicher Verzögerung': 'evalAbbremsen',
+  'Rückwärtsfahren mit Abbiegen': 'evalRueckwaertsAbbiegen',
+  'Umkehren': 'evalUmkehren',
+  'Einparken längs': 'evalEinparkenLaengs',
+  'Einparken quer': 'evalEinparkenQuer',
+  // Grundfahraufgaben A (Motorrad)
+  'Slalom mit Schrittgeschwindigkeit': 'evalSlalomSchritt',
+  'Ausweichen ohne Abbremsen': 'evalAusweichenOhne',
+  'Ausweichen nach Abbremsen': 'evalAusweichenNach',
+  'Slalom': 'evalSlalom',
+  'Langer Slalom': 'evalLangerSlalom',
+  'Fahren mit Schrittgeschwindigkeit geradeaus': 'evalSchrittGeradeaus',
+  'Stop and Go': 'evalStopAndGo',
+  'Kreisfahrt': 'evalKreisfahrt'
 };
 
 // ── Skill level key map ──
