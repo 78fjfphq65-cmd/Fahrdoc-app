@@ -3560,7 +3560,7 @@ app.post('/api/ai/translate', authMiddleware, async (req, res) => {
     const texts = Array.isArray(req.body && req.body.texts) ? req.body.texts : [];
     const targetLang = String((req.body && req.body.targetLang) || '').toLowerCase();
     const sourceLang = String((req.body && req.body.sourceLang) || 'auto').toLowerCase();
-    const ALLOWED = ['de', 'en', 'tr', 'ar', 'es', 'fr'];
+    const ALLOWED = ['de', 'en', 'tr', 'ar', 'es', 'fr', 'pt'];
     if (!ALLOWED.includes(targetLang)) {
       return res.status(400).json({ error: 'targetLang muss eine der Sprachen sein: ' + ALLOWED.join(', ') });
     }
@@ -3572,7 +3572,7 @@ app.post('/api/ai/translate', authMiddleware, async (req, res) => {
     if (nonEmpty.length === 0) return res.json({ translations: items.map(it => it.text) });
 
     const LANG_NAMES = {
-      de: 'German', en: 'English', tr: 'Turkish', ar: 'Arabic', es: 'Spanish', fr: 'French'
+      de: 'German', en: 'English', tr: 'Turkish', ar: 'Arabic', es: 'Spanish', fr: 'French', pt: 'Portuguese'
     };
     const targetName = LANG_NAMES[targetLang];
     const sourceHint = ALLOWED.includes(sourceLang) ? (' The source language is ' + LANG_NAMES[sourceLang] + '.') : '';

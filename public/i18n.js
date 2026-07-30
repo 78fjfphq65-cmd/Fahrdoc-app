@@ -1,29 +1,31 @@
 /* ============================================
    FahrDoc — i18n (Internationalization)
-   Languages: de, en, tr, ar, es, fr
+   Languages: de, en, tr, ar, es, fr, pt
+   Fallback-Kette: pt → es (verwandt) → en → de
    ============================================ */
 
 var LANGUAGES = [
-  { code: 'de', name: 'Deutsch', flag: '🇩🇪' },
-  { code: 'en', name: 'English', flag: '🇬🇧' },
-  { code: 'tr', name: 'Türkçe', flag: '🇹🇷' },
-  { code: 'ar', name: 'العربية', flag: '🇸🇦' },
-  { code: 'es', name: 'Español', flag: '🇪🇸' },
-  { code: 'fr', name: 'Français', flag: '🇫🇷' }
+  { code: 'de', name: 'Deutsch',    flag: '🇩🇪' },
+  { code: 'en', name: 'English',    flag: '🇬🇧' },
+  { code: 'tr', name: 'Türkçe',    flag: '🇹🇷' },
+  { code: 'ar', name: 'العربية',   flag: '🇸🇦' },
+  { code: 'es', name: 'Español',    flag: '🇪🇸' },
+  { code: 'fr', name: 'Français',   flag: '🇫🇷' },
+  { code: 'pt', name: 'Português',  flag: '🇵🇹' }
 ];
 
 var TRANSLATIONS = {
   // ── Navigation & Tabs ──
-  dashboard:       { de:'Dashboard', en:'Dashboard', tr:'Panel', ar:'لوحة القيادة', es:'Panel', fr:'Tableau de bord' },
-  planung:         { de:'Planung', en:'Schedule', tr:'Planlama', ar:'الجدول', es:'Planificación', fr:'Planning' },
-  fahrlehrer:      { de:'Fahrlehrer', en:'Instructors', tr:'Eğitmenler', ar:'المدربون', es:'Instructores', fr:'Moniteurs' },
-  schueler:        { de:'Schüler', en:'Students', tr:'Öğrenciler', ar:'الطلاب', es:'Alumnos', fr:'Élèves' },
+  dashboard:       { de:'Dashboard', en:'Dashboard', tr:'Panel', ar:'لوحة القيادة', es:'Panel', fr:'Tableau de bord' , pt:'Painel' },
+  planung:         { de:'Planung', en:'Schedule', tr:'Planlama', ar:'الجدول', es:'Planificación', fr:'Planning' , pt:'Agenda' },
+  fahrlehrer:      { de:'Fahrlehrer', en:'Instructors', tr:'Eğitmenler', ar:'المدربون', es:'Instructores', fr:'Moniteurs' , pt:'Instrutores' },
+  schueler:        { de:'Schüler', en:'Students', tr:'Öğrenciler', ar:'الطلاب', es:'Alumnos', fr:'Élèves' , pt:'Alunos' },
   abo:             { de:'Abo', en:'Plan', tr:'Abonelik', ar:'الاشتراك', es:'Suscripción', fr:'Abonnement' },
   profil:          { de:'Profil', en:'Profile', tr:'Profil', ar:'الملف الشخصي', es:'Perfil', fr:'Profil' },
   fahrstunden:     { de:'Fahrstunden', en:'Lessons', tr:'Dersler', ar:'الدروس', es:'Clases', fr:'Leçons' },
   anmelden:        { de:'Anmelden', en:'Sign in', tr:'Giriş yap', ar:'تسجيل الدخول', es:'Iniciar sesión', fr:'Connexion' },
   registrieren:    { de:'Registrieren', en:'Register', tr:'Kayıt ol', ar:'تسجيل', es:'Registrarse', fr:'S\'inscrire' },
-  abmelden:        { de:'Abmelden', en:'Sign out', tr:'Çıkış', ar:'تسجيل الخروج', es:'Cerrar sesión', fr:'Déconnexion' },
+  abmelden:        { de:'Abmelden', en:'Sign out', tr:'Çıkış', ar:'تسجيل الخروج', es:'Cerrar sesión', fr:'Déconnexion' , pt:'Sair' },
 
   // ── Auth ──
   email:           { de:'E-Mail', en:'Email', tr:'E-posta', ar:'البريد الإلكتروني', es:'Correo electrónico', fr:'E-mail' },
@@ -52,17 +54,17 @@ var TRANSLATIONS = {
   // ── Schedule ──
   terminErstellen: { de:'Termin erstellen', en:'Create appointment', tr:'Randevu oluştur', ar:'إنشاء موعد', es:'Crear cita', fr:'Créer un rendez-vous' },
   terminBearbeiten:{ de:'Termin bearbeiten', en:'Edit appointment', tr:'Randevuyu düzenle', ar:'تعديل الموعد', es:'Editar cita', fr:'Modifier le rendez-vous' },
-  typ:             { de:'Typ', en:'Type', tr:'Tür', ar:'النوع', es:'Tipo', fr:'Type' },
-  datum:           { de:'Datum', en:'Date', tr:'Tarih', ar:'التاريخ', es:'Fecha', fr:'Date' },
+  typ:             { de:'Typ', en:'Type', tr:'Tür', ar:'النوع', es:'Tipo', fr:'Type' , pt:'Tipo' },
+  datum:           { de:'Datum', en:'Date', tr:'Tarih', ar:'التاريخ', es:'Fecha', fr:'Date' , pt:'Data' },
   start:           { de:'Start', en:'Start', tr:'Başlangıç', ar:'البداية', es:'Inicio', fr:'Début' },
   ende:            { de:'Ende', en:'End', tr:'Bitiş', ar:'النهاية', es:'Fin', fr:'Fin' },
-  dauer:           { de:'Dauer', en:'Duration', tr:'Süre', ar:'المدة', es:'Duración', fr:'Durée' },
+  dauer:           { de:'Dauer', en:'Duration', tr:'Süre', ar:'المدة', es:'Duración', fr:'Durée' , pt:'Duração' },
   schuelerLeer:    { de:'Fahrschüler (leer = offener Block)', en:'Student (empty = open block)', tr:'Öğrenci (boş = açık blok)', ar:'الطالب (فارغ = كتلة مفتوحة)', es:'Alumno (vacío = bloque abierto)', fr:'Élève (vide = bloc ouvert)' },
-  klasse:          { de:'Klasse', en:'Class', tr:'Sınıf', ar:'الفئة', es:'Clase', fr:'Catégorie' },
-  notizen:         { de:'Notizen', en:'Notes', tr:'Notlar', ar:'ملاحظات', es:'Notas', fr:'Notes' },
+  klasse:          { de:'Klasse', en:'Class', tr:'Sınıf', ar:'الفئة', es:'Clase', fr:'Catégorie' , pt:'Categoria' },
+  notizen:         { de:'Notizen', en:'Notes', tr:'Notlar', ar:'ملاحظات', es:'Notas', fr:'Notes' , pt:'Observações' },
   optional:        { de:'Optional...', en:'Optional...', tr:'İsteğe bağlı...', ar:'اختياري...', es:'Opcional...', fr:'Facultatif...' },
-  speichern:       { de:'Speichern', en:'Save', tr:'Kaydet', ar:'حفظ', es:'Guardar', fr:'Enregistrer' },
-  loeschen:        { de:'Löschen', en:'Delete', tr:'Sil', ar:'حذف', es:'Eliminar', fr:'Supprimer' },
+  speichern:       { de:'Speichern', en:'Save', tr:'Kaydet', ar:'حفظ', es:'Guardar', fr:'Enregistrer' , pt:'Salvar' },
+  loeschen:        { de:'Löschen', en:'Delete', tr:'Sil', ar:'حذف', es:'Eliminar', fr:'Supprimer' , pt:'Excluir' },
   fahrstundeStarten:{ de:'Fahrstunde starten', en:'Start lesson', tr:'Derse başla', ar:'بدء الدرس', es:'Iniciar clase', fr:'Commencer la leçon' },
   plusTermin:       { de:'+ Termin', en:'+ Appointment', tr:'+ Randevu', ar:'+ موعد', es:'+ Cita', fr:'+ Rendez-vous' },
   offen:           { de:'Offen', en:'Open', tr:'Açık', ar:'مفتوح', es:'Abierto', fr:'Ouvert' },
@@ -71,7 +73,7 @@ var TRANSLATIONS = {
   // ── Lessons ──
   fahrstundeBeenden:{ de:'Fahrstunde beenden', en:'End lesson', tr:'Dersi bitir', ar:'إنهاء الدرس', es:'Finalizar clase', fr:'Terminer la leçon' },
   zusammenfassung: { de:'Zusammenfassung', en:'Summary', tr:'Özet', ar:'ملخص', es:'Resumen', fr:'Résumé' },
-  bewertung:       { de:'Bewertung', en:'Assessment', tr:'Değerlendirme', ar:'التقييم', es:'Evaluación', fr:'Évaluation' },
+  bewertung:       { de:'Bewertung', en:'Assessment', tr:'Değerlendirme', ar:'التقييم', es:'Evaluación', fr:'Évaluation' , pt:'Avaliação' },
   bilderOptional:  { de:'Bilder (optional)', en:'Images (optional)', tr:'Resimler (isteğe bağlı)', ar:'صور (اختياري)', es:'Imágenes (opcional)', fr:'Images (facultatif)' },
   bilderHochladen: { de:'Bilder hochladen', en:'Upload images', tr:'Resim yükle', ar:'رفع صور', es:'Subir imágenes', fr:'Télécharger des images' },
   bilderHinzufuegen:{ de:'Bilder hinzufügen', en:'Add images', tr:'Resim ekle', ar:'إضافة صور', es:'Añadir imágenes', fr:'Ajouter des images' },
@@ -85,7 +87,7 @@ var TRANSLATIONS = {
   fahrstundeGeloescht:{ de:'Fahrstunde gelöscht', en:'Lesson deleted', tr:'Ders silindi', ar:'تم حذف الدرس', es:'Clase eliminada', fr:'Leçon supprimée' },
   bilderWerdenHochgeladen:{ de:'Bilder werden hochgeladen...', en:'Uploading images...', tr:'Resimler yükleniyor...', ar:'جاري رفع الصور...', es:'Subiendo imágenes...', fr:'Téléchargement des images...' },
   bilderHochgeladen:{ de:'Bilder erfolgreich hochgeladen!', en:'Images uploaded successfully!', tr:'Resimler başarıyla yüklendi!', ar:'تم رفع الصور بنجاح!', es:'¡Imágenes subidas correctamente!', fr:'Images téléchargées avec succès !' },
-  bilder:          { de:'Bilder', en:'Images', tr:'Resimler', ar:'صور', es:'Imágenes', fr:'Images' },
+  bilder:          { de:'Bilder', en:'Images', tr:'Resimler', ar:'صور', es:'Imágenes', fr:'Images' , pt:'Imagens' },
 
   // ── Skill Levels ──
   anfaenger:       { de:'Anfänger', en:'Beginner', tr:'Başlangıç', ar:'مبتدئ', es:'Principiante', fr:'Débutant' },
@@ -128,7 +130,7 @@ var TRANSLATIONS = {
   // ── Profile ──
   deinProfil:      { de:'Dein Profil', en:'Your profile', tr:'Profiliniz', ar:'ملفك الشخصي', es:'Tu perfil', fr:'Votre profil' },
   persoenlicheDaten:{ de:'Persönliche Daten', en:'Personal data', tr:'Kişisel bilgiler', ar:'البيانات الشخصية', es:'Datos personales', fr:'Données personnelles' },
-  einstellungen:   { de:'Einstellungen', en:'Settings', tr:'Ayarlar', ar:'الإعدادات', es:'Configuración', fr:'Paramètres' },
+  einstellungen:   { de:'Einstellungen', en:'Settings', tr:'Ayarlar', ar:'الإعدادات', es:'Configuración', fr:'Paramètres' , pt:'Configurações' },
   benachrichtigungen:{ de:'Benachrichtigungen', en:'Notifications', tr:'Bildirimler', ar:'الإشعارات', es:'Notificaciones', fr:'Notifications' },
   datenschutz:     { de:'Datenschutz', en:'Privacy', tr:'Gizlilik', ar:'الخصوصية', es:'Privacidad', fr:'Confidentialité' },
 
@@ -179,31 +181,31 @@ var TRANSLATIONS = {
   anmerkungenPlaceholder:{ de:'Anmerkungen zur Fahrstunde...', en:'Notes about the lesson...', tr:'Ders hakkında notlar...', ar:'ملاحظات حول الدرس...', es:'Notas sobre la clase...', fr:'Notes sur la leçon...' },
   fahrstundeGespeichert:{ de:'Fahrstunde gespeichert!', en:'Lesson saved!', tr:'Ders kaydedildi!', ar:'تم حفظ الدرس!', es:'¡Clase guardada!', fr:'Leçon enregistrée !' },
   berichtFuerSchueler: { de:'Bericht für Schüler senden', en:'Send report to student', tr:'Öğrenciye rapor gönder', ar:'إرسال التقرير للطالب', es:'Enviar informe al alumno', fr:'Envoyer le rapport à l\u2019élève' },
-  berichtWirdErstellt: { de:'Bericht wird erstellt...', en:'Generating report...', tr:'Rapor oluşturuluyor...', ar:'جارٍ إنشاء التقرير...', es:'Generando informe...', fr:'Génération du rapport...' },
+  berichtWirdErstellt: { de:'Bericht wird erstellt...', en:'Generating report...', tr:'Rapor oluşturuluyor...', ar:'جارٍ إنشاء التقرير...', es:'Generando informe...', fr:'Génération du rapport...' , pt:'Gerando relatório...' },
   berichtErstellt:     { de:'Bericht erstellt', en:'Report created', tr:'Rapor oluşturuldu', ar:'تم إنشاء التقرير', es:'Informe creado', fr:'Rapport créé' },
   berichtGeteilt:      { de:'Bericht geteilt', en:'Report shared', tr:'Rapor paylaşıldı', ar:'تمت مشاركة التقرير', es:'Informe compartido', fr:'Rapport partagé' },
   // PDF-Bericht Strings
-  pdfTitel:            { de:'Fahrstunden-Bericht', en:'Driving Lesson Report', tr:'Sürüş Dersi Raporu', ar:'تقرير درس القيادة', es:'Informe de clase de conducir', fr:'Rapport de leçon de conduite' },
-  pdfRoute:            { de:'Route', en:'Route', tr:'Rota', ar:'المسار', es:'Ruta', fr:'Itinéraire' },
-  pdfTempo:            { de:'\u00d8 Tempo', en:'\u00d8 Speed', tr:'\u00d8 H\u0131z', ar:'\u00d8 \u0627\u0644\u0633\u0631\u0639\u0629', es:'\u00d8 Velocidad', fr:'\u00d8 Vitesse' },
-  pdfMarkierung:       { de:'Markierung', en:'Marker', tr:'\u0130\u015faret', ar:'\u0639\u0644\u0627\u0645\u0629', es:'Marcador', fr:'Rep\u00e8re' },
-  pdfInKarteOeffnen:   { de:'In Karte \u00f6ffnen \u203a', en:'Open in map \u203a', tr:'Haritada a\u00e7 \u203a', ar:'\u200f\u0641\u062a\u062d \u0641\u064a \u0627\u0644\u062e\u0631\u064a\u0637\u0629 \u2039', es:'Abrir en el mapa \u203a', fr:'Ouvrir dans la carte \u203a' },
-  pdfStreetViewBtn:    { de:'Street View \u00f6ffnen', en:'Open Street View', tr:'Street View\u2019\u0131 a\u00e7', ar:'\u0641\u062a\u062d Street View', es:'Abrir Street View', fr:'Ouvrir Street View' },
-  pdfStreetViewHinweis:{ de:'Tippe auf die Buttons unten, um die Stelle direkt in Google Street View anzusehen.', en:'Tap the buttons below to view each spot directly in Google Street View.', tr:'A\u015fa\u011f\u0131daki d\u00fc\u011fmelere dokunarak her noktay\u0131 do\u011frudan Google Street View\u2019da g\u00f6r\u00fcnt\u00fcleyebilirsin.', ar:'\u0627\u0636\u063a\u0637 \u0639\u0644\u0649 \u0627\u0644\u0623\u0632\u0631\u0627\u0631 \u0623\u062f\u0646\u0627\u0647 \u0644\u0639\u0631\u0636 \u0643\u0644 \u0645\u0648\u0642\u0639 \u0645\u0628\u0627\u0634\u0631\u0629 \u0641\u064a Google Street View.', es:'Toca los botones de abajo para ver cada punto directamente en Google Street View.', fr:'Appuie sur les boutons ci-dessous pour voir chaque point directement dans Google Street View.' },
-  pdfSeite:            { de:'Seite', en:'Page', tr:'Sayfa', ar:'\u0635\u0641\u062d\u0629', es:'P\u00e1gina', fr:'Page' },
-  pdfErstelltMit:      { de:'Erstellt mit', en:'Created with', tr:'Olu\u015fturuldu', ar:'\u062a\u0645 \u0627\u0644\u0625\u0646\u0634\u0627\u0621 \u0628\u0648\u0627\u0633\u0637\u0629', es:'Creado con', fr:'Cr\u00e9\u00e9 avec' },
-  pdfSehrGut:          { de:'Sehr gut', en:'Excellent', tr:'\u00c7ok iyi', ar:'\u0645\u0645\u062a\u0627\u0632', es:'Excelente', fr:'Tr\u00e8s bien' },
-  pdfGut:              { de:'Gut', en:'Good', tr:'\u0130yi', ar:'\u062c\u064a\u062f', es:'Bien', fr:'Bien' },
-  pdfAusreichend:      { de:'Ausreichend', en:'Sufficient', tr:'Yeterli', ar:'\u0645\u0642\u0628\u0648\u0644', es:'Suficiente', fr:'Suffisant' },
-  pdfUngenuegend:      { de:'Ungen\u00fcgend', en:'Insufficient', tr:'Yetersiz', ar:'\u063a\u064a\u0631 \u0643\u0627\u0641\u064d', es:'Insuficiente', fr:'Insuffisant' },
-  pdfBeobachtungskategorien:{ de:'Beobachtungskategorien', en:'Observation categories', tr:'G\u00f6zlem kategorileri', ar:'\u0641\u0626\u0627\u062a \u0627\u0644\u0645\u0644\u0627\u062d\u0638\u0629', es:'Categor\u00edas de observaci\u00f3n', fr:'Cat\u00e9gories d\u2019observation' },
-  pdfFahraufgaben:     { de:'Fahraufgaben im Stra\u00dfenverkehr', en:'Road driving tasks', tr:'Trafikte s\u00fcr\u00fc\u015f g\u00f6revleri', ar:'\u0645\u0647\u0627\u0645 \u0627\u0644\u0642\u064a\u0627\u062f\u0629 \u0641\u064a \u0627\u0644\u0637\u0631\u064a\u0642', es:'Tareas de conducci\u00f3n vial', fr:'T\u00e2ches de conduite' },
-  pdfGrundfahraufgaben:{ de:'Grundfahraufgaben', en:'Basic driving tasks', tr:'Temel s\u00fcr\u00fc\u015f g\u00f6revleri', ar:'\u0645\u0647\u0627\u0645 \u0627\u0644\u0642\u064a\u0627\u062f\u0629 \u0627\u0644\u0623\u0633\u0627\u0633\u064a\u0629', es:'Tareas b\u00e1sicas de conducci\u00f3n', fr:'T\u00e2ches de base' },
-  pdfDateiName:        { de:'Fahrstunde', en:'Lesson', tr:'Ders', ar:'Lesson', es:'Clase', fr:'Lecon' },
-  pdfStudent:          { de:'Schueler', en:'Student', tr:'Ogrenci', ar:'\u0627\u0644\u0637\u0627\u0644\u0628', es:'Alumno', fr:'Eleve' },
-  pdfFahrlehrer:       { de:'Fahrlehrer', en:'Instructor', tr:'E\u011fitmen', ar:'\u0627\u0644\u0645\u062f\u0631\u0628', es:'Instructor', fr:'Moniteur' },
-  spracheWaehlen:      { de:'Sprache f\u00fcr den Bericht w\u00e4hlen', en:'Choose report language', tr:'Rapor dilini se\u00e7in', ar:'\u0627\u062e\u062a\u0631 \u0644\u063a\u0629 \u0627\u0644\u062a\u0642\u0631\u064a\u0631', es:'Elegir idioma del informe', fr:'Choisir la langue du rapport' },
-  abbrechen:           { de:'Abbrechen', en:'Cancel', tr:'\u0130ptal', ar:'\u0625\u0644\u063a\u0627\u0621', es:'Cancelar', fr:'Annuler' },
+  pdfTitel:            { de:'Fahrstunden-Bericht', en:'Driving Lesson Report', tr:'Sürüş Dersi Raporu', ar:'تقرير درس القيادة', es:'Informe de clase de conducir', fr:'Rapport de leçon de conduite' , pt:'Relatório de Aula de Condução' },
+  pdfRoute:            { de:'Route', en:'Route', tr:'Rota', ar:'المسار', es:'Ruta', fr:'Itinéraire' , pt:'Percurso' },
+  pdfTempo:            { de:'\u00d8 Tempo', en:'\u00d8 Speed', tr:'\u00d8 H\u0131z', ar:'\u00d8 \u0627\u0644\u0633\u0631\u0639\u0629', es:'\u00d8 Velocidad', fr:'\u00d8 Vitesse' , pt:'Ø Velocidade' },
+  pdfMarkierung:       { de:'Markierung', en:'Marker', tr:'\u0130\u015faret', ar:'\u0639\u0644\u0627\u0645\u0629', es:'Marcador', fr:'Rep\u00e8re' , pt:'Marcação' },
+  pdfInKarteOeffnen:   { de:'In Karte \u00f6ffnen \u203a', en:'Open in map \u203a', tr:'Haritada a\u00e7 \u203a', ar:'\u200f\u0641\u062a\u062d \u0641\u064a \u0627\u0644\u062e\u0631\u064a\u0637\u0629 \u2039', es:'Abrir en el mapa \u203a', fr:'Ouvrir dans la carte \u203a' , pt:'Abrir no mapa ›' },
+  pdfStreetViewBtn:    { de:'Street View \u00f6ffnen', en:'Open Street View', tr:'Street View\u2019\u0131 a\u00e7', ar:'\u0641\u062a\u062d Street View', es:'Abrir Street View', fr:'Ouvrir Street View' , pt:'Abrir Street View' },
+  pdfStreetViewHinweis:{ de:'Tippe auf die Buttons unten, um die Stelle direkt in Google Street View anzusehen.', en:'Tap the buttons below to view each spot directly in Google Street View.', tr:'A\u015fa\u011f\u0131daki d\u00fc\u011fmelere dokunarak her noktay\u0131 do\u011frudan Google Street View\u2019da g\u00f6r\u00fcnt\u00fcleyebilirsin.', ar:'\u0627\u0636\u063a\u0637 \u0639\u0644\u0649 \u0627\u0644\u0623\u0632\u0631\u0627\u0631 \u0623\u062f\u0646\u0627\u0647 \u0644\u0639\u0631\u0636 \u0643\u0644 \u0645\u0648\u0642\u0639 \u0645\u0628\u0627\u0634\u0631\u0629 \u0641\u064a Google Street View.', es:'Toca los botones de abajo para ver cada punto directamente en Google Street View.', fr:'Appuie sur les boutons ci-dessous pour voir chaque point directement dans Google Street View.' , pt:'Toque nos botões abaixo para ver cada ponto diretamente no Google Street View.' },
+  pdfSeite:            { de:'Seite', en:'Page', tr:'Sayfa', ar:'\u0635\u0641\u062d\u0629', es:'P\u00e1gina', fr:'Page' , pt:'Página' },
+  pdfErstelltMit:      { de:'Erstellt mit', en:'Created with', tr:'Olu\u015fturuldu', ar:'\u062a\u0645 \u0627\u0644\u0625\u0646\u0634\u0627\u0621 \u0628\u0648\u0627\u0633\u0637\u0629', es:'Creado con', fr:'Cr\u00e9\u00e9 avec' , pt:'Criado com' },
+  pdfSehrGut:          { de:'Sehr gut', en:'Excellent', tr:'\u00c7ok iyi', ar:'\u0645\u0645\u062a\u0627\u0632', es:'Excelente', fr:'Tr\u00e8s bien' , pt:'Excelente' },
+  pdfGut:              { de:'Gut', en:'Good', tr:'\u0130yi', ar:'\u062c\u064a\u062f', es:'Bien', fr:'Bien' , pt:'Bom' },
+  pdfAusreichend:      { de:'Ausreichend', en:'Sufficient', tr:'Yeterli', ar:'\u0645\u0642\u0628\u0648\u0644', es:'Suficiente', fr:'Suffisant' , pt:'Suficiente' },
+  pdfUngenuegend:      { de:'Ungen\u00fcgend', en:'Insufficient', tr:'Yetersiz', ar:'\u063a\u064a\u0631 \u0643\u0627\u0641\u064d', es:'Insuficiente', fr:'Insuffisant' , pt:'Insuficiente' },
+  pdfBeobachtungskategorien:{ de:'Beobachtungskategorien', en:'Observation categories', tr:'G\u00f6zlem kategorileri', ar:'\u0641\u0626\u0627\u062a \u0627\u0644\u0645\u0644\u0627\u062d\u0638\u0629', es:'Categor\u00edas de observaci\u00f3n', fr:'Cat\u00e9gories d\u2019observation' , pt:'Categorias de observação' },
+  pdfFahraufgaben:     { de:'Fahraufgaben im Stra\u00dfenverkehr', en:'Road driving tasks', tr:'Trafikte s\u00fcr\u00fc\u015f g\u00f6revleri', ar:'\u0645\u0647\u0627\u0645 \u0627\u0644\u0642\u064a\u0627\u062f\u0629 \u0641\u064a \u0627\u0644\u0637\u0631\u064a\u0642', es:'Tareas de conducci\u00f3n vial', fr:'T\u00e2ches de conduite' , pt:'Tarefas de condução no trânsito' },
+  pdfGrundfahraufgaben:{ de:'Grundfahraufgaben', en:'Basic driving tasks', tr:'Temel s\u00fcr\u00fc\u015f g\u00f6revleri', ar:'\u0645\u0647\u0627\u0645 \u0627\u0644\u0642\u064a\u0627\u062f\u0629 \u0627\u0644\u0623\u0633\u0627\u0633\u064a\u0629', es:'Tareas b\u00e1sicas de conducci\u00f3n', fr:'T\u00e2ches de base' , pt:'Tarefas básicas de condução' },
+  pdfDateiName:        { de:'Fahrstunde', en:'Lesson', tr:'Ders', ar:'Lesson', es:'Clase', fr:'Lecon' , pt:'Aula' },
+  pdfStudent:          { de:'Schueler', en:'Student', tr:'Ogrenci', ar:'\u0627\u0644\u0637\u0627\u0644\u0628', es:'Alumno', fr:'Eleve' , pt:'Aluno' },
+  pdfFahrlehrer:       { de:'Fahrlehrer', en:'Instructor', tr:'E\u011fitmen', ar:'\u0627\u0644\u0645\u062f\u0631\u0628', es:'Instructor', fr:'Moniteur' , pt:'Instrutor' },
+  spracheWaehlen:      { de:'Sprache f\u00fcr den Bericht w\u00e4hlen', en:'Choose report language', tr:'Rapor dilini se\u00e7in', ar:'\u0627\u062e\u062a\u0631 \u0644\u063a\u0629 \u0627\u0644\u062a\u0642\u0631\u064a\u0631', es:'Elegir idioma del informe', fr:'Choisir la langue du rapport' , pt:'Escolher idioma do relatório' },
+  abbrechen:           { de:'Abbrechen', en:'Cancel', tr:'\u0130ptal', ar:'\u0625\u0644\u063a\u0627\u0621', es:'Cancelar', fr:'Annuler' , pt:'Cancelar' },
   fortschrittPruefungsreife:{ de:'Dein Fortschritt zur Prüfungsreife', en:'Your progress towards exam readiness', tr:'Sınav hazırlığına ilerlemeniz', ar:'تقدمك نحو الاستعداد للامتحان', es:'Tu progreso hacia la preparación del examen', fr:'Votre progression vers l\'examen' },
   deineSkills:{ de:'Deine Skills', en:'Your skills', tr:'Yeteneklerin', ar:'مهاراتك', es:'Tus habilidades', fr:'Vos compétences' },
   nochKeineFahrstunden:{ de:'Noch keine Fahrstunden', en:'No lessons yet', tr:'Henüz ders yok', ar:'لا توجد دروس بعد', es:'Aún no hay clases', fr:'Pas encore de leçons' },
@@ -219,14 +221,14 @@ var TRANSLATIONS = {
   // ── Misc ──
   suchen:          { de:'Suchen...', en:'Search...', tr:'Ara...', ar:'بحث...', es:'Buscar...', fr:'Rechercher...' },
   laden:           { de:'Laden...', en:'Loading...', tr:'Yükleniyor...', ar:'جاري التحميل...', es:'Cargando...', fr:'Chargement...' },
-  fehler:          { de:'Fehler', en:'Error', tr:'Hata', ar:'خطأ', es:'Error', fr:'Erreur' },
+  fehler:          { de:'Fehler', en:'Error', tr:'Hata', ar:'خطأ', es:'Error', fr:'Erreur' , pt:'Erro' },
   keineDaten:      { de:'Keine Daten', en:'No data', tr:'Veri yok', ar:'لا توجد بيانات', es:'Sin datos', fr:'Aucune donnée' },
   codeGenerieren:  { de:'Code generieren', en:'Generate code', tr:'Kod oluştur', ar:'إنشاء رمز', es:'Generar código', fr:'Générer un code' },
   codeKopiert:     { de:'Code kopiert!', en:'Code copied!', tr:'Kod kopyalandı!', ar:'تم نسخ الرمز!', es:'¡Código copiado!', fr:'Code copié !' },
   einladungscode:  { de:'Einladungscode', en:'Invitation code', tr:'Davet kodu', ar:'رمز الدعوة', es:'Código de invitación', fr:'Code d\'invitation' },
   neuerFahrlehrer: { de:'Neuer Fahrlehrer', en:'New instructor', tr:'Yeni eğitmen', ar:'مدرب جديد', es:'Nuevo instructor', fr:'Nouveau moniteur' },
   neuerFahrschueler:{ de:'Neuer Fahrschüler', en:'New student', tr:'Yeni öğrenci', ar:'طالب جديد', es:'Nuevo alumno', fr:'Nouvel élève' },
-  bearbeiten:      { de:'Bearbeiten', en:'Edit', tr:'Düzenle', ar:'تعديل', es:'Editar', fr:'Modifier' },
+  bearbeiten:      { de:'Bearbeiten', en:'Edit', tr:'Düzenle', ar:'تعديل', es:'Editar', fr:'Modifier' , pt:'Editar' },
   bild:            { de:'Bild', en:'Image', tr:'Resim', ar:'صورة', es:'Imagen', fr:'Image' },
   sprache:         { de:'Sprache', en:'Language', tr:'Dil', ar:'اللغة', es:'Idioma', fr:'Langue' },
   designWechseln:  { de:'Design wechseln', en:'Toggle theme', tr:'Tema değiştir', ar:'تغيير المظهر', es:'Cambiar tema', fr:'Changer de thème' },
@@ -256,10 +258,10 @@ var TRANSLATIONS = {
 
   // ── Route Tracking ──
   routeUndMarkierungen: { de:'Route & Markierungen', en:'Route & Markers', tr:'Rota ve İşaretler', ar:'المسار والعلامات', es:'Ruta y marcadores', fr:'Itinéraire et repères' },
-  strecke: { de:'Strecke', en:'Distance', tr:'Mesafe', ar:'المسافة', es:'Distancia', fr:'Distance' },
+  strecke: { de:'Strecke', en:'Distance', tr:'Mesafe', ar:'المسافة', es:'Distancia', fr:'Distance' , pt:'Distância' },
   geschwindigkeitLabel: { de:'Geschwindigkeit', en:'Speed', tr:'Hız', ar:'السرعة', es:'Velocidad', fr:'Vitesse' },
   geschwindigkeitKurz: { de:'Tempo', en:'Speed', tr:'Hız', ar:'السرعة', es:'Vel.', fr:'Vitesse' },
-  markierungen: { de:'Markierungen', en:'Markers', tr:'İşaretler', ar:'العلامات', es:'Marcadores', fr:'Repères' },
+  markierungen: { de:'Markierungen', en:'Markers', tr:'İşaretler', ar:'العلامات', es:'Marcadores', fr:'Repères' , pt:'Marcações' },
   markierungenKurz: { de:'Marker', en:'Markers', tr:'İşaretler', ar:'العلامات', es:'Marcadores', fr:'Repères' },
   laeuft: { de:'läuft', en:'live', tr:'devam ediyor', ar:'يعمل', es:'en curso', fr:'en cours' },
   markierungSetzen: { de:'Markieren', en:'Mark', tr:'İşaretle', ar:'علامة', es:'Marcar', fr:'Marquer' },
@@ -297,7 +299,7 @@ var TRANSLATIONS = {
   markierungSetzenTitle: { de:'Markierung setzen', en:'Set marker', tr:'İşaret koy', ar:'وضع علامة', es:'Poner marcador', fr:'Placer un repère' },
   markierungNotizPlaceholder: { de:'z.B. Schulterblick vergessen, Vorfahrt beachten...', en:'e.g. Forgot shoulder check, observe right of way...', tr:'örn. Omuz kontrolü unutuldu...', ar:'مثل: نسي النظر فوق الكتف...', es:'ej. Olvidó mirar por encima del hombro...', fr:'ex. Oublié le regard par-dessus l\'épaule...' },
   markierungSpeichern: { de:'Speichern', en:'Save', tr:'Kaydet', ar:'حفظ', es:'Guardar', fr:'Enregistrer' },
-  abbrechen: { de:'Abbrechen', en:'Cancel', tr:'İptal', ar:'إلغاء', es:'Cancelar', fr:'Annuler' },
+  abbrechen: { de:'Abbrechen', en:'Cancel', tr:'İptal', ar:'إلغاء', es:'Cancelar', fr:'Annuler' , pt:'Cancelar' },
 
   // ── DSGVO Banner ──
   datenschutzTitle: { de:'Datenschutz', en:'Privacy', tr:'Gizlilik', ar:'الخصوصية', es:'Privacidad', fr:'Confidentialité' },
@@ -381,7 +383,7 @@ var TRANSLATIONS = {
   diesenUndFolgende: { de:'Diesen und alle folgenden löschen', en:'Delete this and all following', tr:'Bunu ve sonrakileri sil', ar:'حذف هذا وجميع التالية', es:'Eliminar esta y las siguientes', fr:'Supprimer celui-ci et tous les suivants' },
   wiederkehrenderTermin: { de:'Wiederkehrender Termin', en:'Recurring appointment', tr:'Tekrarlayan randevu', ar:'موعد متكرر', es:'Cita recurrente', fr:'Rendez-vous récurrent' },
   serieLoeschen: { de:'Serie löschen', en:'Delete series', tr:'Seriyi sil', ar:'حذف السلسلة', es:'Eliminar serie', fr:'Supprimer la série' },
-  abbrechen: { de:'Abbrechen', en:'Cancel', tr:'İptal', ar:'إلغاء', es:'Cancelar', fr:'Annuler' },
+  abbrechen: { de:'Abbrechen', en:'Cancel', tr:'İptal', ar:'إلغاء', es:'Cancelar', fr:'Annuler' , pt:'Cancelar' },
   ok: { de:'OK', en:'OK', tr:'Tamam', ar:'موافق', es:'Aceptar', fr:'OK' },
   konfliktAm: { de:'Konflikt am', en:'Conflict on', tr:'Çakışma tarihi:', ar:'تعارض في', es:'Conflicto el', fr:'Conflit le' },
   terminOk: { de:'OK', en:'OK', tr:'Tamam', ar:'موافق', es:'OK', fr:'OK' },
@@ -482,7 +484,7 @@ var TRANSLATIONS = {
   aktuelleRotation: { de:'Aktuelle Rotation', en:'Current rotation', tr:'Mevcut rotasyon', ar:'الدوران الحالي', es:'Rotación actual', fr:'Rotation actuelle' },
   keineRaeume: { de:'Noch keine Räume angelegt', en:'No rooms created yet', tr:'Henüz oda oluşturulmadı', ar:'لم يتم إنشاء غرف بعد', es:'Aún no hay salas', fr:'Aucune salle créée' },
   keineRotation: { de:'Noch keine Rotation eingerichtet', en:'No rotation set up yet', tr:'Henüz rotasyon ayarlanmadı', ar:'لم يتم إعداد الدوران بعد', es:'Aún no hay rotación', fr:'Aucune rotation configurée' },
-  bearbeiten: { de:'Bearbeiten', en:'Edit', tr:'Düzenle', ar:'تعديل', es:'Editar', fr:'Modifier' },
+  bearbeiten: { de:'Bearbeiten', en:'Edit', tr:'Düzenle', ar:'تعديل', es:'Editar', fr:'Modifier' , pt:'Editar' },
   mo: { de:'Mo', en:'Mon', tr:'Pzt', ar:'اثن', es:'Lu', fr:'Lu' },
   di: { de:'Di', en:'Tue', tr:'Sal', ar:'ثلا', es:'Ma', fr:'Ma' },
   mi: { de:'Mi', en:'Wed', tr:'Çar', ar:'أرب', es:'Mi', fr:'Me' },
@@ -546,35 +548,35 @@ var TRANSLATIONS = {
 
   // ── Bewertungs-Items übersetzt (via EVAL_ITEM_KEY_MAP) ──
   // Beobachtungskategorien
-  evalVerkehrsbeobachtung:      { de:'Verkehrsbeobachtung', en:'Traffic observation', tr:'Trafik gözlemi', ar:'مراقبة المرور', es:'Observación del tráfico', fr:'Observation de la circulation' },
-  evalFahrzeugpositionierung:   { de:'Fahrzeugpositionierung', en:'Vehicle positioning', tr:'Araç konumlandırma', ar:'تحديد موقع السيارة', es:'Posicionamiento del vehículo', fr:'Positionnement du véhicule' },
-  evalGeschwindigkeitsanpassung:{ de:'Geschwindigkeitsanpassung', en:'Speed adjustment', tr:'Hız ayarı', ar:'تعديل السرعة', es:'Ajuste de velocidad', fr:'Adaptation de la vitesse' },
-  evalKommunikation:            { de:'Kommunikation', en:'Communication', tr:'İletişim', ar:'التواصل', es:'Comunicación', fr:'Communication' },
-  evalFahrzeugbedienung:        { de:'Fahrzeugbedienung/Umweltbewusste Fahrweise', en:'Vehicle operation / Eco-friendly driving', tr:'Araç kullanımı / Çevre dostu sürüş', ar:'تشغيل المركبة / القيادة الصديقة للبيئة', es:'Manejo del vehículo / Conducción ecológica', fr:'Utilisation du véhicule / Conduite écologique' },
+  evalVerkehrsbeobachtung:      { de:'Verkehrsbeobachtung', en:'Traffic observation', tr:'Trafik gözlemi', ar:'مراقبة المرور', es:'Observación del tráfico', fr:'Observation de la circulation' , pt:'Observação do trânsito' },
+  evalFahrzeugpositionierung:   { de:'Fahrzeugpositionierung', en:'Vehicle positioning', tr:'Araç konumlandırma', ar:'تحديد موقع السيارة', es:'Posicionamiento del vehículo', fr:'Positionnement du véhicule' , pt:'Posicionamento do veículo' },
+  evalGeschwindigkeitsanpassung:{ de:'Geschwindigkeitsanpassung', en:'Speed adjustment', tr:'Hız ayarı', ar:'تعديل السرعة', es:'Ajuste de velocidad', fr:'Adaptation de la vitesse' , pt:'Adaptação da velocidade' },
+  evalKommunikation:            { de:'Kommunikation', en:'Communication', tr:'İletişim', ar:'التواصل', es:'Comunicación', fr:'Communication' , pt:'Comunicação' },
+  evalFahrzeugbedienung:        { de:'Fahrzeugbedienung/Umweltbewusste Fahrweise', en:'Vehicle operation / Eco-friendly driving', tr:'Araç kullanımı / Çevre dostu sürüş', ar:'تشغيل المركبة / القيادة الصديقة للبيئة', es:'Manejo del vehículo / Conducción ecológica', fr:'Utilisation du véhicule / Conduite écologique' , pt:'Operação do veículo / Condução ecológica' },
   // Fahraufgaben im Straßenverkehr
-  evalKurven:                   { de:'Kurven befahren', en:'Cornering', tr:'Viraj alma', ar:'قيادة المنعطفات', es:'Tomar curvas', fr:'Prise de virages' },
-  evalUeberholen:               { de:'Vorbeifahren / Überholen / Begegnen', en:'Passing / Overtaking / Meeting', tr:'Geçme / Sollama / Karşılaşma', ar:'المرور / التجاوز / المواجهة', es:'Adelantar / rebasar / cruzar', fr:'Dépassement / croisement' },
-  evalAbbiegenKreuzung:         { de:'Abbiegen / Kreuzungen / Einmündungen', en:'Turning / Intersections / Junctions', tr:'Dönüşler / kavşaklar / birleşim yerleri', ar:'الانعطاف / التقاطعات / التقاطعات T', es:'Girar / cruces / incorporaciones', fr:'Tourner / intersections / jonctions' },
-  evalKreisverkehr:             { de:'Kreisverkehr', en:'Roundabout', tr:'Dönel kavşak', ar:'دوار', es:'Rotonda', fr:'Rond-point' },
-  evalFahrstreifenwechsel:      { de:'Fahrstreifenwechsel', en:'Lane change', tr:'Şerit değiştirme', ar:'تغيير الحارة', es:'Cambio de carril', fr:'Changement de voie' },
-  evalAutobahn:                 { de:'Autobahn / Kraftfahrstraße', en:'Motorway / Expressway', tr:'Otoyol / ekspres yol', ar:'الطريق السريع', es:'Autopista / vía rápida', fr:'Autoroute / voie rapide' },
-  evalBahnuebergang:            { de:'Bahnübergang', en:'Railway crossing', tr:'Demiryolu geçidi', ar:'ممر القطار', es:'Paso a nivel', fr:'Passage à niveau' },
-  evalHaltestellen:             { de:'Haltestellen / Fußgängerüberwege', en:'Bus stops / Pedestrian crossings', tr:'Duraklar / yaya geçitleri', ar:'محطات / ممرات المشاة', es:'Paradas / pasos de peatones', fr:'Arrêts / passages piétons' },
+  evalKurven:                   { de:'Kurven befahren', en:'Cornering', tr:'Viraj alma', ar:'قيادة المنعطفات', es:'Tomar curvas', fr:'Prise de virages' , pt:'Fazer curvas' },
+  evalUeberholen:               { de:'Vorbeifahren / Überholen / Begegnen', en:'Passing / Overtaking / Meeting', tr:'Geçme / Sollama / Karşılaşma', ar:'المرور / التجاوز / المواجهة', es:'Adelantar / rebasar / cruzar', fr:'Dépassement / croisement' , pt:'Passar / Ultrapassar / Cruzar' },
+  evalAbbiegenKreuzung:         { de:'Abbiegen / Kreuzungen / Einmündungen', en:'Turning / Intersections / Junctions', tr:'Dönüşler / kavşaklar / birleşim yerleri', ar:'الانعطاف / التقاطعات / التقاطعات T', es:'Girar / cruces / incorporaciones', fr:'Tourner / intersections / jonctions' , pt:'Conversões / cruzamentos / junções' },
+  evalKreisverkehr:             { de:'Kreisverkehr', en:'Roundabout', tr:'Dönel kavşak', ar:'دوار', es:'Rotonda', fr:'Rond-point' , pt:'Rotatória' },
+  evalFahrstreifenwechsel:      { de:'Fahrstreifenwechsel', en:'Lane change', tr:'Şerit değiştirme', ar:'تغيير الحارة', es:'Cambio de carril', fr:'Changement de voie' , pt:'Mudança de faixa' },
+  evalAutobahn:                 { de:'Autobahn / Kraftfahrstraße', en:'Motorway / Expressway', tr:'Otoyol / ekspres yol', ar:'الطريق السريع', es:'Autopista / vía rápida', fr:'Autoroute / voie rapide' , pt:'Autoestrada / via expressa' },
+  evalBahnuebergang:            { de:'Bahnübergang', en:'Railway crossing', tr:'Demiryolu geçidi', ar:'ممر القطار', es:'Paso a nivel', fr:'Passage à niveau' , pt:'Passagem de nível' },
+  evalHaltestellen:             { de:'Haltestellen / Fußgängerüberwege', en:'Bus stops / Pedestrian crossings', tr:'Duraklar / yaya geçitleri', ar:'محطات / ممرات المشاة', es:'Paradas / pasos de peatones', fr:'Arrêts / passages piétons' , pt:'Paradas / faixas de pedestres' },
   // Grundfahraufgaben B
-  evalAbbremsen:                { de:'Abbremsen mit höchstmöglicher Verzögerung', en:'Emergency braking (max. deceleration)', tr:'Maksimum yavaşlama ile fren', ar:'الفرملة بأقصى تباطؤ', es:'Frenado con máxima deceleración', fr:'Freinage à décélération maximale' },
-  evalRueckwaertsAbbiegen:      { de:'Rückwärtsfahren mit Abbiegen', en:'Reversing with turn', tr:'Dönüşlü geri gitme', ar:'الرجوع للخلف مع الانعطاف', es:'Marcha atrás con giro', fr:'Marche arrière avec virage' },
-  evalUmkehren:                 { de:'Umkehren', en:'Turning around', tr:'Geriye dönüş', ar:'الدوران', es:'Media vuelta', fr:'Faire demi-tour' },
-  evalEinparkenLaengs:          { de:'Einparken längs', en:'Parallel parking', tr:'Paralel park', ar:'ركن موازي', es:'Aparcamiento en línea', fr:'Stationnement en créneau' },
-  evalEinparkenQuer:            { de:'Einparken quer', en:'Perpendicular parking', tr:'Dik park', ar:'ركن عمودي', es:'Aparcamiento en batería', fr:'Stationnement en bataille' },
+  evalAbbremsen:                { de:'Abbremsen mit höchstmöglicher Verzögerung', en:'Emergency braking (max. deceleration)', tr:'Maksimum yavaşlama ile fren', ar:'الفرملة بأقصى تباطؤ', es:'Frenado con máxima deceleración', fr:'Freinage à décélération maximale' , pt:'Frenagem com desaceleração máxima' },
+  evalRueckwaertsAbbiegen:      { de:'Rückwärtsfahren mit Abbiegen', en:'Reversing with turn', tr:'Dönüşlü geri gitme', ar:'الرجوع للخلف مع الانعطاف', es:'Marcha atrás con giro', fr:'Marche arrière avec virage' , pt:'Marcha à ré com conversão' },
+  evalUmkehren:                 { de:'Umkehren', en:'Turning around', tr:'Geriye dönüş', ar:'الدوران', es:'Media vuelta', fr:'Faire demi-tour' , pt:'Fazer meia-volta' },
+  evalEinparkenLaengs:          { de:'Einparken längs', en:'Parallel parking', tr:'Paralel park', ar:'ركن موازي', es:'Aparcamiento en línea', fr:'Stationnement en créneau' , pt:'Estacionamento paralelo' },
+  evalEinparkenQuer:            { de:'Einparken quer', en:'Perpendicular parking', tr:'Dik park', ar:'ركن عمودي', es:'Aparcamiento en batería', fr:'Stationnement en bataille' , pt:'Estacionamento perpendicular' },
   // Grundfahraufgaben A (Motorrad)
-  evalSlalomSchritt:            { de:'Slalom mit Schrittgeschwindigkeit', en:'Slalom at walking pace', tr:'Yürüyüş hızında slalom', ar:'سلالوم بسرعة المشي', es:'Eslalon al paso', fr:'Slalom à allure de marche' },
-  evalAusweichenOhne:           { de:'Ausweichen ohne Abbremsen', en:'Evasion without braking', tr:'Frenlemeden kavıs alma', ar:'التفادي دون فرملة', es:'Esquiva sin frenar', fr:'Évitement sans freinage' },
-  evalAusweichenNach:           { de:'Ausweichen nach Abbremsen', en:'Evasion after braking', tr:'Frenlemeden sonra kavıs alma', ar:'التفادي بعد الفرملة', es:'Esquiva después de frenar', fr:'Évitement après freinage' },
-  evalSlalom:                   { de:'Slalom', en:'Slalom', tr:'Slalom', ar:'سلالوم', es:'Eslalon', fr:'Slalom' },
-  evalLangerSlalom:             { de:'Langer Slalom', en:'Long slalom', tr:'Uzun slalom', ar:'سلالوم طويل', es:'Eslalon largo', fr:'Slalom long' },
-  evalSchrittGeradeaus:         { de:'Fahren mit Schrittgeschwindigkeit geradeaus', en:'Straight riding at walking pace', tr:'Yürüyüş hızında düz sürüş', ar:'القيادة مستقيمًا بسرعة المشي', es:'Conducción recta al paso', fr:'Conduite droite à allure de marche' },
-  evalStopAndGo:                { de:'Stop and Go', en:'Stop and Go', tr:'Dur-Kalk', ar:'توقف وانطلاق', es:'Parar y arrancar', fr:'Arrêt et redémarrage' },
-  evalKreisfahrt:               { de:'Kreisfahrt', en:'Circular ride', tr:'Dairesel sürüş', ar:'القيادة الدائرية', es:'Marcha circular', fr:'Trajet circulaire' }
+  evalSlalomSchritt:            { de:'Slalom mit Schrittgeschwindigkeit', en:'Slalom at walking pace', tr:'Yürüyüş hızında slalom', ar:'سلالوم بسرعة المشي', es:'Eslalon al paso', fr:'Slalom à allure de marche' , pt:'Slalom em ritmo de passeio' },
+  evalAusweichenOhne:           { de:'Ausweichen ohne Abbremsen', en:'Evasion without braking', tr:'Frenlemeden kavıs alma', ar:'التفادي دون فرملة', es:'Esquiva sin frenar', fr:'Évitement sans freinage' , pt:'Desvio sem frenagem' },
+  evalAusweichenNach:           { de:'Ausweichen nach Abbremsen', en:'Evasion after braking', tr:'Frenlemeden sonra kavıs alma', ar:'التفادي بعد الفرملة', es:'Esquiva después de frenar', fr:'Évitement après freinage' , pt:'Desvio após frenagem' },
+  evalSlalom:                   { de:'Slalom', en:'Slalom', tr:'Slalom', ar:'سلالوم', es:'Eslalon', fr:'Slalom' , pt:'Slalom' },
+  evalLangerSlalom:             { de:'Langer Slalom', en:'Long slalom', tr:'Uzun slalom', ar:'سلالوم طويل', es:'Eslalon largo', fr:'Slalom long' , pt:'Slalom longo' },
+  evalSchrittGeradeaus:         { de:'Fahren mit Schrittgeschwindigkeit geradeaus', en:'Straight riding at walking pace', tr:'Yürüyüş hızında düz sürüş', ar:'القيادة مستقيمًا بسرعة المشي', es:'Conducción recta al paso', fr:'Conduite droite à allure de marche' , pt:'Condução reta em ritmo de passeio' },
+  evalStopAndGo:                { de:'Stop and Go', en:'Stop and Go', tr:'Dur-Kalk', ar:'توقف وانطلاق', es:'Parar y arrancar', fr:'Arrêt et redémarrage' , pt:'Para e Anda' },
+  evalKreisfahrt:               { de:'Kreisfahrt', en:'Circular ride', tr:'Dairesel sürüş', ar:'القيادة الدائرية', es:'Marcha circular', fr:'Trajet circulaire' , pt:'Percurso circular' }
 };
 
 // ── Day names by language ──
@@ -584,7 +586,8 @@ var DAY_NAMES_I18N = {
   tr: ['Pt', 'Sa', 'Ça', 'Pe', 'Cu', 'Ct'],
   ar: ['اثن', 'ثلا', 'أرب', 'خمي', 'جمع', 'سبت'],
   es: ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá'],
-  fr: ['Lu', 'Ma', 'Me', 'Je', 'Ve', 'Sa']
+  fr: ['Lu', 'Ma', 'Me', 'Je', 'Ve', 'Sa'],
+  pt: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 };
 
 var DAY_NAMES_LONG_I18N = {
@@ -593,7 +596,8 @@ var DAY_NAMES_LONG_I18N = {
   tr: ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'],
   ar: ['الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'],
   es: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
-  fr: ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi']
+  fr: ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'],
+  pt: ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado']
 };
 
 var MONTH_NAMES_I18N = {
@@ -602,7 +606,8 @@ var MONTH_NAMES_I18N = {
   tr: ['Oca.', 'Şub.', 'Mar.', 'Nis.', 'May.', 'Haz.', 'Tem.', 'Ağu.', 'Eyl.', 'Eki.', 'Kas.', 'Ara.'],
   ar: ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'],
   es: ['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sep.', 'Oct.', 'Nov.', 'Dic.'],
-  fr: ['Janv.', 'Févr.', 'Mars', 'Avr.', 'Mai', 'Juin', 'Juil.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.']
+  fr: ['Janv.', 'Févr.', 'Mars', 'Avr.', 'Mai', 'Juin', 'Juil.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.'],
+  pt: ['Jan.', 'Fev.', 'Mar.', 'Abr.', 'Mai.', 'Jun.', 'Jul.', 'Ago.', 'Set.', 'Out.', 'Nov.', 'Dez.']
 };
 
 // ── Lesson type key map (German internal → i18n key) ──
@@ -672,11 +677,36 @@ var STATUS_KEY_MAP = {
 };
 
 // ── Core translation functions ──
+// Fallback-Kette pro Sprache (falls Key in Zielsprache fehlt):
+//   pt → es → en → de
+//   ar/tr/fr/es → en → de
+//   en → de
+var LANG_FALLBACK = {
+  pt: ['es', 'en', 'de'],
+  es: ['en', 'de'],
+  fr: ['en', 'de'],
+  tr: ['en', 'de'],
+  ar: ['en', 'de'],
+  en: ['de'],
+  de: []
+};
+
+function _resolveTr(entry, lang) {
+  if (!entry) return null;
+  if (entry[lang] != null) return entry[lang];
+  var chain = LANG_FALLBACK[lang] || ['en', 'de'];
+  for (var i = 0; i < chain.length; i++) {
+    if (entry[chain[i]] != null) return entry[chain[i]];
+  }
+  return null;
+}
+
 function t(key, params) {
   var lang = (typeof AppState !== 'undefined' && AppState.language) || 'de';
   var entry = TRANSLATIONS[key];
   if (!entry) return key;
-  var str = entry[lang] || entry['de'] || key;
+  var str = _resolveTr(entry, lang);
+  if (str == null) str = key;
   if (params) {
     Object.keys(params).forEach(function(k) {
       str = str.replace('{' + k + '}', params[k]);

@@ -10170,7 +10170,19 @@ var App = {
     var pdfT = function(key) {
       var entry = (window.TRANSLATIONS || {})[key];
       if (!entry) return key;
-      return entry[lang] || entry.en || entry.de || key;
+      // Nutzt _resolveTr aus i18n.js (Kette: pt->es->en->de, ar/tr/fr/es->en->de)
+      if (typeof _resolveTr === 'function') {
+        var v = _resolveTr(entry, lang);
+        return (v != null) ? v : key;
+      }
+      // Fallback falls i18n.js noch nicht geladen: manuelle Kette
+      var chain = (lang === 'pt') ? ['pt','es','en','de']
+                : (lang === 'de') ? ['de']
+                : [lang, 'en', 'de'];
+      for (var i = 0; i < chain.length; i++) {
+        if (entry[chain[i]] != null) return entry[chain[i]];
+      }
+      return key;
     };
     self.showToast(t('berichtWirdErstellt') || 'Bericht wird erstellt...');
     var lesson;
@@ -11714,6 +11726,25 @@ var App = {
           }
           AppState.mapCurrentPos.setPosition({ lat: smoothLat, lng: smoothLng });
           AppState.map.panTo({ lat: smoothLat, lng: smoothLng });
+          // Bottom-Sheet verdeckt den unteren Kartenbereich — den Standort-Punkt
+          // in den sichtbaren Bereich schieben, indem wir das Zentrum vertikal
+          // um die halbe Sheet-Höhe nach unten pannen (Karte + Marker wandern
+          // dadurch nach oben). Bei zusammengeklappter Sheet wird der Offset
+          // automatisch kleiner.
+          try {
+            var panel = document.getElementById('lesson-map-panel');
+            if (panel) {
+              var pr = panel.getBoundingClientRect();
+              var mapEl = document.getElementById('lesson-map');
+              var mr = mapEl ? mapEl.getBoundingClientRect() : null;
+              // Wie viel vom Kartenbereich verdeckt die Sheet (Overlap in Pixel)?
+              var overlap = mr ? Math.max(0, mr.bottom - pr.top) : pr.height;
+              // Halbe Ueberlappung als Offset — Punkt sitzt dann mittig im
+              // sichtbaren Kartenausschnitt oberhalb der Sheet-Kante.
+              var offsetY = Math.round(overlap / 2);
+              if (offsetY > 0) AppState.map.panBy(0, offsetY);
+            }
+          } catch (_e) { /* panBy nicht kritisch */ }
           // Rotate map to driving direction
           var heading = pos.coords.heading;
           var spd = pos.coords.speed;
