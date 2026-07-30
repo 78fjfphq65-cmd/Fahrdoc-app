@@ -9690,16 +9690,21 @@ var App = {
   },
 
   // Rendert Baustein-Chips für ein Bewertungs-Item ins Notiz-Editor-Textarea.
-  // Fokussiert die Textarea nach Einfügen und triggert kein Save (User bestätigt manuell).
+  // Wichtig für Mobile: Chip-Klick soll die Tastatur NICHT öffnen. Nur wenn
+  // die Textarea vorher schon fokussiert war (User hat gerade getippt),
+  // wird der Fokus + Cursor-Ende wiederhergestellt. Ansonsten bleibt der
+  // Fokus auf dem Chip und die Bildschirm-Tastatur bleibt zu.
   insertBausteinIntoTextarea: function(textareaId, text) {
     var ta = document.getElementById(textareaId);
     if (!ta) return;
     var prev = (ta.value || '').trim();
     var addition = String(text || '').trim();
     if (!addition) return;
+    var hadFocus = (document.activeElement === ta);
     ta.value = prev ? (prev + '; ' + addition) : addition;
-    ta.focus();
-    try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
+    if (hadFocus) {
+      try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
+    }
   },
 
   // Baustein-Chips-HTML für ein konkretes Bewertungs-Item.
@@ -9711,7 +9716,7 @@ var App = {
     var chips = list.map(function(b) {
       var safeB = String(b).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
       var safeLabel = _escapeAttr(b);
-      return '<button type="button" class="baustein-chip" onclick="App.insertBausteinIntoTextarea(\'' + textareaId + '\', \'' + safeB + '\')">' + safeLabel + '</button>';
+      return '<button type="button" class="baustein-chip" onmousedown="event.preventDefault();" onclick="App.insertBausteinIntoTextarea(\'' + textareaId + '\', \'' + safeB + '\')">' + safeLabel + '</button>';
     }).join('');
     return '<div class="baustein-chips" role="toolbar" aria-label="Textbausteine">' +
       '<div class="baustein-chips-label">Textbausteine</div>' +
@@ -11987,7 +11992,7 @@ var App = {
           var chips = markerCats[cat].map(function(b) {
             var safeB = String(b).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
             var safeLabel = _escapeAttr(b);
-            return '<button type="button" class="baustein-chip" onclick="App.insertBausteinIntoTextarea(\'marker-edit-note-input\', \'' + safeB + '\')">' + safeLabel + '</button>';
+            return '<button type="button" class="baustein-chip" onmousedown="event.preventDefault();" onclick="App.insertBausteinIntoTextarea(\'marker-edit-note-input\', \'' + safeB + '\')">' + safeLabel + '</button>';
           }).join('');
           var hidden = idx === 0 ? '' : ' hidden';
           return '<div class="baustein-chips-row baustein-panel' + hidden + '" data-cat="' + _escapeAttr(cat) + '">' + chips + '</div>';
@@ -12092,7 +12097,7 @@ var App = {
         var chips = markerCats[cat].map(function(b) {
           var safeB = String(b).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
           var safeLabel = _escapeAttr(b);
-          return '<button type="button" class="baustein-chip" onclick="App.insertBausteinIntoTextarea(\'marker-note-input\', \'' + safeB + '\')">' + safeLabel + '</button>';
+          return '<button type="button" class="baustein-chip" onmousedown="event.preventDefault();" onclick="App.insertBausteinIntoTextarea(\'marker-note-input\', \'' + safeB + '\')">' + safeLabel + '</button>';
         }).join('');
         var hidden = idx === 0 ? '' : ' hidden';
         return '<div class="baustein-chips-row baustein-panel' + hidden + '" data-cat="' + _escapeAttr(cat) + '">' + chips + '</div>';
