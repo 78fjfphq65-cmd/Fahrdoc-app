@@ -4953,3 +4953,241 @@ html[dir="rtl"] .notif-panel {
   border-color: var(--color-primary);
   border-style: solid;
 }
+
+/* ============================================================
+   Ausbildungsdiagrammkarten (Klasse B) — Karten-Modus
+   ============================================================ */
+
+.training-view {
+  padding: var(--space-3);
+  max-width: 720px;
+  margin: 0 auto;
+  padding-bottom: 32px;
+}
+.training-view-header {
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.training-view-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 20px;
+  margin: 0 0 4px;
+  color: var(--color-text);
+}
+.training-view-subtitle {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+/* Stage collapsible */
+.training-stage {
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #e5e2d9);
+  border-radius: var(--radius-lg, 14px);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.training-stage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  font-family: inherit;
+}
+.training-stage-header:active { background: var(--color-surface-offset, #f2f0ea); }
+.training-stage-header-text { flex: 1; min-width: 0; }
+.training-stage-title {
+  font-weight: 600;
+  font-size: 15px;
+  margin: 0 0 2px;
+  color: var(--color-text);
+}
+.training-stage-subtitle {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 0;
+  line-height: 1.35;
+}
+.training-stage-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.training-stage-progress-chip {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-primary, #01696F);
+  background: rgba(1, 105, 111, 0.08);
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.training-stage-caret {
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-muted);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+.training-stage.is-open .training-stage-caret { transform: rotate(90deg); }
+.training-stage-body {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--color-border, #e5e2d9);
+  display: none;
+}
+.training-stage.is-open .training-stage-body { display: block; }
+
+/* Group inside a stage */
+.training-group { margin-top: 14px; }
+.training-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin: 0 0 8px;
+}
+
+/* Item — check or rating */
+.training-item {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border-subtle, #efece5);
+}
+.training-item:last-child { border-bottom: 0; }
+.training-item-lit { /* geübt in dieser Stunde */
+  background: rgba(1, 105, 111, 0.04);
+  margin: 0 -8px;
+  padding-left: 8px;
+  padding-right: 8px;
+  border-radius: 8px;
+}
+.training-item-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--color-text);
+  line-height: 1.35;
+  user-select: none;
+}
+.training-item-label input[type=checkbox] {
+  margin: 2px 0 0;
+  width: 20px; height: 20px;
+  accent-color: var(--color-primary, #01696F);
+  flex-shrink: 0;
+}
+.training-item-label-text { flex: 1; min-width: 0; }
+.training-item-lit-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-primary, #01696F);
+  background: rgba(1, 105, 111, 0.10);
+  padding: 2px 6px;
+  border-radius: 999px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* Rating scale */
+.training-rating {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0 4px;
+}
+.training-rating-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.training-rating-title {
+  font-size: 14px;
+  color: var(--color-text);
+  line-height: 1.3;
+  flex: 1;
+  min-width: 0;
+}
+.training-rating-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.training-rating-scale {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  align-items: stretch;
+  padding: 4px 0 0;
+}
+.training-rating-cell {
+  height: 34px;
+  border-radius: 8px;
+  border: 1.5px solid var(--color-border, #e5e2d9);
+  background: var(--color-surface, #fff);
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  transition: transform 0.1s ease, box-shadow 0.15s ease;
+}
+.training-rating-cell:active { transform: scale(0.94); }
+.training-rating-cell.is-filled { color: #fff; border-color: transparent; }
+.training-rating-cell.is-current {
+  box-shadow: 0 0 0 2px rgba(1, 105, 111, 0.28);
+}
+/* Farbverlauf 1→5 : rot → orange → gelb → hellgrün → grün */
+.training-rating-cell.is-filled[data-val="1"] { background: #C74B3B; }
+.training-rating-cell.is-filled[data-val="2"] { background: #E48250; }
+.training-rating-cell.is-filled[data-val="3"] { background: #D8AB33; }
+.training-rating-cell.is-filled[data-val="4"] { background: #6BA36A; }
+.training-rating-cell.is-filled[data-val="5"] { background: #2E7D3B; }
+
+/* Bottom action row (Beenden-Button) — reuse examiner-panel bar for simplicity */
+.training-view-actions {
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(to top, var(--color-bg,#f7f6f2) 70%, transparent);
+  padding: 12px 16px 16px;
+  margin: 0 -12px -32px;
+  display: flex;
+  gap: 8px;
+}
+.training-view-actions .btn { flex: 1; }
+
+/* Kleine Notiz-Textarea unterhalb einer Rating-Karte (fürs Beenden) */
+.training-item-note {
+  margin-top: 8px;
+  display: none;
+}
+.training-item.is-lit .training-item-note,
+.training-item-lit .training-item-note { display: block; }
+.training-item-note textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #e5e2d9);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  background: var(--color-surface, #fff);
+  color: var(--color-text);
+}

@@ -6231,6 +6231,95 @@ app.put('/api/school/bulk/student-price-category', authMiddleware, async (req, r
 });
 
 // ============================================
+// Ausbildungsdiagrammkarten — Trainingsstand & Marks
+// ============================================
+
+// Hilfsfunktion: prüft dass der Instructor Zugriff auf den Schüler hat
+async function _canInstructorAccessStudent(user, studentId) {
+  if (!studentId) return false;
+  if (user.role !== 'instructor') return false;
+  if (user.account_type === 'solo') {
+    const { data } = await supabase.from('students')
+      .select('id')
+      .eq('id', studentId)
+      .eq('owner_instructor_id', user.id)
+      .maybeSingle();
+    return !!data;
+  } else {
+    // Plus: Schüler muss zur gleichen Fahrschule gehören
+    const { data } = await supabase.from('students')
+      .select('id')
+      .eq('id', studentId)
+      .eq('school_id', user.school_id)
+      .maybeSingle();
+    return !!data;
+  }
+}
+
+// GET /api/training-state/:studentId — kumulativer Ausbildungsstand
+app.get('/api/training-state/:studentId', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur für Fahrlehrer' });
+    const studentId = req.params.studentId;
+    const canAccess = await _canInstructorAccessStudent(req.user, studentId);
+    if (!canAccess) return res.status(404).json({ error: 'Schüler nicht gefunden' });
+    const { data, error } = await supabase.from('student_training_state')
+      .select('topic_id, topic_type, value, last_lesson_id, updated_at')
+      .eq('student_id', studentId)
+      .eq('catalog_class', 'B');
+    if (error) throw error;
+    res.json({ items: data || [] });
+  } catch (err) {
+    console.error('[training-state GET]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/training-state/mark — Ausbildungsstand + Lesson-Mark upserten
+// Body: { student_id, topic_id, topic_type: 'check'|'rating', value: 0..5, lesson_id? , note? }
+app.post('/api/training-state/mark', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur für Fahrlehrer' });
+    const { student_id, topic_id, topic_type, value, lesson_id, note } = req.body || {};
+    if (!student_id || !topic_id) return res.status(400).json({ error: 'student_id und topic_id erforderlich' });
+    if (topic_type !== 'check' && topic_type !== 'rating') return res.status(400).json({ error: 'topic_type muss check oder rating sein' });
+    const v = Math.max(0, Math.min(5, parseInt(value, 10) || 0));
+    const canAccess = await _canInstructorAccessStudent(req.user, student_id);
+    if (!canAccess) return res.status(404).json({ error: 'Schüler nicht gefunden' });
+
+    // 1) Persistenten Stand upserten
+    const { error: e1 } = await supabase.from('student_training_state').upsert({
+      student_id: student_id,
+      catalog_class: 'B',
+      topic_id: topic_id,
+      topic_type: topic_type,
+      value: v,
+      last_lesson_id: lesson_id || null,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'student_id,catalog_class,topic_id' });
+    if (e1) throw e1;
+
+    // 2) Mark für diese Lesson (falls lesson_id vorhanden — bei laufenden Stunden
+    //    ist die Lesson-Zeile evtl. noch nicht persistiert, dann überspringen)
+    if (lesson_id) {
+      const { error: e2 } = await supabase.from('lesson_training_marks').upsert({
+        lesson_id: lesson_id,
+        topic_id: topic_id,
+        topic_type: topic_type,
+        value: v,
+        note: note || null
+      }, { onConflict: 'lesson_id,topic_id' });
+      if (e2) throw e2;
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[training-state POST]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
 // FALLBACK: Landing Page (/) + App-SPA (/app/*)
 // ============================================
 // /app ohne Slash -> auf /app/ umleiten (wichtig fuer <base href="/app/">)

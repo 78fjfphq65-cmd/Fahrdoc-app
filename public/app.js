@@ -9335,6 +9335,44 @@ var App = {
     }
   },
 
+  // ── Modus-Auswahl: 'cards' (Ausbildungsdiagramm) vs 'examiner' (TÜV-Modus) ──
+  // Zeigt einen Dialog und ruft cb(mode) auf. Nur für Klasse B — andere Klassen
+  // ohne Karten-Katalog laufen direkt im examiner-Modus.
+  _pickDocModeThen: function(licenseClass, cb) {
+    if (licenseClass !== 'B') { cb('examiner'); return; }
+    var self = this;
+    var html =
+      '<p class="text-muted mb-3" style="font-size:14px;">' + t('docModeChoiceSubtitle') + '</p>' +
+      '<div class="role-cards">' +
+        '<button type="button" class="role-card role-card-solo" onclick="App._onDocModeChosen(\'cards\')">' +
+          '<span class="role-card-icon role-card-icon-solo" aria-hidden="true">' +
+            '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 5a2 2 0 0 1 2-2h10l4 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5zm3 4h6v1.5H7V9zm0 3h10v1.5H7V12zm0 3h10v1.5H7V15z"/></svg>' +
+          '</span>' +
+          '<div class="role-card-body">' +
+            '<div class="role-card-title">' + t('docModeCardsTitle') + '</div>' +
+            '<div class="text-muted" style="font-size:13px;line-height:1.35;">' + t('docModeCardsHint') + '</div>' +
+          '</div>' +
+        '</button>' +
+        '<button type="button" class="role-card" onclick="App._onDocModeChosen(\'examiner\')">' +
+          '<span class="role-card-icon role-card-icon-school" aria-hidden="true">' +
+            '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 3 6v6c0 5 3.8 9.5 9 10 5.2-.5 9-5 9-10V6l-9-4zm-1 14-4-4 1.4-1.4L11 13.2l5.6-5.6L18 9l-7 7z"/></svg>' +
+          '</span>' +
+          '<div class="role-card-body">' +
+            '<div class="role-card-title">' + t('docModeExaminerTitle') + '</div>' +
+            '<div class="text-muted" style="font-size:13px;line-height:1.35;">' + t('docModeExaminerHint') + '</div>' +
+          '</div>' +
+        '</button>' +
+      '</div>';
+    self._pendingDocModeCb = cb;
+    self.openModal(t('docModeChoiceTitle'), html);
+  },
+  _onDocModeChosen: function(mode) {
+    var cb = this._pendingDocModeCb;
+    this._pendingDocModeCb = null;
+    this.closeModalForce();
+    if (typeof cb === 'function') cb(mode);
+  },
+
   startLesson: function(e) {
     e.preventDefault();
     var studentId = document.getElementById('lesson-student-select').value;
@@ -9347,7 +9385,14 @@ var App = {
     } else {
       studentName = document.getElementById('lesson-student-select').selectedOptions[0].textContent.split(' (')[0];
     }
-    AppState.activeLesson = { studentId: studentId, studentName: studentName, type: type, licenseClass: licenseClass, startTime: new Date() };
+    var self = this;
+    this._pickDocModeThen(licenseClass, function(docMode) {
+      self._startLessonAfterModePick(studentId, studentName, type, licenseClass, docMode);
+    });
+  },
+
+  _startLessonAfterModePick: function(studentId, studentName, type, licenseClass, docMode) {
+    AppState.activeLesson = { studentId: studentId, studentName: studentName, type: type, licenseClass: licenseClass, docMode: docMode || 'examiner', startTime: new Date() };
     AppState.lessonStartTime = Date.now();
     AppState.lessonPaused = false;
     AppState.pausedDuration = 0;
@@ -9372,11 +9417,16 @@ var App = {
     }
     var overlay = document.getElementById('lesson-paused-overlay');
     if (overlay) overlay.classList.remove('visible');
-    // Initialize route tracking
-    this.initRouteMap();
-    this.startGPS();
-    // Schnellmarkierungs-Bar auch dann rendern wenn Google Maps noch nicht geladen ist
-    this._mountQuickMarkerBar();
+    // Initialize route tracking (nur wenn Modus GPS nutzt — in cards-Modus übersprungen)
+    if (docMode !== 'cards') {
+      this._unmountTrainingCardsView();
+      this.initRouteMap();
+      this.startGPS();
+      // Schnellmarkierungs-Bar auch dann rendern wenn Google Maps noch nicht geladen ist
+      this._mountQuickMarkerBar();
+    } else {
+      this._mountTrainingCardsView();
+    }
   },
 
   toggleLessonPause: function() {
@@ -9412,34 +9462,45 @@ var App = {
       var students = await ApiClient.get('/api/instructor/school-students');
       var student = students.find(function(s) { return s.id === studentId; });
       if (!student) { this.showToast('Sch\u00fcler nicht gefunden'); return; }
-      AppState.activeLesson = { studentId: studentId, studentName: student.name, type: type, licenseClass: licenseClass || 'B', startTime: new Date() };
-      AppState.lessonStartTime = Date.now();
-      AppState.lessonPaused = false;
-      AppState.pausedDuration = 0;
-      AppState.pauseStartTime = null;
-      AppState.pendingImages = [];
-      this.navigate('lesson-active');
-      document.getElementById('active-lesson-title').textContent = t('fahrstunden') + ' \u00b7 ' + student.name;
-      document.getElementById('active-lesson-type-badge').textContent = type;
-      if (AppState.lessonTimer) clearInterval(AppState.lessonTimer);
-      AppState.lessonTimer = setInterval(function() {
-        if (AppState.lessonPaused) return;
-        var elapsed = Date.now() - AppState.lessonStartTime - AppState.pausedDuration;
-        var s = Math.floor(elapsed / 1000);
-        var h = Math.floor(s / 3600); var m = Math.floor((s % 3600) / 60); var sec = s % 60;
-        document.getElementById('lesson-timer').textContent = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
-      }, 1000);
-      // Reset pause button
-      var pauseBtn = document.getElementById('lesson-pause-btn');
-      if (pauseBtn) pauseBtn.innerHTML = '\u23f8 ' + t('pause');
-      var overlay = document.getElementById('lesson-paused-overlay');
-      if (overlay) overlay.classList.remove('visible');
-      // Initialize route tracking
+      var self = this;
+      var lc = licenseClass || 'B';
+      this._pickDocModeThen(lc, function(docMode) {
+        self._startLessonFromSlotAfterModePick(student, type, lc, docMode);
+      });
+    } catch(e) { this.showToast(t('fehler') + ': ' + e.message); }
+  },
+  _startLessonFromSlotAfterModePick: function(student, type, licenseClass, docMode) {
+    AppState.activeLesson = { studentId: student.id, studentName: student.name, type: type, licenseClass: licenseClass, docMode: docMode || 'examiner', startTime: new Date() };
+    AppState.lessonStartTime = Date.now();
+    AppState.lessonPaused = false;
+    AppState.pausedDuration = 0;
+    AppState.pauseStartTime = null;
+    AppState.pendingImages = [];
+    this.navigate('lesson-active');
+    document.getElementById('active-lesson-title').textContent = t('fahrstunden') + ' \u00b7 ' + student.name;
+    document.getElementById('active-lesson-type-badge').textContent = type;
+    if (AppState.lessonTimer) clearInterval(AppState.lessonTimer);
+    AppState.lessonTimer = setInterval(function() {
+      if (AppState.lessonPaused) return;
+      var elapsed = Date.now() - AppState.lessonStartTime - AppState.pausedDuration;
+      var s = Math.floor(elapsed / 1000);
+      var h = Math.floor(s / 3600); var m = Math.floor((s % 3600) / 60); var sec = s % 60;
+      document.getElementById('lesson-timer').textContent = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+    }, 1000);
+    // Reset pause button
+    var pauseBtn = document.getElementById('lesson-pause-btn');
+    if (pauseBtn) pauseBtn.innerHTML = '\u23f8 ' + t('pause');
+    var overlay = document.getElementById('lesson-paused-overlay');
+    if (overlay) overlay.classList.remove('visible');
+    // Initialize route tracking (nur wenn Modus GPS nutzt — in cards-Modus übersprungen)
+    if (docMode !== 'cards') {
+      this._unmountTrainingCardsView();
       this.initRouteMap();
       this.startGPS();
-      // Schnellmarkierungs-Bar unabhängig von Maps-Verfügbarkeit rendern
       this._mountQuickMarkerBar();
-    } catch(e) { this.showToast(t('fehler') + ': ' + e.message); }
+    } else {
+      this._mountTrainingCardsView();
+    }
   },
 
   stopLesson: function() {
@@ -9449,10 +9510,277 @@ var App = {
       AppState.pausedDuration = 0;
       AppState.pauseStartTime = null;
       this.cleanupRouteTracking();
+      this._unmountTrainingCardsView();
       AppState.activeLesson = null; AppState.pendingImages = [];
+      this._trainingState = null;
+      this._trainingMarks = null;
       this.navigate('instructor-dashboard');
       this.showToast(t('fahrstundeAbgebrochenMsg'));
     }
+  },
+
+  // ──────────────────────────────────────────────────────
+  // Ausbildungsdiagrammkarten — Renderer und Event-Handler
+  // ──────────────────────────────────────────────────────
+
+  // Initialisiert die Karten-Ansicht für die aktuelle aktive Lesson.
+  // Lädt den persistenten Ausbildungsstand der Schülerin (falls vorhanden)
+  // und rendert den View. Aufgerufen aus _startLessonAfterModePick /
+  // _startLessonFromSlotAfterModePick wenn docMode === 'cards'.
+  _mountTrainingCardsView: async function() {
+    var mapEl = document.getElementById('lesson-map');
+    var cardsEl = document.getElementById('lesson-cards-container');
+    var mapPanel = document.getElementById('lesson-map-panel');
+    var gpsStatus = document.getElementById('gps-status');
+    if (mapEl) mapEl.style.display = 'none';
+    if (gpsStatus) gpsStatus.style.display = 'none';
+    // Bottom-Panel schmaler machen: nur Timer + Beenden — keine Marker/Karten/Stats
+    if (mapPanel) mapPanel.classList.add('mode-cards');
+    // GPS/Marker/Distanz-Zellen ausblenden
+    var statsRow = mapPanel && mapPanel.querySelector('.lesson-stats-row');
+    if (statsRow) statsRow.style.display = 'none';
+    var actionsRow = mapPanel && mapPanel.querySelector('.lesson-actions-row');
+    if (actionsRow) {
+      var markerBtn = actionsRow.querySelector('.lesson-action-marker');
+      if (markerBtn) markerBtn.style.display = 'none';
+    }
+    var quickBar = document.getElementById('quick-marker-bar-container');
+    if (quickBar) quickBar.style.display = 'none';
+    if (cardsEl) cardsEl.style.display = 'block';
+
+    // State laden
+    var studentId = AppState.activeLesson && AppState.activeLesson.studentId;
+    this._trainingMarks = {}; // { topicId: { value, note } } — was in DIESER Stunde geändert wurde
+    this._trainingState = {}; // { topicId: value } — persistenter Stand der Schülerin
+    if (studentId) {
+      try {
+        var resp = await ApiClient.get('/api/training-state/' + encodeURIComponent(studentId));
+        if (resp && resp.items) {
+          var self = this;
+          resp.items.forEach(function(row) { self._trainingState[row.topic_id] = row.value; });
+        }
+      } catch (e) {
+        // Wenn 404 oder Netzwerk-Fehler: einfach leer starten. Kein Blocker.
+        console.warn('[training-cards] load state failed:', e && e.message);
+      }
+    }
+    this._renderTrainingCards();
+  },
+
+  // Bringt die App zurück in den examiner-Look, falls der User zurück aus
+  // einer cards-Lesson kommt (Aufräumen für die nächste Fahrstunde).
+  _unmountTrainingCardsView: function() {
+    var mapEl = document.getElementById('lesson-map');
+    var cardsEl = document.getElementById('lesson-cards-container');
+    var gpsStatus = document.getElementById('gps-status');
+    var mapPanel = document.getElementById('lesson-map-panel');
+    if (mapEl) mapEl.style.display = '';
+    if (gpsStatus) gpsStatus.style.display = '';
+    if (cardsEl) { cardsEl.style.display = 'none'; cardsEl.innerHTML = ''; }
+    if (mapPanel) mapPanel.classList.remove('mode-cards');
+    var statsRow = mapPanel && mapPanel.querySelector('.lesson-stats-row');
+    if (statsRow) statsRow.style.display = '';
+    var actionsRow = mapPanel && mapPanel.querySelector('.lesson-actions-row');
+    if (actionsRow) {
+      var markerBtn = actionsRow.querySelector('.lesson-action-marker');
+      if (markerBtn) markerBtn.style.display = '';
+    }
+    var quickBar = document.getElementById('quick-marker-bar-container');
+    if (quickBar) quickBar.style.display = '';
+    this._trainingState = null;
+    this._trainingMarks = null;
+  },
+
+  _renderTrainingCards: function() {
+    var cardsEl = document.getElementById('lesson-cards-container');
+    if (!cardsEl || typeof TRAINING_CATALOG_B === 'undefined') return;
+    var lang = (AppState.language || 'de');
+    var state = this._trainingState || {};
+    var marks = this._trainingMarks || {};
+    var html = '<div class="training-view">';
+    html += '<div class="training-view-header">';
+    html += '<h2 class="training-view-title">' + this._escapeHtml(t('trainingDiagram')) + '</h2>';
+    html += '<p class="training-view-subtitle">' + this._escapeHtml(t('trainingRatingHint')) + '</p>';
+    html += '</div>';
+
+    var self = this;
+    TRAINING_CATALOG_B.forEach(function(stage) {
+      var stageMeta = self._trainingStageProgress(stage, state);
+      var isFirst = stage.id === 'grundstufe';
+      html += '<div class="training-stage' + (isFirst ? ' is-open' : '') + '" data-stage="' + stage.id + '">';
+      html += '<button type="button" class="training-stage-header" onclick="App._toggleTrainingStage(\'' + stage.id + '\')">';
+      html += '<div class="training-stage-header-text">';
+      html += '<h3 class="training-stage-title">' + self._escapeHtml(tCatalog(TRAINING_STAGE_NAMES[stage.id], lang)) + '</h3>';
+      var subtitle = TRAINING_STAGE_SUBTITLES && TRAINING_STAGE_SUBTITLES[stage.id];
+      if (subtitle) html += '<p class="training-stage-subtitle">' + self._escapeHtml(tCatalog(subtitle, lang)) + '</p>';
+      html += '</div>';
+      html += '<div class="training-stage-meta">';
+      html += '<span class="training-stage-progress-chip">' + self._escapeHtml(stageMeta.chip) + '</span>';
+      html += '<svg class="training-stage-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>';
+      html += '</div>';
+      html += '</button>';
+      html += '<div class="training-stage-body">';
+
+      stage.groups.forEach(function(group) {
+        html += '<div class="training-group">';
+        if (group.name) html += '<h4 class="training-group-title">' + self._escapeHtml(tCatalog(group.name, lang)) + '</h4>';
+        group.items.forEach(function(item) {
+          html += self._renderTrainingItem(item, state, marks, lang);
+        });
+        html += '</div>';
+      });
+
+      html += '</div></div>';
+    });
+    html += '</div>';
+    cardsEl.innerHTML = html;
+  },
+
+  _renderTrainingItem: function(item, state, marks, lang) {
+    var current = state[item.id];
+    var isLit = !!marks[item.id];
+    var litClass = isLit ? ' training-item-lit' : '';
+    var labelText = this._escapeHtml(tCatalog(item.name, lang));
+    if (item.type === 'check') {
+      var checked = current ? ' checked' : '';
+      return (
+        '<div class="training-item' + litClass + '" data-item="' + item.id + '">' +
+          '<label class="training-item-label">' +
+            '<input type="checkbox"' + checked + ' onchange="App._onTrainingCheck(\'' + item.id + '\', this.checked)">' +
+            '<span class="training-item-label-text">' + labelText +
+              (isLit ? ' <span class="training-item-lit-badge">' + this._escapeHtml(t('trainingDoneInLesson')) + '</span>' : '') +
+            '</span>' +
+          '</label>' +
+        '</div>'
+      );
+    }
+    // rating
+    var val = current || 0;
+    var cells = '';
+    for (var i = 1; i <= 5; i++) {
+      var filled = (val >= i) ? ' is-filled' : '';
+      var currentCell = (val === i) ? ' is-current' : '';
+      cells += '<button type="button" class="training-rating-cell' + filled + currentCell + '" data-val="' + i + '" onclick="App._onTrainingRating(\'' + item.id + '\', ' + i + ')">' + i + '</button>';
+    }
+    var valueLabel = val > 0
+      ? val + '/5 \u00b7 ' + this._escapeHtml(tCatalog(TRAINING_RATING_LABELS[val], lang))
+      : this._escapeHtml(tCatalog(TRAINING_RATING_LABELS[0], lang));
+    return (
+      '<div class="training-item' + litClass + '" data-item="' + item.id + '">' +
+        '<div class="training-rating">' +
+          '<div class="training-rating-top">' +
+            '<span class="training-rating-title">' + labelText +
+              (isLit ? ' <span class="training-item-lit-badge">' + this._escapeHtml(t('trainingDoneInLesson')) + '</span>' : '') +
+            '</span>' +
+            '<span class="training-rating-value">' + valueLabel + '</span>' +
+          '</div>' +
+          '<div class="training-rating-scale">' + cells + '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  },
+
+  _trainingStageProgress: function(stage, state) {
+    var total = 0, done = 0;
+    var stageType = null;
+    stage.groups.forEach(function(group) {
+      group.items.forEach(function(item) {
+        total++;
+        if (!stageType) stageType = item.type;
+        if (item.type === 'check' && state[item.id]) done++;
+        else if (item.type === 'rating' && state[item.id] > 0) done++;
+      });
+    });
+    var key = stageType === 'check' ? 'trainingCheckedOfN' : 'trainingOfN';
+    return { total: total, done: done, chip: t(key, { done: done, total: total }) };
+  },
+
+  _toggleTrainingStage: function(stageId) {
+    var el = document.querySelector('.training-stage[data-stage="' + stageId + '"]');
+    if (el) el.classList.toggle('is-open');
+  },
+
+  _onTrainingCheck: function(itemId, checked) {
+    if (!this._trainingState) this._trainingState = {};
+    if (!this._trainingMarks) this._trainingMarks = {};
+    var newValue = checked ? 1 : 0;
+    this._trainingState[itemId] = newValue;
+    this._trainingMarks[itemId] = { value: newValue, type: 'check' };
+    this._persistTrainingMark(itemId, 'check', newValue);
+    // Nur den Chip des Stages neu ausrechnen und die geuebt-Badge sichtbar machen —
+    // wir rendern die ganze Stage neu (kleiner Aufwand, sicherer als DOM-Fummeln).
+    var stageId = this._stageIdForItem(itemId);
+    if (stageId) this._rerenderTrainingStage(stageId);
+  },
+
+  _onTrainingRating: function(itemId, value) {
+    if (!this._trainingState) this._trainingState = {};
+    if (!this._trainingMarks) this._trainingMarks = {};
+    // Zweiter Tap auf gleicher Zelle setzt zurück auf 0
+    if (this._trainingState[itemId] === value) value = 0;
+    this._trainingState[itemId] = value;
+    this._trainingMarks[itemId] = { value: value, type: 'rating' };
+    this._persistTrainingMark(itemId, 'rating', value);
+    var stageId = this._stageIdForItem(itemId);
+    if (stageId) this._rerenderTrainingStage(stageId);
+  },
+
+  _stageIdForItem: function(itemId) {
+    if (typeof TRAINING_CATALOG_B === 'undefined') return null;
+    for (var i = 0; i < TRAINING_CATALOG_B.length; i++) {
+      var stage = TRAINING_CATALOG_B[i];
+      for (var g = 0; g < stage.groups.length; g++) {
+        var group = stage.groups[g];
+        for (var it = 0; it < group.items.length; it++) {
+          if (group.items[it].id === itemId) return stage.id;
+        }
+      }
+    }
+    return null;
+  },
+
+  _rerenderTrainingStage: function(stageId) {
+    // Merken welche Stages geöffnet sind, dann komplett neu rendern
+    var openSet = {};
+    document.querySelectorAll('.training-stage.is-open').forEach(function(el) {
+      openSet[el.getAttribute('data-stage')] = true;
+    });
+    openSet[stageId] = true; // aktueller Stage bleibt sicher offen
+    this._renderTrainingCards();
+    Object.keys(openSet).forEach(function(id) {
+      var el = document.querySelector('.training-stage[data-stage="' + id + '"]');
+      if (el) el.classList.add('is-open');
+    });
+    // Und Stages, die durch das Re-Render mit is-open (default grundstufe) markiert
+    // sind aber nicht in openSet stehen, wieder schließen:
+    document.querySelectorAll('.training-stage.is-open').forEach(function(el) {
+      var id = el.getAttribute('data-stage');
+      if (!openSet[id]) el.classList.remove('is-open');
+    });
+  },
+
+  _persistTrainingMark: function(itemId, itemType, value) {
+    // Debounce-freies Fire-and-forget: POST nach jedem Tap. Server merged.
+    var studentId = AppState.activeLesson && AppState.activeLesson.studentId;
+    if (!studentId) return; // Probefahrt — kein persistenter State
+    var lessonId = AppState.activeLesson && AppState.activeLesson.id;
+    var body = {
+      student_id: studentId,
+      topic_id: itemId,
+      topic_type: itemType,
+      value: value
+    };
+    if (lessonId) body.lesson_id = lessonId;
+    ApiClient.post('/api/training-state/mark', body).catch(function(e) {
+      console.warn('[training-cards] mark persist failed:', e && e.message);
+    });
+  },
+
+  _escapeHtml: function(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, function(c) {
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
   },
 
   finishLesson: function() {
@@ -9464,18 +9792,24 @@ var App = {
     }
     AppState.lessonPaused = false;
     this.stopGPS();
+    this._unmountTrainingCardsView();
     var elapsed = Date.now() - AppState.lessonStartTime - (AppState.pausedDuration || 0);
     var durationMin = Math.max(1, Math.round(elapsed / 60000));
     AppState.activeLesson.duration = durationMin;
-    // Store route data in activeLesson
-    AppState.activeLesson.routeData = AppState.routePoints.slice();
-    AppState.activeLesson.markers = AppState.routeMarkers.slice();
-    AppState.activeLesson.distanceKm = AppState.totalDistance / 1000;
-    // Calculate average speed
+    // Route/Marker/Distance-Daten übernehmen (in cards-Modus alles leer/0)
+    AppState.activeLesson.routeData = (AppState.routePoints || []).slice();
+    AppState.activeLesson.markers = (AppState.routeMarkers || []).slice();
+    AppState.activeLesson.distanceKm = (AppState.totalDistance || 0) / 1000;
     if (durationMin > 0 && AppState.totalDistance > 0) {
       AppState.activeLesson.avgSpeedKmh = (AppState.totalDistance / 1000) / (durationMin / 60);
     } else {
       AppState.activeLesson.avgSpeedKmh = 0;
+    }
+    // Bei docMode='cards' die live gesammelten Karten-Marks mitschicken —
+    // die werden im lesson-summary-Bildschirm anders gerendert.
+    if (AppState.activeLesson.docMode === 'cards') {
+      AppState.activeLesson.trainingMarks = this._trainingMarks || {};
+      AppState.activeLesson.trainingState = this._trainingState || {};
     }
     AppState.summaryRatings = {};
     AppState.summaryRatingNotes = {};

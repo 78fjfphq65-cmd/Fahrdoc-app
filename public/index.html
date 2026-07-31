@@ -438,7 +438,9 @@
       </div>
     </div>
     <div class="main-content" style="display:flex;flex-direction:column;height:calc(100vh - 56px);padding:0;position:relative;">
-      <!-- Map container -->
+      <!-- Modus 'cards': Ausbildungsdiagramm-Container (Sichtbarkeit per JS toggeln) -->
+      <div id="lesson-cards-container" style="display:none;flex:1;min-height:0;overflow-y:auto;background:var(--color-bg,#f7f6f2);"></div>
+      <!-- Modus 'examiner': Karte (Sichtbarkeit per JS toggeln) -->
       <div id="lesson-map" style="flex:1;min-height:0;"></div>
       <!-- GPS status indicator -->
       <div id="gps-status" class="gps-status">

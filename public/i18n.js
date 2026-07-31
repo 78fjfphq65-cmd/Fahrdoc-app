@@ -576,7 +576,27 @@ var TRANSLATIONS = {
   evalLangerSlalom:             { de:'Langer Slalom', en:'Long slalom', tr:'Uzun slalom', ar:'سلالوم طويل', es:'Eslalon largo', fr:'Slalom long' , pt:'Slalom longo' },
   evalSchrittGeradeaus:         { de:'Fahren mit Schrittgeschwindigkeit geradeaus', en:'Straight riding at walking pace', tr:'Yürüyüş hızında düz sürüş', ar:'القيادة مستقيمًا بسرعة المشي', es:'Conducción recta al paso', fr:'Conduite droite à allure de marche' , pt:'Condução reta em ritmo de passeio' },
   evalStopAndGo:                { de:'Stop and Go', en:'Stop and Go', tr:'Dur-Kalk', ar:'توقف وانطلاق', es:'Parar y arrancar', fr:'Arrêt et redémarrage' , pt:'Para e Anda' },
-  evalKreisfahrt:               { de:'Kreisfahrt', en:'Circular ride', tr:'Dairesel sürüş', ar:'القيادة الدائرية', es:'Marcha circular', fr:'Trajet circulaire' , pt:'Percurso circular' }
+  evalKreisfahrt:               { de:'Kreisfahrt', en:'Circular ride', tr:'Dairesel sürüş', ar:'القيادة الدائرية', es:'Marcha circular', fr:'Trajet circulaire' , pt:'Percurso circular' },
+
+  // ── Ausbildungsdiagrammkarten (Klasse B) — Modus-Auswahl ──
+  docModeChoiceTitle:      { de:'Wie dokumentieren?', en:'How to document?', tr:'Nasıl belgelenecek?', ar:'كيف تريد التوثيق؟', es:'¿Cómo documentar?', fr:'Comment documenter ?', pt:'Como documentar?' },
+  docModeChoiceSubtitle:   { de:'Diese Auswahl gilt nur für diese Fahrstunde.', en:'This choice applies only to this lesson.', tr:'Bu seçim yalnızca bu ders için geçerlidir.', ar:'هذا الاختيار يسري لهذه الحصة فقط.', es:'Esta selección aplica solo a esta clase.', fr:'Ce choix ne concerne que cette leçon.', pt:'Esta escolha vale apenas para esta aula.' },
+  docModeCardsTitle:       { de:'Ausbildungsdiagrammkarten', en:'Training diagram cards', tr:'Eğitim şeması kartları', ar:'بطاقات مخطط التدريب', es:'Tarjetas del diagrama de formación', fr:'Cartes de diagramme de formation', pt:'Cartões do diagrama de formação' },
+  docModeCardsHint:        { de:'Für Anfänger — nur Karten mit Fortschrittsreglern. Kein GPS, keine Markierungen.', en:'For beginners — only cards with progress sliders. No GPS, no markers.', tr:'Yeni başlayanlar için — yalnızca ilerleme kaydırıcılı kartlar. GPS yok, işaret yok.', ar:'للمبتدئين — بطاقات مع أشرطة تقدّم فقط. لا GPS، لا علامات.', es:'Para principiantes — solo tarjetas con controles de progreso. Sin GPS, sin marcadores.', fr:'Pour débutants — cartes avec curseurs de progression uniquement. Pas de GPS, pas de marqueurs.', pt:'Para iniciantes — apenas cartões com controles de progresso. Sem GPS, sem marcadores.' },
+  docModeExaminerTitle:    { de:'Wie ein TÜV-Prüfer', en:'Like a TÜV examiner', tr:'TÜV müfettişi gibi', ar:'مثل مفتش TÜV', es:'Como un examinador TÜV', fr:'Comme un examinateur TÜV', pt:'Como um examinador TÜV' },
+  docModeExaminerHint:     { de:'Für Fortgeschrittene — GPS-Route, Markierungen und 18 Bewertungspunkte.', en:'For advanced learners — GPS route, markers and 18 evaluation points.', tr:'İleri seviye için — GPS rotası, işaretler ve 18 değerlendirme noktası.', ar:'للمستوى المتقدم — مسار GPS وعلامات و18 نقطة تقييم.', es:'Para avanzados — ruta GPS, marcadores y 18 puntos de evaluación.', fr:'Pour avancés — itinéraire GPS, marqueurs et 18 points d\u2019évaluation.', pt:'Para avançados — rota GPS, marcadores e 18 pontos de avaliação.' },
+
+  // ── Ausbildungsdiagramm — View / Bericht ──
+  trainingDiagram:         { de:'Ausbildungsdiagramm', en:'Training diagram', tr:'Eğitim şeması', ar:'مخطط التدريب', es:'Diagrama de formación', fr:'Diagramme de formation', pt:'Diagrama de formação' },
+  trainingProgress:        { de:'Fortschritt', en:'Progress', tr:'İlerleme', ar:'التقدّم', es:'Progreso', fr:'Progression', pt:'Progresso' },
+  trainingOfN:             { de:'{done} von {total} bewertet', en:'{done} of {total} rated', tr:'{done}/{total} değerlendirildi', ar:'{done} من {total} تم تقييمها', es:'{done} de {total} evaluados', fr:'{done} sur {total} évalués', pt:'{done} de {total} avaliados' },
+  trainingCheckedOfN:      { de:'{done} von {total} geübt', en:'{done} of {total} practiced', tr:'{done}/{total} uygulandı', ar:'{done} من {total} تم التدرّب عليها', es:'{done} de {total} practicados', fr:'{done} sur {total} pratiqués', pt:'{done} de {total} praticados' },
+  trainingDoneInLesson:    { de:'in dieser Stunde geübt', en:'practiced in this lesson', tr:'bu derste uygulandı', ar:'تم التدرّب عليه في هذه الحصة', es:'practicado en esta clase', fr:'pratiqué dans cette leçon', pt:'praticado nesta aula' },
+  trainingNoteHint:        { de:'Notiz (optional)', en:'Note (optional)', tr:'Not (opsiyonel)', ar:'ملاحظة (اختياري)', es:'Nota (opcional)', fr:'Note (optionnel)', pt:'Nota (opcional)' },
+  trainingRatingHint:      { de:'Tippe auf die Skala, um den Stand zu setzen.', en:'Tap the scale to set the level.', tr:'Seviyeyi belirlemek için ölçeğe dokun.', ar:'انقر على الشريط لتحديد المستوى.', es:'Toca la escala para fijar el nivel.', fr:'Touchez l\u2019échelle pour définir le niveau.', pt:'Toque na escala para definir o nível.' },
+  trainingLastPracticed:   { de:'Zuletzt geübt', en:'Last practiced', tr:'Son uygulama', ar:'آخر تدريب', es:'Última práctica', fr:'Dernière pratique', pt:'Última prática' },
+  trainingSummaryTitle:    { de:'Ausbildungsstand', en:'Training status', tr:'Eğitim durumu', ar:'حالة التدريب', es:'Estado de formación', fr:'État de formation', pt:'Estado de formação' },
+  trainingReportTitle:     { de:'Ausbildungsdiagramm dieser Stunde', en:'Training diagram — this lesson', tr:'Bu dersin eğitim şeması', ar:'مخطط تدريب هذه الحصة', es:'Diagrama de formación de esta clase', fr:'Diagramme de formation — cette leçon', pt:'Diagrama de formação desta aula' }
 };
 
 // ── Day names by language ──
