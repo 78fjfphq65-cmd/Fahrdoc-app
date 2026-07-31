@@ -12439,33 +12439,38 @@ var App = {
     { key: 'verkehrsbeobachtung',
       label: 'Verkehrsbeobachtung',
       shortLabel: 'Beobachtung',
-      icon: '👁',
+      // Auge: Feather-Style, sauber und konsistent zu den anderen SVGs
+      icon: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>',
       color: '#3B82F6',  // Blau
       stroke: '#1D4ED8' },
     { key: 'fahrzeugpositionierung',
       label: 'Fahrzeugpositionierung',
       shortLabel: 'Position',
-      icon: '🏴',
+      // Fahrstreifen: Straße mit Mittellinie — klar erkennbar als 'Position/Spur'
+      icon: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3L2 21"/><path d="M20 3l2 18"/><path d="M12 3v3"/><path d="M12 10v3"/><path d="M12 17v3"/></svg>',
       color: '#8B5CF6',  // Violett
       stroke: '#6D28D9' },
     { key: 'geschwindigkeitsanpassung',
       label: 'Geschwindigkeitsanpassung',
-      shortLabel: 'Tempo',
-      icon: '⚡',
+      shortLabel: 'Geschwindigkeit',
+      // Tacho: Halbkreis mit Zeiger — klassisches Speedometer
+      icon: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17a9 9 0 0 1 18 0"/><path d="M12 17l4-5"/><circle cx="12" cy="17" r="1.2" fill="currentColor" stroke="none"/><path d="M3 17h2"/><path d="M19 17h2"/><path d="M12 8v1.5"/></svg>',
       // WCAG-tauglicher Orange-Ton (kontrast weiß >= 3:1 fuer Buttons mit großer Schrift)
       color: '#D97706',
       stroke: '#B45309' },
     { key: 'kommunikation',
       label: 'Kommunikation',
       shortLabel: 'Kommunikation',
-      icon: '🔈',
+      // Sprechblase: klar als 'reden/kommunizieren' erkennbar
+      icon: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
       // WCAG-tauglicher Grün-Ton
       color: '#059669',
       stroke: '#047857' },
     { key: 'fahrzeugbedienung',
       label: 'Fahrzeugbedienung/Umweltbewusste Fahrweise',
       shortLabel: 'Bedienung',
-      icon: '⚙️',
+      // Zahnrad: technisch, passend zu 'Bedienung'
+      icon: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
       color: '#EF4444',  // Rot
       stroke: '#B91C1C' }
   ],
@@ -12548,7 +12553,8 @@ var App = {
 
     this.updateRouteStats(null);
     // Kurzer Toast bestaetigt Kategorie ohne dass der Lehrer wegschauen muss
-    this.showToast(cat.icon + ' ' + cat.shortLabel + (pos.usedGps ? '' : ' (Kartenmitte)'));
+    // Nur Text im Toast (kein SVG-HTML, weil showToast textContent nutzt)
+    this.showToast('✓ ' + cat.shortLabel + (pos.usedGps ? '' : ' (Kartenmitte)'));
   },
 
   // Kurzer Puls-Effekt am gerade gedrueckten Button (visuelle Bestaetigung).
@@ -12635,7 +12641,7 @@ var App = {
       var headerHtml = '';
       if (cat) {
         headerHtml = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:var(--space-2);padding:8px 12px;border-radius:8px;background:' + cat.color + ';color:#fff;font-weight:600;">' +
-          '<span style="font-size:16px;">' + cat.icon + '</span>' +
+          '<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;color:#fff;">' + cat.icon + '</span>' +
           '<span>' + cat.label + ' • ' + marker.time + '</span>' +
           '</div>';
       } else {

@@ -2747,14 +2747,14 @@ html[dir="rtl"] .notif-panel {
 }
 [data-theme="dark"] .lesson-panel-handle { background: rgba(255,255,255,0.18); }
 
-/* Timer hero */
+/* Timer hero — kompakt, damit die Schnellmarkierungs-Buttons mehr Raum bekommen */
 .lesson-timer-hero {
   display: flex; flex-direction: column; align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 .lesson-timer-display {
   font-family: var(--font-display);
-  font-size: clamp(2rem, 7vw, 2.6rem);
+  font-size: clamp(1.5rem, 5.5vw, 1.9rem);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.05;
@@ -2767,8 +2767,8 @@ html[dir="rtl"] .notif-panel {
 }
 .lesson-timer-pulse {
   display: inline-flex; align-items: center; gap: 6px;
-  margin-top: 4px;
-  font-size: 11px; font-weight: 600;
+  margin-top: 2px;
+  font-size: 10px; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.08em;
   color: var(--color-success);
 }
@@ -2784,26 +2784,26 @@ html[dir="rtl"] .notif-panel {
   100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success) 0%, transparent); }
 }
 
-/* Stats row */
+/* Stats row — kompakt gehalten, damit die Schnellmarkierungs-Buttons unten prominent sind */
 .lesson-stats-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 6px;
+  margin-bottom: 10px;
 }
 .lesson-stat {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 10px 6px;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 6px 4px 5px;
   background: rgba(15, 23, 42, 0.04);
-  border-radius: 14px;
+  border-radius: 12px;
   text-align: center;
 }
 [data-theme="dark"] .lesson-stat { background: rgba(255,255,255,0.05); }
 .lesson-stat-icon {
-  width: 18px; height: 18px;
+  width: 15px; height: 15px;
   color: var(--color-text-muted);
   display: inline-flex; align-items: center; justify-content: center;
-  margin-bottom: 2px;
+  margin-bottom: 1px;
 }
 .lesson-stat-icon svg { width: 100%; height: 100%; display: block; }
 .lesson-stat-value {
@@ -4842,16 +4842,16 @@ html[dir="rtl"] .notif-panel {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 8px 4px;
-  border-radius: 12px;
+  gap: 6px;
+  padding: 12px 4px 10px;
+  border-radius: 14px;
   background: var(--qm-color, #3B82F6);
   color: #fff;
   font-family: inherit;
   font-weight: 600;
   font-size: 11px;
   line-height: 1.15;
-  min-height: 56px;
+  min-height: 82px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   transition: transform 120ms cubic-bezier(.2,.7,.2,1),
               box-shadow 200ms ease,
@@ -4877,9 +4877,20 @@ html[dir="rtl"] .notif-panel {
   font-size: 18px;
   line-height: 1;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+.quick-marker-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  color: #fff;
 }
 .quick-marker-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.01em;
   text-align: center;
@@ -4904,11 +4915,11 @@ html[dir="rtl"] .notif-panel {
   .quick-marker-btn { transition: none; }
 }
 
-/* Auf sehr schmalen Bildschirmen (< 360px) Label kleiner, Icon größer */
+/* Auf sehr schmalen Bildschirmen (< 360px) Label kleiner, Icon etwas kleiner */
 @media (max-width: 360px) {
-  .quick-marker-btn { padding: 6px 2px; min-height: 52px; }
-  .quick-marker-label { font-size: 9px; }
-  .quick-marker-icon { font-size: 16px; }
+  .quick-marker-btn { padding: 10px 2px 8px; min-height: 74px; gap: 5px; }
+  .quick-marker-label { font-size: 10px; }
+  .quick-marker-icon { width: 24px; height: 24px; }
   .quick-marker-bar { gap: 4px; }
   #quick-marker-bar-container { padding: 6px 6px 4px; }
 }
@@ -4931,7 +4942,8 @@ html[dir="rtl"] .notif-panel {
   vertical-align: middle;
   white-space: nowrap;
 }
-.route-marker-category-chip-icon { font-size: 12px; }
+.route-marker-category-chip-icon { font-size: 12px; display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; }
+.route-marker-category-chip-icon svg { width: 100%; height: 100%; display: block; }
 
 /* "Notiz nachtragen"-Button in der Marker-Liste */
 .route-marker-add-note-btn {
