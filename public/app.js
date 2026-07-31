@@ -9606,12 +9606,13 @@ var App = {
     var self = this;
     TRAINING_CATALOG_B.forEach(function(stage) {
       var stageMeta = self._trainingStageProgress(stage, state);
-      var isFirst = stage.id === 'grundstufe';
-      html += '<div class="training-stage' + (isFirst ? ' is-open' : '') + '" data-stage="' + stage.id + '">';
-      html += '<button type="button" class="training-stage-header" onclick="App._toggleTrainingStage(\'' + stage.id + '\')">';
+      var stageKey = stage.stage;
+      var isFirst = stageKey === 'grundstufe';
+      html += '<div class="training-stage' + (isFirst ? ' is-open' : '') + '" data-stage="' + stageKey + '">';
+      html += '<button type="button" class="training-stage-header" onclick="App._toggleTrainingStage(\'' + stageKey + '\')">';
       html += '<div class="training-stage-header-text">';
-      html += '<h3 class="training-stage-title">' + self._escapeHtml(tCatalog(TRAINING_STAGE_NAMES[stage.id], lang)) + '</h3>';
-      var subtitle = TRAINING_STAGE_SUBTITLES && TRAINING_STAGE_SUBTITLES[stage.id];
+      html += '<h3 class="training-stage-title">' + self._escapeHtml(tCatalog(TRAINING_STAGE_NAMES[stageKey], lang)) + '</h3>';
+      var subtitle = TRAINING_STAGE_SUBTITLES && TRAINING_STAGE_SUBTITLES[stageKey];
       if (subtitle) html += '<p class="training-stage-subtitle">' + self._escapeHtml(tCatalog(subtitle, lang)) + '</p>';
       html += '</div>';
       html += '<div class="training-stage-meta">';
@@ -9732,7 +9733,7 @@ var App = {
       for (var g = 0; g < stage.groups.length; g++) {
         var group = stage.groups[g];
         for (var it = 0; it < group.items.length; it++) {
-          if (group.items[it].id === itemId) return stage.id;
+          if (group.items[it].id === itemId) return stage.stage;
         }
       }
     }
@@ -9823,6 +9824,11 @@ var App = {
   renderLessonSummary: function() {
     var lesson = AppState.activeLesson;
     if (!lesson) return;
+    // Karten-Modus: eigene Zusammenfassung statt PFEP-Bewertung
+    if (lesson.docMode === 'cards') {
+      this._renderLessonSummaryCards();
+      return;
+    }
     var html = '<div class="card mb-4"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-2);">' +
       '<span class="font-semibold text-sm">' + lesson.type + '</span>' +
       '<span class="badge badge-primary">' + this.formatDuration(lesson.duration) + '</span></div>' +
@@ -9912,6 +9918,129 @@ var App = {
     '</button>';
     html += '<button class="btn btn-primary btn-full btn-lg" onclick="App.saveLessonSummary(false)">' + t('fahrstundeSpeichern') + '</button>';
     document.getElementById('lesson-summary-content').innerHTML = html;
+    this.renderPendingImages();
+  },
+
+  // Zusammenfassung für Karten-Modus: kein PFEP-Grid, sondern die live
+  // gesammelten Bewertungen aus dieser Fahrstunde, gruppiert nach Stufen.
+  _renderLessonSummaryCards: function() {
+    var self = this;
+    var lesson = AppState.activeLesson;
+    if (!lesson) return;
+    var lang = (window.AppState && AppState.language) || 'de';
+    if (lang === 'ar') lang = 'de'; // Fallback für Fahrlehrer-Ansicht
+    var marks = lesson.trainingMarks || this._trainingMarks || {};
+    var state = lesson.trainingState || this._trainingState || {};
+
+    var html = '<div class="card mb-4"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-2);">' +
+      '<span class="font-semibold text-sm">' + this._escapeHtml(lesson.type || '') + '</span>' +
+      '<span class="badge badge-primary">' + this.formatDuration(lesson.duration) + '</span></div>' +
+      '<div class="text-xs text-muted">' + this._escapeHtml(lesson.studentName || '') + '</div></div>';
+
+    html += '<div class="section-title mb-2">' + this._escapeHtml(t('trainingReportTitle') || 'Ausbildungsdiagramm — Fahrstunde') + '</div>';
+
+    // Ermittle alle Items die in dieser Stunde berührt wurden (marks[id] === true)
+    // und gruppiere nach Stufe.
+    var touchedByStage = {};
+    if (typeof TRAINING_CATALOG_B !== 'undefined') {
+      TRAINING_CATALOG_B.forEach(function(stage) {
+        var stageKey = stage.stage;
+        var stageItems = [];
+        stage.groups.forEach(function(group) {
+          group.items.forEach(function(item) {
+            if (marks[item.id]) {
+              stageItems.push({
+                id: item.id,
+                type: item.type,
+                name: item.name,
+                value: (typeof state[item.id] !== 'undefined') ? state[item.id] : 0
+              });
+            }
+            if (item.subs) {
+              item.subs.forEach(function(sub) {
+                if (marks[sub.id]) {
+                  stageItems.push({
+                    id: sub.id,
+                    type: 'check',
+                    name: sub.name,
+                    value: (typeof state[sub.id] !== 'undefined') ? state[sub.id] : 0,
+                    parent: item.name
+                  });
+                }
+              });
+            }
+          });
+        });
+        if (stageItems.length) touchedByStage[stageKey] = stageItems;
+      });
+    }
+
+    var stageOrder = ['grundstufe','grundfahraufgaben','aufbaustufe','leistungsstufe'];
+    var anyTouched = stageOrder.some(function(k) { return touchedByStage[k]; });
+
+    if (!anyTouched) {
+      html += '<div class="card" style="padding:var(--space-3);text-align:center;color:var(--color-text-muted);">' +
+        this._escapeHtml(t('trainingSummaryEmpty') || 'In dieser Fahrstunde wurden keine Karten bewertet.') +
+      '</div>';
+    } else {
+      stageOrder.forEach(function(stageKey) {
+        var items = touchedByStage[stageKey];
+        if (!items || !items.length) return;
+        var stageTitle = (typeof TRAINING_STAGE_NAMES !== 'undefined' && TRAINING_STAGE_NAMES[stageKey])
+          ? tCatalog(TRAINING_STAGE_NAMES[stageKey], lang) : stageKey;
+        html += '<div class="card mb-3" style="padding:var(--space-3);">';
+        html += '<div class="font-semibold text-sm mb-2">' + self._escapeHtml(stageTitle) + '</div>';
+        items.forEach(function(it) {
+          var label = self._escapeHtml(tCatalog(it.name, lang));
+          if (it.type === 'check') {
+            html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--color-border);">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;color:#437A22;flex-shrink:0;"><polyline points="20 6 9 17 4 12"/></svg>' +
+              '<span class="text-sm">' + label + '</span>' +
+            '</div>';
+          } else {
+            var v = it.value || 0;
+            var vLabel = v > 0
+              ? v + '/5 \u00b7 ' + self._escapeHtml(tCatalog(TRAINING_RATING_LABELS[v], lang))
+              : self._escapeHtml(tCatalog(TRAINING_RATING_LABELS[0], lang));
+            var barColor = ['#BAB9B4','#C74B3B','#E48250','#D8AB33','#6BA36A','#2E7D3B'][v] || '#BAB9B4';
+            var pct = v > 0 ? (v * 20) : 0;
+            html += '<div style="padding:8px 0;border-top:1px solid var(--color-border);">' +
+              '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:4px;">' +
+                '<span class="text-sm">' + label + '</span>' +
+                '<span class="text-xs" style="color:var(--color-text-muted);white-space:nowrap;">' + vLabel + '</span>' +
+              '</div>' +
+              '<div style="height:6px;background:#EFEEE9;border-radius:3px;overflow:hidden;">' +
+                '<div style="height:100%;width:' + pct + '%;background:' + barColor + ';transition:width .2s;"></div>' +
+              '</div>' +
+            '</div>';
+          }
+        });
+        html += '</div>';
+      });
+    }
+
+    // Notizen
+    html += '<div class="form-group mb-4"><label class="form-label">' + t('notizen') + '</label>' +
+      '<textarea class="form-textarea" id="lesson-notes" placeholder="' + t('anmerkungenPlaceholder') + '"></textarea>' +
+      '<div class="text-xs text-muted" style="margin-top:4px;">\u{1F517} Tipp: Links (z.B. YouTube-Videos) k\u00f6nnen einfach reinkopiert werden \u2013 sie werden f\u00fcr den Sch\u00fcler klickbar.</div></div>';
+
+    // Bilder
+    html += '<div class="form-group mb-4"><label class="form-label">' + t('bilderOptional') + '</label>' +
+      '<div class="image-upload-area">' +
+        '<input type="file" accept="image/*" multiple id="lesson-image-input" style="display:none;" onchange="App.handleImageUpload(event)">' +
+        '<button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById(\'lesson-image-input\').click()">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg> ' + t('bilderHochladen') + '</button>' +
+        '<div id="image-preview-list" class="image-preview-list"></div>' +
+      '</div></div>';
+
+    // Aktions-Buttons
+    html += '<button class="btn btn-secondary btn-full btn-lg mb-2" onclick="App.saveLessonSummary(true)" style="display:flex;align-items:center;justify-content:center;gap:8px;">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>' +
+      '<span>' + t('protokollSofortTeilen') + '</span>' +
+    '</button>';
+    html += '<button class="btn btn-primary btn-full btn-lg" onclick="App.saveLessonSummary(false)">' + t('fahrstundeSpeichern') + '</button>';
+    var target = document.getElementById('lesson-summary-content');
+    if (target) target.innerHTML = html;
     this.renderPendingImages();
   },
 

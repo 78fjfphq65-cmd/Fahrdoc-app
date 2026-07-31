@@ -596,7 +596,8 @@ var TRANSLATIONS = {
   trainingRatingHint:      { de:'Tippe auf die Skala, um den Stand zu setzen.', en:'Tap the scale to set the level.', tr:'Seviyeyi belirlemek için ölçeğe dokun.', ar:'انقر على الشريط لتحديد المستوى.', es:'Toca la escala para fijar el nivel.', fr:'Touchez l\u2019échelle pour définir le niveau.', pt:'Toque na escala para definir o nível.' },
   trainingLastPracticed:   { de:'Zuletzt geübt', en:'Last practiced', tr:'Son uygulama', ar:'آخر تدريب', es:'Última práctica', fr:'Dernière pratique', pt:'Última prática' },
   trainingSummaryTitle:    { de:'Ausbildungsstand', en:'Training status', tr:'Eğitim durumu', ar:'حالة التدريب', es:'Estado de formación', fr:'État de formation', pt:'Estado de formação' },
-  trainingReportTitle:     { de:'Ausbildungsdiagramm dieser Stunde', en:'Training diagram — this lesson', tr:'Bu dersin eğitim şeması', ar:'مخطط تدريب هذه الحصة', es:'Diagrama de formación de esta clase', fr:'Diagramme de formation — cette leçon', pt:'Diagrama de formação desta aula' }
+  trainingReportTitle:     { de:'Ausbildungsdiagramm dieser Stunde', en:'Training diagram — this lesson', tr:'Bu dersin eğitim şeması', ar:'مخطط تدريب هذه الحصة', es:'Diagrama de formación de esta clase', fr:'Diagramme de formation — cette leçon', pt:'Diagrama de formação desta aula' },
+  trainingSummaryEmpty:    { de:'In dieser Fahrstunde wurden keine Karten bewertet.', en:'No cards were rated during this lesson.', tr:'Bu ders sırasında kart değerlendirilmedi.', ar:'لم يتم تقييم أي بطاقات خلال هذه الحصة.', es:'No se evaluaron tarjetas durante esta clase.', fr:'Aucune carte n’a été évaluée pendant cette leçon.', pt:'Nenhum cartão foi avaliado nesta aula.' }
 };
 
 // ── Day names by language ──
