@@ -5784,6 +5784,14 @@ var App = {
         '</form></div>';
       document.body.appendChild(modal);
     }
+    // Formular immer leer öffnen — sonst stehen beim zweiten
+    // „Schüler anlegen“ noch die alten Werte drin.
+    var form = document.getElementById('solo-add-student-form');
+    if (form && typeof form.reset === 'function') form.reset();
+    // reset() setzt <select> auf das erste <option> zurück, macht Fehler-Div
+    // aber nicht unsichtbar — explizit ausblenden.
+    var errReset = document.getElementById('sas-error');
+    if (errReset) { errReset.textContent = ''; errReset.classList.add('hidden'); }
     modal.classList.add('active');
     setTimeout(function(){ var f = document.getElementById('sas-firstname'); if (f) f.focus(); }, 50);
   },
