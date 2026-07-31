@@ -4815,16 +4815,37 @@ html[dir="rtl"] .notif-panel {
 [data-theme="dark"] #quick-marker-bar-container {
   border-top-color: rgba(255, 255, 255, 0.08);
 }
-/* Kleines Label über der Bar erklärt was die Buttons machen —
-   verhindert dass Fahrlehrer sich fragen wofür die 5 farbigen Buttons sind. */
+/* Label über der Bar erklärt was die Buttons machen —
+   deutlich sichtbar, damit Fahrlehrer die Funktion sofort erfassen. */
 .quick-marker-bar-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-text);
+  margin-bottom: 8px;
   padding-left: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.quick-marker-bar-label::before {
+  content: '';
+  display: inline-block;
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--color-primary, #01696F);
+  flex: 0 0 auto;
+}
+.quick-marker-bar-hint {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .quick-marker-bar {
@@ -4890,14 +4911,22 @@ html[dir="rtl"] .notif-panel {
   color: #fff;
 }
 .quick-marker-label {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
-  letter-spacing: 0.01em;
+  letter-spacing: -0.01em;
   text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.15;
   max-width: 100%;
+  /* 2 Zeilen erlauben, damit lange Worte wie 'Geschwindigkeit' und 'Kommunikation'
+     nicht abgeschnitten werden. Trennung mit Bindestrich am Zeilenende erlaubt. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
@@ -4917,11 +4946,12 @@ html[dir="rtl"] .notif-panel {
 
 /* Auf sehr schmalen Bildschirmen (< 360px) Label kleiner, Icon etwas kleiner */
 @media (max-width: 360px) {
-  .quick-marker-btn { padding: 10px 2px 8px; min-height: 74px; gap: 5px; }
-  .quick-marker-label { font-size: 10px; }
+  .quick-marker-btn { padding: 10px 2px 8px; min-height: 78px; gap: 5px; }
+  .quick-marker-label { font-size: 9.5px; }
   .quick-marker-icon { width: 24px; height: 24px; }
   .quick-marker-bar { gap: 4px; }
   #quick-marker-bar-container { padding: 6px 6px 4px; }
+  .quick-marker-bar-label { font-size: 12px; }
 }
 
 /* ============================================
