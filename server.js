@@ -1872,10 +1872,36 @@ app.post('/api/lessons', authMiddleware, async (req, res) => {
 
     // ── Ausbildungsdiagramm-Karten-Bewertungen (Karten-Modus) speichern ──
     // trainingMarks: [{ topic_id, topic_type: 'check'|'rating', value: 0..5, note? }]
-    if (studentId && Array.isArray(trainingMarks) && trainingMarks.length > 0) {
+    //
+    // Fallback: wenn Karten-Modus aber leerer/fehlender trainingMarks-Array,
+    // pullen wir Marks aus student_training_state wo last_lesson_id IS NULL
+    // (das sind die live von _persistTrainingMark waehrend der Stunde gesetzten).
+    let _effectiveTrainingMarks = Array.isArray(trainingMarks) ? trainingMarks : [];
+    if (_docMode === 'cards' && studentId && _effectiveTrainingMarks.length === 0) {
+      try {
+        const { data: orphanState } = await supabase
+          .from('student_training_state')
+          .select('topic_id, topic_type, value')
+          .eq('student_id', studentId)
+          .eq('catalog_class', 'B')
+          .is('last_lesson_id', null);
+        if (Array.isArray(orphanState) && orphanState.length > 0) {
+          _effectiveTrainingMarks = orphanState.map(s => ({
+            topic_id: s.topic_id,
+            topic_type: s.topic_type,
+            value: s.value,
+            note: null
+          }));
+          console.log('[POST /api/lessons] Fallback: rekonstruiere ' + _effectiveTrainingMarks.length + ' Marks aus student_training_state fuer lesson ' + id);
+        }
+      } catch (fbErr) {
+        console.error('[POST /api/lessons] fallback pull error:', fbErr.message);
+      }
+    }
+    if (studentId && _effectiveTrainingMarks.length > 0) {
       try {
         const nowIso = new Date().toISOString();
-        const validMarks = trainingMarks
+        const validMarks = _effectiveTrainingMarks
           .filter(m => m && m.topic_id && (m.topic_type === 'check' || m.topic_type === 'rating'))
           .map(m => ({
             topic_id: String(m.topic_id).slice(0, 128),
