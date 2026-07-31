@@ -9793,6 +9793,12 @@ var App = {
     }
     AppState.lessonPaused = false;
     this.stopGPS();
+    // ── WICHTIG: Karten-Marks RETTEN bevor _unmountTrainingCardsView() sie loescht ──
+    var _savedMarks = null, _savedState = null;
+    if (AppState.activeLesson && AppState.activeLesson.docMode === 'cards') {
+      _savedMarks = this._trainingMarks || {};
+      _savedState = this._trainingState || {};
+    }
     this._unmountTrainingCardsView();
     var elapsed = Date.now() - AppState.lessonStartTime - (AppState.pausedDuration || 0);
     var durationMin = Math.max(1, Math.round(elapsed / 60000));
@@ -9806,11 +9812,14 @@ var App = {
     } else {
       AppState.activeLesson.avgSpeedKmh = 0;
     }
-    // Bei docMode='cards' die live gesammelten Karten-Marks mitschicken —
-    // die werden im lesson-summary-Bildschirm anders gerendert.
+    // Karten-Marks jetzt uebernehmen (aus den geretten Kopien)
     if (AppState.activeLesson.docMode === 'cards') {
-      AppState.activeLesson.trainingMarks = this._trainingMarks || {};
-      AppState.activeLesson.trainingState = this._trainingState || {};
+      AppState.activeLesson.trainingMarks = _savedMarks || {};
+      AppState.activeLesson.trainingState = _savedState || {};
+      // Auch this._trainingMarks/_trainingState WIEDERHERSTELLEN, damit
+      // saveLessonSummary sie im Fallback (this._trainingMarks) noch sieht.
+      this._trainingMarks = _savedMarks;
+      this._trainingState = _savedState;
     }
     AppState.summaryRatings = {};
     AppState.summaryRatingNotes = {};
