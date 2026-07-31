@@ -336,8 +336,9 @@ var TRANSLATIONS = {
   passwortFalsch: { de:'Aktuelles Passwort ist falsch', en:'Current password is incorrect' },
   passwortZuKurz: { de:'Passwort muss mindestens 6 Zeichen haben', en:'Password must be at least 6 characters' },
   pause: { de:'Pause', en:'Pause', tr:'Duraklat', ar:'إيقاف مؤقت', es:'Pausa', fr:'Pause' },
-  fortsetzen: { de:'Fortsetzen', en:'Resume', tr:'Devam et', ar:'استئناف', es:'Reanudar', fr:'Reprendre' },
-  pausiert: { de:'PAUSIERT', en:'PAUSED', tr:'DURAKLATILDI', ar:'متوقف مؤقتاً', es:'EN PAUSA', fr:'EN PAUSE' },
+  fortsetzen: { de:'Fortsetzen', en:'Resume', tr:'Devam et', ar:'استئناف', es:'Reanudar', fr:'Reprendre', pt:'Retomar' },
+  pausiert: { de:'PAUSIERT', en:'PAUSED', tr:'DURAKLATILDI', ar:'متوقف مؤقتاً', es:'EN PAUSA', fr:'EN PAUSE', pt:'EM PAUSA' },
+  pausiertHinweis: { de:'Timer und GPS-Aufzeichnung angehalten', en:'Timer and GPS recording paused', tr:'Süre ölçümü ve GPS kaydı duraklandı', ar:'توقّف المؤقّت وتسجيل GPS', es:'Cronómetro y grabación de GPS en pausa', fr:'Minuteur et enregistrement GPS en pause', pt:'Cronómetro e gravação de GPS em pausa' },
   beenden: { de:'Beenden', en:'End', tr:'Bitir', ar:'إنهاء', es:'Finalizar', fr:'Terminer' },
 
   // ── Time Blocks (Zeitsperren) ──

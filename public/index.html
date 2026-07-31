@@ -490,8 +490,15 @@
              Ein Tap = sofort Marker mit Kategorie, ohne Modal. Wird zur Laufzeit
              von App.renderQuickMarkerBar() gefüllt. -->
         <div id="quick-marker-bar-container"></div>
-        <div id="lesson-paused-overlay" class="lesson-paused-overlay">
-          <div class="lesson-paused-badge"><span class="lesson-paused-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg></span><span data-i18n="pausiert">PAUSIERT</span></div>
+        <div id="lesson-paused-overlay" class="lesson-paused-overlay" role="dialog" aria-modal="true" aria-label="Fahrstunde pausiert">
+          <div class="lesson-paused-card">
+            <div class="lesson-paused-badge"><span class="lesson-paused-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg></span><span data-i18n="pausiert">PAUSIERT</span></div>
+            <div class="lesson-paused-hint" data-i18n="pausiertHinweis">Timer und GPS-Aufzeichnung angehalten</div>
+            <button type="button" class="lesson-paused-resume-btn" onclick="App.toggleLessonPause()" aria-label="Fahrstunde fortsetzen">
+              <span class="lesson-paused-resume-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7L8 5z"/></svg></span>
+              <span class="lesson-paused-resume-label" data-i18n="fortsetzen">Fortsetzen</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
