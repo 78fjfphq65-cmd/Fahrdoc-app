@@ -9440,7 +9440,15 @@ var App = {
         btn.innerHTML = '<span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7L8 5z"/></svg></span><span class="lesson-action-label">' + t('fortsetzen') + '</span>';
       }
       var overlay = document.getElementById('lesson-paused-overlay');
-      if (overlay) overlay.classList.add('visible');
+      if (overlay) {
+        // WICHTIG: Overlay in <body> verschieben, damit position:fixed relativ
+        // zum Viewport wirkt — lesson-map-panel hat backdrop-filter, was einen
+        // eigenen containing block fuer fixed-Elemente erzeugt.
+        if (overlay.parentNode !== document.body) {
+          document.body.appendChild(overlay);
+        }
+        overlay.classList.add('visible');
+      }
     } else {
       AppState.lessonPaused = false;
       AppState.pausedDuration += Date.now() - AppState.pauseStartTime;
