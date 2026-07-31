@@ -1810,6 +1810,18 @@ app.get('/api/lesson/:id', authMiddleware, async (req, res) => {
       };
     }
 
+    // ── Ausbildungsdiagramm-Karten: in DIESER Fahrstunde bewertete Themen ──
+    const { data: tMarks } = await supabase.from('lesson_training_marks')
+      .select('topic_id, topic_type, value, note').eq('lesson_id', lesson.id);
+    lesson.trainingMarks = (tMarks || []).map(m => ({
+      topic_id: m.topic_id,
+      topic_type: m.topic_type,
+      value: m.value,
+      note: m.note
+    }));
+    // camelCase-Alias fuer Frontend-Konsistenz
+    lesson.docMode = lesson.doc_mode || 'examiner';
+
     res.json(lesson);
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
@@ -1819,9 +1831,10 @@ app.get('/api/lesson/:id', authMiddleware, async (req, res) => {
 app.post('/api/lessons', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur Fahrlehrer können Fahrstunden erstellen' });
-    const { studentId, type, duration, notes, ratings, ratingNotes, licenseClass, date, images } = req.body;
+    const { studentId, type, duration, notes, ratings, ratingNotes, licenseClass, date, images, docMode, trainingMarks } = req.body;
 
     if (!type || !duration) return res.status(400).json({ error: 'Pflichtfelder fehlen' });
+    const _docMode = (docMode === 'cards') ? 'cards' : 'examiner';
 
     // GoBD-konform: Jede Fahrstunde ist regulär. Gratis/Schnupperfahrt-Kennzeichnung
     // wurde in Push 8 entfernt — Rabatte/Sondervereinbarungen über Korrektur-Buchungen.
@@ -1853,8 +1866,54 @@ app.post('/api/lessons', authMiddleware, async (req, res) => {
     await supabase.from('lessons').insert({
       id, student_id: studentId || null, instructor_id: req.user.id, school_id: schoolId,
       date: lessonDate, type, duration, notes: notes || '', license_class: licenseClass || 'B',
-      billing_category: _billingCategory
+      billing_category: _billingCategory,
+      doc_mode: _docMode
     });
+
+    // ── Ausbildungsdiagramm-Karten-Bewertungen (Karten-Modus) speichern ──
+    // trainingMarks: [{ topic_id, topic_type: 'check'|'rating', value: 0..5, note? }]
+    if (studentId && Array.isArray(trainingMarks) && trainingMarks.length > 0) {
+      try {
+        const nowIso = new Date().toISOString();
+        const validMarks = trainingMarks
+          .filter(m => m && m.topic_id && (m.topic_type === 'check' || m.topic_type === 'rating'))
+          .map(m => ({
+            topic_id: String(m.topic_id).slice(0, 128),
+            topic_type: m.topic_type,
+            value: Math.max(0, Math.min(5, parseInt(m.value, 10) || 0)),
+            note: (typeof m.note === 'string' && m.note.trim()) ? m.note.trim().slice(0, 500) : null
+          }));
+        if (validMarks.length > 0) {
+          // 1) Lesson-Marks: was in DIESER Stunde bewertet wurde
+          const lessonMarkRows = validMarks.map(m => ({
+            lesson_id: id,
+            topic_id: m.topic_id,
+            topic_type: m.topic_type,
+            value: m.value,
+            note: m.note
+          }));
+          const insMarks = await supabase.from('lesson_training_marks')
+            .upsert(lessonMarkRows, { onConflict: 'lesson_id,topic_id' });
+          if (insMarks.error) console.error('[POST /api/lessons] lesson_training_marks error:', insMarks.error.message);
+
+          // 2) Persistenten Ausbildungsstand pro Schüler upserten
+          const stateRows = validMarks.map(m => ({
+            student_id: studentId,
+            catalog_class: 'B',
+            topic_id: m.topic_id,
+            topic_type: m.topic_type,
+            value: m.value,
+            last_lesson_id: id,
+            updated_at: nowIso
+          }));
+          const insState = await supabase.from('student_training_state')
+            .upsert(stateRows, { onConflict: 'student_id,catalog_class,topic_id' });
+          if (insState.error) console.error('[POST /api/lessons] student_training_state error:', insState.error.message);
+        }
+      } catch (tmErr) {
+        console.error('[POST /api/lessons] trainingMarks catch:', tmErr.message);
+      }
+    }
 
     if (studentId && ratings && typeof ratings === 'object') {
       // DB CHECK-Constraint: rating IN 1..4. 'Nicht bewertet' (0 / null / undefined / out-of-range)

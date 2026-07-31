@@ -10233,6 +10233,22 @@ var App = {
     try {
       this.showLoading(true);
       var _savedStudentId = lesson.studentId;
+      // ── Karten-Modus: Marks aufsammeln fuer Backend ──
+      var _tMarks = lesson.trainingMarks || this._trainingMarks || {};
+      var _tMarksArr = [];
+      Object.keys(_tMarks).forEach(function(topicId){
+        var m = _tMarks[topicId];
+        if (!m) return;
+        // m kann { value, type, note? } sein oder direkt ein Wert (defensiv)
+        if (typeof m === 'object') {
+          _tMarksArr.push({
+            topic_id: topicId,
+            topic_type: m.type || 'rating',
+            value: Number(m.value) || 0,
+            note: (m.note && String(m.note).trim()) ? String(m.note).trim().slice(0, 500) : null
+          });
+        }
+      });
       var resp = await ApiClient.post('/api/lessons', {
         studentId: lesson.studentId, type: lesson.type, duration: lesson.duration,
         notes: notes, ratings: _filterValidRatings(AppState.summaryRatings),
@@ -10242,7 +10258,9 @@ var App = {
         routeData: lesson.routeData || [],
         markers: lesson.markers || [],
         distanceKm: lesson.distanceKm || 0,
-        avgSpeedKmh: lesson.avgSpeedKmh || 0
+        avgSpeedKmh: lesson.avgSpeedKmh || 0,
+        docMode: lesson.docMode || 'examiner',
+        trainingMarks: _tMarksArr
       });
       AppState.activeLesson = null; AppState.summaryRatings = {}; AppState.summaryRatingNotes = {}; AppState.pendingImages = [];
       // Caches invalidieren, damit Dashboard frisch geladen wird
@@ -11036,6 +11054,134 @@ var App = {
         y += cardH + 2;
       });
       y += 4;
+    }
+
+    // ══ Ausbildungsdiagramm-Karten (Karten-Modus / docMode='cards') ══
+    // Zeigt alle Themen die in DIESER Fahrstunde bewertet wurden, gruppiert nach Stufe.
+    // Rating-Items (1..5) als Balken mit Farbverlauf, Check-Items (Grundstufe) als Häkchen.
+    var _tMarksRaw = lesson.trainingMarks;
+    if (Array.isArray(_tMarksRaw) && _tMarksRaw.length > 0 &&
+        typeof TRAINING_CATALOG_B !== 'undefined' && typeof TRAINING_STAGE_NAMES !== 'undefined') {
+      // 1) Lookup: topic_id → { name, stage, type }
+      var _itemLookup = {};
+      TRAINING_CATALOG_B.forEach(function(stage) {
+        (stage.groups || []).forEach(function(g) {
+          (g.items || []).forEach(function(item) {
+            _itemLookup[item.id] = { name: item.name, stage: stage.stage, type: item.type };
+            if (item.subs) {
+              item.subs.forEach(function(sub) {
+                _itemLookup[sub.id] = { name: sub.name, stage: stage.stage, type: 'check', parent: item.id };
+              });
+            }
+          });
+        });
+      });
+      // 2) Marks nach Stufe gruppieren
+      var _stageOrder = ['grundstufe','grundfahraufgaben','aufbaustufe','leistungsstufe'];
+      var _byStage = { grundstufe: [], grundfahraufgaben: [], aufbaustufe: [], leistungsstufe: [] };
+      _tMarksRaw.forEach(function(m) {
+        var meta = _itemLookup[m.topic_id];
+        if (!meta) return;
+        _byStage[meta.stage].push({
+          name: tCatalog(meta.name, lang),
+          type: m.topic_type,
+          value: Number(m.value) || 0,
+          note: m.note || ''
+        });
+      });
+      var _anyItems = _stageOrder.some(function(s) { return _byStage[s].length > 0; });
+      if (_anyItems) {
+        sectionTitle(pdfT('pdfAusbildungsdiagramm'));
+
+        // Farb-Skala fuer Ratings 1..5 (rot → dunkelgruen)
+        var _ratingColors = {
+          1: [199, 75, 59],    // rot
+          2: [228, 130, 80],   // orange
+          3: [216, 171, 51],   // gold
+          4: [107, 163, 106],  // hellgruen
+          5: [46, 125, 59]     // dunkelgruen
+        };
+
+        _stageOrder.forEach(function(stageKey) {
+          var items = _byStage[stageKey];
+          if (!items.length) return;
+          // Stufen-Header (kleiner Untertitel-Stil)
+          ensureSpace(9);
+          setFn('bold'); doc.setFontSize(10); setText(TXT);
+          var stageLabel = tCatalog(TRAINING_STAGE_NAMES[stageKey], lang);
+          if (isAr) doc.text(stageLabel, pw - mr, y, { align: 'right' });
+          else      doc.text(stageLabel, ml, y);
+          y += 5;
+
+          // Items als kompakte Cards
+          items.forEach(function(it) {
+            var rowH = 9;
+            // Notiz-Zeilen ggf. drunter
+            var noteLines = it.note ? doc.splitTextToSize(String(it.note), cw - 14) : [];
+            var noteH = noteLines.length ? (noteLines.length * 3.6 + 1) : 0;
+            var cellH = rowH + noteH;
+            ensureSpace(cellH + 2);
+            setFill(BG_SOFT); doc.roundedRect(ml, y, cw, cellH, 1.5, 1.5, 'F');
+            setDraw(BORDER); doc.setLineWidth(0.25);
+            doc.roundedRect(ml, y, cw, cellH, 1.5, 1.5, 'S');
+
+            // Linker Bereich: Item-Name (max ~60% Breite)
+            var nameMaxW = cw * 0.60 - 8;
+            setFn('normal'); doc.setFontSize(10); setText(TXT);
+            var nameLines = doc.splitTextToSize(String(it.name || ''), nameMaxW);
+            var nameLine = nameLines[0] || '';
+            if (isAr) doc.text(nameLine, pw - mr - 5, y + 6, { align: 'right' });
+            else      doc.text(nameLine, ml + 5, y + 6);
+
+            // Rechter Bereich: je nach type
+            if (it.type === 'check') {
+              // Gruener Haken + Label 'bearbeitet'
+              var lbl = pdfT('pdfKartenBearbeitet');
+              setFn('bold'); doc.setFontSize(9); setText([46, 125, 59]);
+              var chkX = isAr ? (ml + 5) : (pw - mr - 5);
+              doc.text('\u2713 ' + lbl, chkX, y + 6, isAr ? {} : { align: 'right' });
+            } else {
+              // Rating: Balken (5 Segmente) mit gefaerbtem Fill bis value
+              var val = Math.max(0, Math.min(5, it.value || 0));
+              var barW = 40, barH = 4, segGap = 1;
+              var segW = (barW - segGap * 4) / 5;
+              var barY = y + 4;
+              var barStartX = isAr ? (ml + 5) : (pw - mr - 5 - barW);
+              for (var si = 0; si < 5; si++) {
+                var segX = barStartX + si * (segW + segGap);
+                if (si < val) {
+                  var c = _ratingColors[val] || _ratingColors[3];
+                  setFill(c);
+                } else {
+                  setFill([228, 228, 224]);
+                }
+                doc.roundedRect(segX, barY, segW, barH, 0.6, 0.6, 'F');
+              }
+              // Ziffer rechts / links neben dem Balken
+              setFn('bold'); doc.setFontSize(9); setText(TXT_MUTED);
+              var numX, numOpt;
+              if (isAr) { numX = barStartX + barW + 3; numOpt = {}; }
+              else      { numX = barStartX - 2;        numOpt = { align: 'right' }; }
+              doc.text(String(val) + '/5', numX, y + 6, numOpt);
+            }
+
+            // Notiz drunter
+            if (noteLines.length) {
+              setFn('normal'); doc.setFontSize(8.5); setText(TXT_MUTED);
+              var nY = y + rowH + 0.5;
+              noteLines.forEach(function(nl) {
+                if (isAr) doc.text(nl, pw - mr - 5, nY, { align: 'right' });
+                else      doc.text(nl, ml + 5, nY);
+                nY += 3.6;
+              });
+              setText(TXT);
+            }
+            y += cellH + 1.5;
+          });
+          y += 3;
+        });
+        y += 2;
+      }
     }
 
     // ══ Bewertung als Karten-Liste mit Pills rechts ══
