@@ -1035,14 +1035,16 @@ app.post('/api/school/students', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'E-Mail erforderlich' });
     }
 
-    // E-Mail-Eindeutigkeit (ueber alle Rollen)
-    const [e1, e2, e3] = await Promise.all([
-      supabase.from('schools').select('id').eq('email', payload.email).maybeSingle(),
-      supabase.from('instructors').select('id').eq('email', payload.email).maybeSingle(),
-      supabase.from('students').select('id').eq('email', payload.email).maybeSingle()
-    ]);
-    if ((e1 && e1.data) || (e2 && e2.data) || (e3 && e3.data)) {
-      return res.status(409).json({ error: 'E-Mail ist bereits registriert' });
+    // E-Mail-Eindeutigkeit: pro Fahrschule pruefen (Plus-Schueler koennen sich einloggen).
+    // Verschiedene Fahrschulen duerfen dieselbe E-Mail nutzen; Solo-Konten sind komplett isoliert.
+    const { data: dupInSchool } = await supabase
+      .from('students')
+      .select('id')
+      .eq('email', payload.email)
+      .eq('school_id', schoolId)
+      .maybeSingle();
+    if (dupInSchool) {
+      return res.status(409).json({ error: 'Ein Schueler mit dieser E-Mail existiert bereits in deiner Fahrschule' });
     }
 
     // Falls instructor_id mitgegeben: gehoert der Fahrlehrer zur Schule?
@@ -1129,15 +1131,17 @@ app.put('/api/school/students/:id', authMiddleware, async (req, res) => {
     if (existing.school_id !== schoolId) return res.status(403).json({ error: 'Kein Zugriff' });
 
     const payload = _normalizeStudentPayload(req.body);
-    // E-Mail-Aenderung: pruefen ob neue Mail frei ist
+    // E-Mail-Aenderung: pruefen ob neue Mail innerhalb DIESER Fahrschule frei ist.
+    // Verschiedene Fahrschulen (und Solo-Konten) duerfen dieselbe E-Mail nutzen.
     if (payload.email && payload.email !== existing.email) {
-      const [e1, e2, e3] = await Promise.all([
-        supabase.from('schools').select('id').eq('email', payload.email).maybeSingle(),
-        supabase.from('instructors').select('id').eq('email', payload.email).maybeSingle(),
-        supabase.from('students').select('id').eq('email', payload.email).maybeSingle()
-      ]);
-      if ((e1 && e1.data) || (e2 && e2.data) || (e3 && e3.data && e3.data.id !== studentId)) {
-        return res.status(409).json({ error: 'E-Mail ist bereits registriert' });
+      const { data: dupInSchool } = await supabase
+        .from('students')
+        .select('id')
+        .eq('email', payload.email)
+        .eq('school_id', req.user.id)
+        .maybeSingle();
+      if (dupInSchool && dupInSchool.id !== studentId) {
+        return res.status(409).json({ error: 'Ein Schueler mit dieser E-Mail existiert bereits in deiner Fahrschule' });
       }
     }
 
@@ -1575,16 +1579,20 @@ app.post('/api/instructor/students', authMiddleware, async (req, res) => {
 
     const payload = _normalizeStudentPayload(req.body);
     if (!payload.name || payload.name.length < 2) return res.status(400).json({ error: 'Name erforderlich' });
-    if (!payload.email) return res.status(400).json({ error: 'E-Mail erforderlich' });
-
-    // E-Mail-Eindeutigkeit
-    const [e1, e2, e3] = await Promise.all([
-      supabase.from('schools').select('id').eq('email', payload.email).maybeSingle(),
-      supabase.from('instructors').select('id').eq('email', payload.email).maybeSingle(),
-      supabase.from('students').select('id').eq('email', payload.email).maybeSingle()
-    ]);
-    if ((e1 && e1.data) || (e2 && e2.data) || (e3 && e3.data)) {
-      return res.status(409).json({ error: 'E-Mail ist bereits registriert' });
+    // Solo: E-Mail ist optional. Falls leer/undefined -> nicht in DB schreiben (kein NOT NULL Constraint).
+    if (!payload.email) {
+      delete payload.email;
+    } else {
+      // Nur pruefen wenn E-Mail vorhanden: Duplikat innerhalb dieses Solo-Fahrlehrers?
+      const { data: dup } = await supabase
+        .from('students')
+        .select('id')
+        .eq('email', payload.email)
+        .eq('owner_instructor_id', req.user.id)
+        .maybeSingle();
+      if (dup) {
+        return res.status(409).json({ error: 'Ein Schueler mit dieser E-Mail existiert bereits in deinem Konto' });
+      }
     }
 
     const studentId = generateId();

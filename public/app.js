@@ -5773,7 +5773,7 @@ var App = {
             '<div class="form-group"><label class="form-label">Vorname</label><input class="form-input" type="text" id="sas-firstname" required></div>' +
             '<div class="form-group"><label class="form-label">Nachname</label><input class="form-input" type="text" id="sas-lastname" required></div>' +
           '</div>' +
-          '<div class="form-group"><label class="form-label">E-Mail</label><input class="form-input" type="email" id="sas-email" required></div>' +
+          '<div class="form-group"><label class="form-label">E-Mail (optional)</label><input class="form-input" type="email" id="sas-email" placeholder="Nur wenn du Berichte per Mail schicken willst"></div>' +
           '<div class="form-group"><label class="form-label">Telefon (optional)</label><input class="form-input" type="tel" id="sas-phone"></div>' +
           '<div class="form-group"><label class="form-label">Führerscheinklasse</label>' +
             '<select class="form-select" id="sas-license">' +
@@ -5813,7 +5813,7 @@ var App = {
       await ApiClient.post('/api/instructor/students', {
         firstName: firstName, lastName: lastName,
         name: firstName + ' ' + lastName,
-        email: email, phone: phone || null,
+        email: email || null, phone: phone || null,
         license_class: license, status: 'aktiv'
       });
       this.closeSoloAddStudent();
