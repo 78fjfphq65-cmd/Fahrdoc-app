@@ -9560,18 +9560,25 @@ var App = {
     var studentId = AppState.activeLesson && AppState.activeLesson.studentId;
     this._trainingMarks = {}; // { topicId: { value, note } } — was in DIESER Stunde geändert wurde
     this._trainingState = {}; // { topicId: value } — persistenter Stand der Schülerin
+    this._trainingFavorites = {}; // { topicId: true } — Fahrlehrer-Favoriten
+    this._trainingCustomTopics = []; // [{ id, stage, group_key, name, topic_type }] — Fahrlehrer-Custom
+    this._trainingFavoritesOpen = (this._trainingFavoritesOpen === undefined) ? true : this._trainingFavoritesOpen;
+
+    var self = this;
+    // Parallel laden: State + Favoriten + Custom-Topics
+    var promises = [];
     if (studentId) {
-      try {
-        var resp = await ApiClient.get('/api/training-state/' + encodeURIComponent(studentId));
-        if (resp && resp.items) {
-          var self = this;
-          resp.items.forEach(function(row) { self._trainingState[row.topic_id] = row.value; });
-        }
-      } catch (e) {
-        // Wenn 404 oder Netzwerk-Fehler: einfach leer starten. Kein Blocker.
-        console.warn('[training-cards] load state failed:', e && e.message);
-      }
+      promises.push(ApiClient.get('/api/training-state/' + encodeURIComponent(studentId)).then(function(resp) {
+        if (resp && resp.items) resp.items.forEach(function(row) { self._trainingState[row.topic_id] = row.value; });
+      }).catch(function(e) { console.warn('[training-cards] load state failed:', e && e.message); }));
     }
+    promises.push(ApiClient.get('/api/training-favorites').then(function(resp) {
+      if (resp && resp.items) resp.items.forEach(function(row) { self._trainingFavorites[row.topic_id] = true; });
+    }).catch(function(e) { console.warn('[training-cards] load favorites failed:', e && e.message); }));
+    promises.push(ApiClient.get('/api/training-custom-topics').then(function(resp) {
+      if (resp && resp.items) self._trainingCustomTopics = resp.items;
+    }).catch(function(e) { console.warn('[training-cards] load custom failed:', e && e.message); }));
+    await Promise.all(promises);
     this._renderTrainingCards();
   },
 
@@ -9605,16 +9612,48 @@ var App = {
     var lang = (AppState.language || 'de');
     var state = this._trainingState || {};
     var marks = this._trainingMarks || {};
+    var favs = this._trainingFavorites || {};
+    var customs = this._trainingCustomTopics || [];
+    var self = this;
+
     var html = '<div class="training-view">';
     html += '<div class="training-view-header">';
     html += '<h2 class="training-view-title">' + this._escapeHtml(t('trainingDiagram')) + '</h2>';
     html += '<p class="training-view-subtitle">' + this._escapeHtml(t('trainingRatingHint')) + '</p>';
     html += '</div>';
 
-    var self = this;
+    // ── Favoriten-Reiter (oben, aufklappbar) ──
+    var favoriteItems = this._collectFavoriteItems();
+    var favOpen = !!this._trainingFavoritesOpen;
+    html += '<div class="training-stage training-stage-favorites' + (favOpen ? ' is-open' : '') + '" data-stage="__favorites__">';
+    html += '<button type="button" class="training-stage-header" onclick="App._toggleTrainingFavorites()">';
+    html += '<div class="training-stage-header-text">';
+    html += '<h3 class="training-stage-title"><svg class="training-stage-star" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> ' + this._escapeHtml(t('trainingFavoritesTitle')) + '</h3>';
+    html += '<p class="training-stage-subtitle">' + this._escapeHtml(t('trainingFavoritesSubtitle')) + '</p>';
+    html += '</div>';
+    html += '<div class="training-stage-meta">';
+    html += '<span class="training-stage-progress-chip">' + favoriteItems.length + '</span>';
+    html += '<svg class="training-stage-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>';
+    html += '</div>';
+    html += '</button>';
+    html += '<div class="training-stage-body">';
+    if (favoriteItems.length === 0) {
+      html += '<div class="training-empty-hint">' + this._escapeHtml(t('trainingFavoritesEmpty')) + '</div>';
+    } else {
+      html += '<div class="training-group">';
+      favoriteItems.forEach(function(entry) {
+        // entry: { item, isCustom }
+        html += self._renderTrainingItem(entry.item, state, marks, lang, { isFavoriteView: true, isCustom: entry.isCustom });
+      });
+      html += '</div>';
+    }
+    html += '</div></div>';
+
+    // ── Katalog-Stufen ──
     TRAINING_CATALOG_B.forEach(function(stage) {
-      var stageMeta = self._trainingStageProgress(stage, state);
       var stageKey = stage.stage;
+      var stageCustoms = customs.filter(function(c) { return c.stage === stageKey; });
+      var stageMeta = self._trainingStageProgress(stage, state, stageCustoms);
       var isFirst = stageKey === 'grundstufe';
       html += '<div class="training-stage' + (isFirst ? ' is-open' : '') + '" data-stage="' + stageKey + '">';
       html += '<button type="button" class="training-stage-header" onclick="App._toggleTrainingStage(\'' + stageKey + '\')">';
@@ -9634,10 +9673,30 @@ var App = {
         html += '<div class="training-group">';
         if (group.name) html += '<h4 class="training-group-title">' + self._escapeHtml(tCatalog(group.name, lang)) + '</h4>';
         group.items.forEach(function(item) {
-          html += self._renderTrainingItem(item, state, marks, lang);
+          html += self._renderTrainingItem(item, state, marks, lang, { isCustom: false });
         });
         html += '</div>';
       });
+
+      // Custom-Kriterien des Fahrlehrers in dieser Stufe
+      if (stageCustoms.length > 0) {
+        html += '<div class="training-group">';
+        html += '<h4 class="training-group-title">' + self._escapeHtml(t('trainingCustomBadge').charAt(0).toUpperCase() + t('trainingCustomBadge').slice(1)) + '</h4>';
+        stageCustoms.forEach(function(c) {
+          // Custom-Item in Katalog-Item-Form konvertieren
+          var item = { id: c.id, type: c.topic_type, name: { de: c.name, en: c.name, tr: c.name, ar: c.name, es: c.name, fr: c.name, pt: c.name } };
+          html += self._renderTrainingItem(item, state, marks, lang, { isCustom: true });
+        });
+        html += '</div>';
+      }
+
+      // "+ Eigenes Kriterium hinzufuegen" Button
+      html += '<div class="training-add-row">';
+      html += '<button type="button" class="training-add-btn" onclick="App._openTrainingAddModal(\'' + stageKey + '\')">';
+      html += '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+      html += '<span>' + self._escapeHtml(t('trainingAddOwnCriterion')) + '</span>';
+      html += '</button>';
+      html += '</div>';
 
       html += '</div></div>';
     });
@@ -9645,21 +9704,68 @@ var App = {
     cardsEl.innerHTML = html;
   },
 
-  _renderTrainingItem: function(item, state, marks, lang) {
+  // Sammelt alle Items (Katalog + Custom), die als Favorit markiert sind, in Katalog-Reihenfolge.
+  _collectFavoriteItems: function() {
+    var favs = this._trainingFavorites || {};
+    var customs = this._trainingCustomTopics || [];
+    var out = [];
+    TRAINING_CATALOG_B.forEach(function(stage) {
+      stage.groups.forEach(function(group) {
+        group.items.forEach(function(item) {
+          if (favs[item.id]) out.push({ item: item, isCustom: false });
+        });
+      });
+    });
+    customs.forEach(function(c) {
+      if (favs[c.id]) {
+        var item = { id: c.id, type: c.topic_type, name: { de: c.name, en: c.name, tr: c.name, ar: c.name, es: c.name, fr: c.name, pt: c.name } };
+        out.push({ item: item, isCustom: true });
+      }
+    });
+    return out;
+  },
+
+  _renderTrainingItem: function(item, state, marks, lang, opts) {
+    opts = opts || {};
+    var isCustom = !!opts.isCustom;
     var current = state[item.id];
     var isLit = !!marks[item.id];
     var litClass = isLit ? ' training-item-lit' : '';
     var labelText = this._escapeHtml(tCatalog(item.name, lang));
+    var isFav = !!(this._trainingFavorites && this._trainingFavorites[item.id]);
+    var starClass = isFav ? ' is-fav' : '';
+    var starTitle = this._escapeHtml(t('trainingStarAria'));
+    // Stern-Button (rechts oben in der Zeile)
+    var starHtml = '<button type="button" class="training-star' + starClass + '" ' +
+                   'aria-label="' + starTitle + '" title="' + starTitle + '" ' +
+                   'onclick="event.stopPropagation(); App._onTrainingToggleFavorite(\'' + item.id + '\')">' +
+                   '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">' +
+                     '<path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14 2 9.27l6.91-1.01L12 2z"/>' +
+                   '</svg>' +
+                   '</button>';
+    // Custom-Loeschbutton (nur bei Custom)
+    var deleteHtml = '';
+    if (isCustom) {
+      deleteHtml = '<button type="button" class="training-delete-custom" ' +
+                   'aria-label="' + this._escapeHtml(t('trainingDeleteCustom')) + '" ' +
+                   'title="' + this._escapeHtml(t('trainingDeleteCustom')) + '" ' +
+                   'onclick="event.stopPropagation(); App._onTrainingDeleteCustom(\'' + item.id + '\')">' +
+                   '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M6 6l1 14a2 2 0 002 2h6a2 2 0 002-2l1-14"/></svg>' +
+                   '</button>';
+    }
+    var customBadge = isCustom ? ' <span class="training-custom-badge">' + this._escapeHtml(t('trainingCustomBadge')) + '</span>' : '';
+
     if (item.type === 'check') {
       var checked = current ? ' checked' : '';
       return (
-        '<div class="training-item' + litClass + '" data-item="' + item.id + '">' +
+        '<div class="training-item' + litClass + (isCustom ? ' training-item-custom' : '') + '" data-item="' + item.id + '">' +
           '<label class="training-item-label">' +
             '<input type="checkbox"' + checked + ' onchange="App._onTrainingCheck(\'' + item.id + '\', this.checked)">' +
-            '<span class="training-item-label-text">' + labelText +
+            '<span class="training-item-label-text">' + labelText + customBadge +
               (isLit ? ' <span class="training-item-lit-badge">' + this._escapeHtml(t('trainingDoneInLesson')) + '</span>' : '') +
             '</span>' +
           '</label>' +
+          '<div class="training-item-actions">' + starHtml + deleteHtml + '</div>' +
         '</div>'
       );
     }
@@ -9675,13 +9781,14 @@ var App = {
       ? val + '/5 \u00b7 ' + this._escapeHtml(tCatalog(TRAINING_RATING_LABELS[val], lang))
       : this._escapeHtml(tCatalog(TRAINING_RATING_LABELS[0], lang));
     return (
-      '<div class="training-item' + litClass + '" data-item="' + item.id + '">' +
+      '<div class="training-item' + litClass + (isCustom ? ' training-item-custom' : '') + '" data-item="' + item.id + '">' +
         '<div class="training-rating">' +
           '<div class="training-rating-top">' +
-            '<span class="training-rating-title">' + labelText +
+            '<span class="training-rating-title">' + labelText + customBadge +
               (isLit ? ' <span class="training-item-lit-badge">' + this._escapeHtml(t('trainingDoneInLesson')) + '</span>' : '') +
             '</span>' +
             '<span class="training-rating-value">' + valueLabel + '</span>' +
+            '<div class="training-item-actions">' + starHtml + deleteHtml + '</div>' +
           '</div>' +
           '<div class="training-rating-scale">' + cells + '</div>' +
         '</div>' +
@@ -9689,7 +9796,7 @@ var App = {
     );
   },
 
-  _trainingStageProgress: function(stage, state) {
+  _trainingStageProgress: function(stage, state, extraCustoms) {
     var total = 0, done = 0;
     var stageType = null;
     stage.groups.forEach(function(group) {
@@ -9700,6 +9807,14 @@ var App = {
         else if (item.type === 'rating' && state[item.id] > 0) done++;
       });
     });
+    // Custom-Kriterien mitzaehlen
+    if (extraCustoms && extraCustoms.length) {
+      extraCustoms.forEach(function(c) {
+        total++;
+        if (c.topic_type === 'check' && state[c.id]) done++;
+        else if (c.topic_type === 'rating' && state[c.id] > 0) done++;
+      });
+    }
     var key = stageType === 'check' ? 'trainingCheckedOfN' : 'trainingOfN';
     return { total: total, done: done, chip: t(key, { done: done, total: total }) };
   },
@@ -9707,6 +9822,131 @@ var App = {
   _toggleTrainingStage: function(stageId) {
     var el = document.querySelector('.training-stage[data-stage="' + stageId + '"]');
     if (el) el.classList.toggle('is-open');
+  },
+
+  _toggleTrainingFavorites: function() {
+    var el = document.querySelector('.training-stage-favorites');
+    if (el) el.classList.toggle('is-open');
+    this._trainingFavoritesOpen = el ? el.classList.contains('is-open') : !this._trainingFavoritesOpen;
+  },
+
+  // Findet den stage-Key fuer ein Katalog-ODER-Custom-Item.
+  _stageIdForItemAny: function(itemId) {
+    var stageId = this._stageIdForItem(itemId);
+    if (stageId) return stageId;
+    var customs = this._trainingCustomTopics || [];
+    for (var i = 0; i < customs.length; i++) {
+      if (customs[i].id === itemId) return customs[i].stage;
+    }
+    return null;
+  },
+
+  // Toggelt einen Favoriten fuer den Fahrlehrer. Optimistic UI + Server-Sync.
+  _onTrainingToggleFavorite: function(itemId) {
+    if (!this._trainingFavorites) this._trainingFavorites = {};
+    var newVal = !this._trainingFavorites[itemId];
+    if (newVal) this._trainingFavorites[itemId] = true;
+    else delete this._trainingFavorites[itemId];
+    this._rerenderTrainingStage('__favorites__');
+    ApiClient.post('/api/training-favorites', { topic_id: itemId, favorite: newVal }).catch(function(e) {
+      console.warn('[training-cards] favorite persist failed:', e && e.message);
+    });
+  },
+
+  // Oeffnet Modal fuer neues Custom-Kriterium in gegebener Stage.
+  _openTrainingAddModal: function(stageKey) {
+    var self = this;
+    // Vorhandenes Modal entfernen
+    var existing = document.getElementById('training-add-modal');
+    if (existing) existing.remove();
+    var titleText = this._escapeHtml(t('trainingAddOwnCriterion'));
+    var nameLabel = this._escapeHtml(t('trainingNewCriterionName'));
+    var typeLabel = this._escapeHtml(t('trainingNewCriterionType'));
+    var checkLabel = this._escapeHtml(t('trainingTypeCheck'));
+    var ratingLabel = this._escapeHtml(t('trainingTypeRating'));
+    var addBtn = this._escapeHtml(t('trainingAddBtn'));
+    var cancelBtn = this._escapeHtml(t('trainingCancelBtn'));
+    var html =
+      '<div class="modal-overlay" id="training-add-modal" onclick="if(event.target===this){App._closeTrainingAddModal();}">' +
+        '<div class="modal-card training-add-card" role="dialog" aria-modal="true">' +
+          '<h3 class="modal-title">' + titleText + '</h3>' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="tam-name">' + nameLabel + '</label>' +
+            '<input type="text" class="form-input" id="tam-name" maxlength="256" autocomplete="off">' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label">' + typeLabel + '</label>' +
+            '<div class="training-add-type-choice">' +
+              '<label class="radio-choice"><input type="radio" name="tam-type" value="rating" checked> <span>' + ratingLabel + '</span></label>' +
+              '<label class="radio-choice"><input type="radio" name="tam-type" value="check"> <span>' + checkLabel + '</span></label>' +
+            '</div>' +
+          '</div>' +
+          '<div class="modal-actions">' +
+            '<button type="button" class="btn btn-secondary" onclick="App._closeTrainingAddModal()">' + cancelBtn + '</button>' +
+            '<button type="button" class="btn btn-primary" id="tam-submit" onclick="App._submitTrainingAddModal(\'' + stageKey + '\')">' + addBtn + '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    var host = document.createElement('div');
+    host.innerHTML = html;
+    document.body.appendChild(host.firstChild);
+    setTimeout(function() { var inp = document.getElementById('tam-name'); if (inp) inp.focus(); }, 30);
+  },
+
+  _closeTrainingAddModal: function() {
+    var el = document.getElementById('training-add-modal');
+    if (el) el.remove();
+  },
+
+  _submitTrainingAddModal: async function(stageKey) {
+    var nameEl = document.getElementById('tam-name');
+    var typeEls = document.getElementsByName('tam-type');
+    var name = (nameEl && nameEl.value || '').trim();
+    if (!name || name.length < 2) { if (nameEl) nameEl.focus(); return; }
+    var topicType = 'rating';
+    for (var i = 0; i < typeEls.length; i++) { if (typeEls[i].checked) { topicType = typeEls[i].value; break; } }
+    var submitBtn = document.getElementById('tam-submit');
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      var resp = await ApiClient.post('/api/training-custom-topics', {
+        stage: stageKey,
+        name: name,
+        topic_type: topicType
+      });
+      if (resp && resp.id) {
+        if (!this._trainingCustomTopics) this._trainingCustomTopics = [];
+        this._trainingCustomTopics.push({
+          id: resp.id, stage: resp.stage, group_key: resp.group_key,
+          name: resp.name, topic_type: resp.topic_type, sort_order: 0
+        });
+      }
+      this._closeTrainingAddModal();
+      this._rerenderTrainingStage(stageKey);
+      if (this.showToast) this.showToast(t('trainingAddOwnCriterion'));
+    } catch (e) {
+      console.warn('[training-cards] add custom failed:', e && e.message);
+      if (this.showToast) this.showToast((e && e.message) || 'Fehler');
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  },
+
+  _onTrainingDeleteCustom: async function(topicId) {
+    if (!window.confirm(t('trainingDeleteCustom'))) return;
+    try {
+      await ApiClient.del('/api/training-custom-topics/' + encodeURIComponent(topicId));
+      // Aus lokalem State entfernen
+      if (this._trainingCustomTopics) {
+        this._trainingCustomTopics = this._trainingCustomTopics.filter(function(c) { return c.id !== topicId; });
+      }
+      if (this._trainingFavorites) delete this._trainingFavorites[topicId];
+      if (this._trainingState) delete this._trainingState[topicId];
+      if (this._trainingMarks) delete this._trainingMarks[topicId];
+      // Ganz neu rendern (Favoriten + Stage koennten betroffen sein)
+      this._renderTrainingCards();
+    } catch (e) {
+      console.warn('[training-cards] delete custom failed:', e && e.message);
+      if (this.showToast) this.showToast((e && e.message) || 'Fehler');
+    }
   },
 
   _onTrainingCheck: function(itemId, checked) {
@@ -9718,7 +9958,7 @@ var App = {
     this._persistTrainingMark(itemId, 'check', newValue);
     // Nur den Chip des Stages neu ausrechnen und die geuebt-Badge sichtbar machen —
     // wir rendern die ganze Stage neu (kleiner Aufwand, sicherer als DOM-Fummeln).
-    var stageId = this._stageIdForItem(itemId);
+    var stageId = this._stageIdForItemAny(itemId);
     if (stageId) this._rerenderTrainingStage(stageId);
   },
 
@@ -9730,7 +9970,7 @@ var App = {
     this._trainingState[itemId] = value;
     this._trainingMarks[itemId] = { value: value, type: 'rating' };
     this._persistTrainingMark(itemId, 'rating', value);
-    var stageId = this._stageIdForItem(itemId);
+    var stageId = this._stageIdForItemAny(itemId);
     if (stageId) this._rerenderTrainingStage(stageId);
   },
 

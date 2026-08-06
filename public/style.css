@@ -5287,3 +5287,199 @@ html[dir="rtl"] .notif-panel {
   background: var(--color-surface, #fff);
   color: var(--color-text);
 }
+
+/* ==== Favoriten + Stern-Button + Custom-Kriterien + Add-Modal ==== */
+
+/* Favoriten-Reiter oben — kleine visuelle Differenzierung */
+.training-stage-favorites .training-stage-header {
+  background: linear-gradient(180deg, rgba(214, 165, 45, 0.10), rgba(214, 165, 45, 0.04));
+}
+.training-stage-favorites .training-stage-star {
+  color: #D6A52D;
+  vertical-align: -3px;
+  margin-right: 4px;
+}
+.training-empty-hint {
+  padding: 14px 4px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Item-Actions: Stern + Delete rechts */
+.training-item-actions {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+.training-item-label {
+  align-items: center;
+}
+/* check-Variante: Actions rechts neben Label */
+.training-item > .training-item-label + .training-item-actions {
+  margin-left: auto;
+}
+.training-item:not(.training-rating) > .training-item-label {
+  flex: 1;
+}
+.training-item .training-item-label {
+  flex: 1;
+}
+
+/* Stern-Button */
+.training-star {
+  background: transparent;
+  border: 0;
+  padding: 6px;
+  border-radius: 8px;
+  color: var(--color-border, #d0ccc0);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.training-star:hover { background: rgba(0, 0, 0, 0.04); color: #B98C10; }
+.training-star:active { transform: scale(0.9); }
+.training-star.is-fav { color: #D6A52D; }
+.training-star.is-fav:hover { color: #B98C10; }
+
+/* Custom Item */
+.training-item-custom .training-item-label-text,
+.training-item-custom .training-rating-title {
+  /* etwas dezenter unterscheidbar */
+}
+.training-custom-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #7A5A00;
+  background: rgba(214, 165, 45, 0.16);
+  padding: 2px 6px;
+  border-radius: 999px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.training-delete-custom {
+  background: transparent;
+  border: 0;
+  padding: 6px;
+  border-radius: 8px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.training-delete-custom:hover { color: #A13544; background: rgba(161, 53, 68, 0.08); }
+
+/* "+ Eigenes Kriterium" Reihe am Ende der Stage */
+.training-add-row {
+  padding: 6px 0 4px;
+  display: flex;
+  justify-content: flex-start;
+}
+.training-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1.5px dashed var(--color-border, #d0ccc0);
+  color: var(--color-primary, #01696F);
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.training-add-btn:hover {
+  background: rgba(1, 105, 111, 0.05);
+  border-color: var(--color-primary, #01696F);
+}
+.training-add-btn:active { transform: scale(0.98); }
+
+/* Add-Modal */
+#training-add-modal.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 16px;
+}
+#training-add-modal .modal-card.training-add-card {
+  background: var(--color-surface, #fff);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 420px;
+  padding: 20px 20px 16px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+}
+#training-add-modal .modal-title {
+  margin: 0 0 14px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+#training-add-modal .form-group { margin-bottom: 14px; }
+#training-add-modal .form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+#training-add-modal .form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid var(--color-border, #d0ccc0);
+  border-radius: 10px;
+  font-size: 15px;
+  background: var(--color-bg, #f7f6f2);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+#training-add-modal .form-input:focus {
+  outline: none;
+  border-color: var(--color-primary, #01696F);
+  background: #fff;
+}
+.training-add-type-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.training-add-type-choice .radio-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--color-border, #d0ccc0);
+  border-radius: 10px;
+  cursor: pointer;
+  background: var(--color-bg, #f7f6f2);
+  font-size: 14px;
+}
+.training-add-type-choice .radio-choice input {
+  margin: 0;
+  accent-color: var(--color-primary, #01696F);
+}
+#training-add-modal .modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+#training-add-modal .btn { padding: 10px 16px; }

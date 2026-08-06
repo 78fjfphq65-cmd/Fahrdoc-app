@@ -6413,6 +6413,138 @@ app.post('/api/training-state/mark', authMiddleware, async (req, res) => {
 });
 
 // ============================================
+// Ausbildungsdiagramm — Favoriten + Custom-Kriterien pro Fahrlehrer
+// ============================================
+// Favoriten und Custom-Kriterien gehoeren dem Fahrlehrer und werden
+// automatisch bei ALLEN seinen Schuelern angezeigt.
+
+// GET /api/training-favorites — alle Favoriten des Fahrlehrers
+app.get('/api/training-favorites', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur f\u00fcr Fahrlehrer' });
+    const { data, error } = await supabase.from('instructor_training_favorites')
+      .select('topic_id, catalog_class, created_at')
+      .eq('instructor_id', req.user.id)
+      .eq('catalog_class', 'B');
+    if (error) throw error;
+    res.json({ items: data || [] });
+  } catch (err) {
+    console.error('[training-favorites GET]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/training-favorites — Body: { topic_id, favorite: true|false }
+// Togglet einen Favoriten fuer den eingeloggten Fahrlehrer.
+app.post('/api/training-favorites', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur f\u00fcr Fahrlehrer' });
+    const topicId = (req.body && req.body.topic_id) || null;
+    const favorite = !!(req.body && req.body.favorite);
+    if (!topicId) return res.status(400).json({ error: 'topic_id erforderlich' });
+
+    if (favorite) {
+      const { error } = await supabase.from('instructor_training_favorites').upsert({
+        instructor_id: req.user.id,
+        catalog_class: 'B',
+        topic_id: topicId
+      }, { onConflict: 'instructor_id,catalog_class,topic_id' });
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from('instructor_training_favorites')
+        .delete()
+        .eq('instructor_id', req.user.id)
+        .eq('catalog_class', 'B')
+        .eq('topic_id', topicId);
+      if (error) throw error;
+    }
+    res.json({ ok: true, favorite: favorite });
+  } catch (err) {
+    console.error('[training-favorites POST]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/training-custom-topics — alle Custom-Kriterien des Fahrlehrers
+app.get('/api/training-custom-topics', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur f\u00fcr Fahrlehrer' });
+    const { data, error } = await supabase.from('instructor_training_custom_topics')
+      .select('id, stage, group_key, name, topic_type, sort_order, created_at')
+      .eq('instructor_id', req.user.id)
+      .eq('catalog_class', 'B')
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    res.json({ items: data || [] });
+  } catch (err) {
+    console.error('[training-custom-topics GET]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/training-custom-topics — neues Custom-Kriterium anlegen
+// Body: { stage, group_key?, name, topic_type }
+app.post('/api/training-custom-topics', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur f\u00fcr Fahrlehrer' });
+    const body = req.body || {};
+    const stage = String(body.stage || '').trim();
+    const groupKey = body.group_key ? String(body.group_key).trim().slice(0, 128) : null;
+    const name = String(body.name || '').trim();
+    const topicType = String(body.topic_type || '').trim();
+
+    if (!stage) return res.status(400).json({ error: 'stage erforderlich' });
+    if (!name || name.length < 2) return res.status(400).json({ error: 'Name erforderlich (mind. 2 Zeichen)' });
+    if (name.length > 256) return res.status(400).json({ error: 'Name zu lang' });
+    if (topicType !== 'check' && topicType !== 'rating') return res.status(400).json({ error: 'topic_type muss check oder rating sein' });
+    // Erlaubte Stages: exakt die Katalog-Stufen
+    const allowedStages = ['grundstufe', 'grundfahraufgaben', 'aufbaustufe', 'leistungsstufe'];
+    if (allowedStages.indexOf(stage) === -1) return res.status(400).json({ error: 'Ungueltige stage' });
+
+    const id = 'ct_' + generateId();
+    const { error } = await supabase.from('instructor_training_custom_topics').insert({
+      id: id,
+      instructor_id: req.user.id,
+      catalog_class: 'B',
+      stage: stage,
+      group_key: groupKey,
+      name: name,
+      topic_type: topicType,
+      sort_order: 0
+    });
+    if (error) throw error;
+    res.json({ ok: true, id: id, stage: stage, group_key: groupKey, name: name, topic_type: topicType });
+  } catch (err) {
+    console.error('[training-custom-topics POST]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/training-custom-topics/:id — Custom-Kriterium loeschen
+app.delete('/api/training-custom-topics/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur f\u00fcr Fahrlehrer' });
+    const id = req.params.id;
+    // Sicherheit: nur eigene Eintraege
+    const { error } = await supabase.from('instructor_training_custom_topics')
+      .delete()
+      .eq('id', id)
+      .eq('instructor_id', req.user.id);
+    if (error) throw error;
+    // Zugehoerige Favoriten mit derselben topic_id ebenfalls entfernen
+    await supabase.from('instructor_training_favorites')
+      .delete()
+      .eq('instructor_id', req.user.id)
+      .eq('topic_id', id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[training-custom-topics DELETE]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
 // FALLBACK: Landing Page (/) + App-SPA (/app/*)
 // ============================================
 // /app ohne Slash -> auf /app/ umleiten (wichtig fuer <base href="/app/">)

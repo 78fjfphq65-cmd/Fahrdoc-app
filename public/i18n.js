@@ -601,7 +601,22 @@ var TRANSLATIONS = {
   trainingLastPracticed:   { de:'Zuletzt geübt', en:'Last practiced', tr:'Son uygulama', ar:'آخر تدريب', es:'Última práctica', fr:'Dernière pratique', pt:'Última prática' },
   trainingSummaryTitle:    { de:'Ausbildungsstand', en:'Training status', tr:'Eğitim durumu', ar:'حالة التدريب', es:'Estado de formación', fr:'État de formation', pt:'Estado de formação' },
   trainingReportTitle:     { de:'Ausbildungsdiagramm dieser Stunde', en:'Training diagram — this lesson', tr:'Bu dersin eğitim şeması', ar:'مخطط تدريب هذه الحصة', es:'Diagrama de formación de esta clase', fr:'Diagramme de formation — cette leçon', pt:'Diagrama de formação desta aula' },
-  trainingSummaryEmpty:    { de:'In dieser Fahrstunde wurden keine Karten bewertet.', en:'No cards were rated during this lesson.', tr:'Bu ders sırasında kart değerlendirilmedi.', ar:'لم يتم تقييم أي بطاقات خلال هذه الحصة.', es:'No se evaluaron tarjetas durante esta clase.', fr:'Aucune carte n’a été évaluée pendant cette leçon.', pt:'Nenhum cartão foi avaliado nesta aula.' }
+  trainingSummaryEmpty:    { de:'In dieser Fahrstunde wurden keine Karten bewertet.', en:'No cards were rated during this lesson.', tr:'Bu ders sırasında kart değerlendirilmedi.', ar:'لم يتم تقييم أي بطاقات خلال هذه الحصة.', es:'No se evaluaron tarjetas durante esta clase.', fr:'Aucune carte n’a été évaluée pendant cette leçon.', pt:'Nenhum cartão foi avaliado nesta aula.' },
+
+  // ── Favoriten + Custom-Kriterien ──
+  trainingFavoritesTitle:  { de:'Favoriten', en:'Favorites', tr:'Favoriler', ar:'المفضلة', es:'Favoritos', fr:'Favoris', pt:'Favoritos' },
+  trainingFavoritesSubtitle:{ de:'Deine mit Stern markierten Kriterien', en:'Your starred criteria', tr:'Yıldızlı kriterlerin', ar:'معاييرك المميّزة', es:'Tus criterios destacados', fr:'Tes critères favoris', pt:'Seus critérios com estrela' },
+  trainingFavoritesEmpty:  { de:'Noch keine Favoriten. Tippe auf den Stern neben einem Kriterium, um es hier zu sammeln.', en:'No favorites yet. Tap the star next to a criterion to collect it here.', tr:'Henüz favori yok. Bir kriterin yanındaki yıldıza dokunarak buraya ekle.', ar:'لا توجد مفضلات. اضغط على النجمة بجانب أي معيار.', es:'Todavía no hay favoritos. Toca la estrella al lado de un criterio.', fr:'Pas encore de favoris. Appuie sur l’étoile à côté d’un critère.', pt:'Sem favoritos ainda. Toque na estrela ao lado de um critério.' },
+  trainingAddOwnCriterion: { de:'Eigenes Kriterium hinzufügen', en:'Add own criterion', tr:'Kendi kriterini ekle', ar:'أضف معيارًا خاصًا', es:'Añadir criterio propio', fr:'Ajouter un critère', pt:'Adicionar critério próprio' },
+  trainingNewCriterionName:{ de:'Bezeichnung', en:'Name', tr:'Ad', ar:'الاسم', es:'Nombre', fr:'Nom', pt:'Nome' },
+  trainingNewCriterionType:{ de:'Bewertungstyp', en:'Rating type', tr:'Değerlendirme türü', ar:'نوع التقييم', es:'Tipo de evaluación', fr:'Type d’évaluation', pt:'Tipo de avaliação' },
+  trainingTypeCheck:       { de:'Abhaken (geübt / nicht geübt)', en:'Checkbox (done / not done)', tr:'Onay kutusu', ar:'خانة اختيار', es:'Casilla', fr:'Case à cocher', pt:'Marcação' },
+  trainingTypeRating:      { de:'Regler 1–5', en:'Slider 1–5', tr:'Kaydırıcı 1–5', ar:'متدرّج 1–5', es:'Regulador 1–5', fr:'Curseur 1–5', pt:'Régua 1–5' },
+  trainingCustomBadge:     { de:'eigenes', en:'own', tr:'özel', ar:'خاص', es:'propio', fr:'personnel', pt:'próprio' },
+  trainingDeleteCustom:    { de:'Eigenes Kriterium löschen?', en:'Delete own criterion?', tr:'Kendi kriteri sil?', ar:'حذف المعيار الخاص؟', es:'¿Eliminar criterio propio?', fr:'Supprimer ce critère ?', pt:'Excluir critério próprio?' },
+  trainingAddBtn:          { de:'Hinzufügen', en:'Add', tr:'Ekle', ar:'إضافة', es:'Añadir', fr:'Ajouter', pt:'Adicionar' },
+  trainingCancelBtn:       { de:'Abbrechen', en:'Cancel', tr:'İptal', ar:'إلغاء', es:'Cancelar', fr:'Annuler', pt:'Cancelar' },
+  trainingStarAria:        { de:'Als Favorit markieren', en:'Mark as favorite', tr:'Favori olarak işaretle', ar:'وضع في المفضلة', es:'Marcar como favorito', fr:'Marquer comme favori', pt:'Marcar como favorito' }
 };
 
 // ── Day names by language ──
