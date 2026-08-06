@@ -5311,21 +5311,36 @@ html[dir="rtl"] .notif-panel {
   display: inline-flex;
   gap: 4px;
   align-items: center;
-  margin-left: 6px;
   flex-shrink: 0;
 }
 .training-item-label {
   align-items: center;
 }
-/* check-Variante: Actions rechts neben Label */
-.training-item > .training-item-label + .training-item-actions {
+/* Check-Variante: .training-item ist Flex-Container, damit Actions rechts neben Label sitzen */
+.training-item:has(> .training-item-label) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.training-item > .training-item-label {
+  flex: 1;
+  min-width: 0;
+}
+.training-item > .training-item-actions {
   margin-left: auto;
 }
-.training-item:not(.training-rating) > .training-item-label {
-  flex: 1;
+/* Fallback fuer Browser ohne :has() — nutzt zusaetzliche Klasse */
+.training-item-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.training-item .training-item-label {
+.training-item-check-row > .training-item-label {
   flex: 1;
+  min-width: 0;
+}
+.training-item-check-row > .training-item-actions {
+  margin-left: auto;
 }
 
 /* Stern-Button */

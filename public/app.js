@@ -9758,7 +9758,7 @@ var App = {
     if (item.type === 'check') {
       var checked = current ? ' checked' : '';
       return (
-        '<div class="training-item' + litClass + (isCustom ? ' training-item-custom' : '') + '" data-item="' + item.id + '">' +
+        '<div class="training-item training-item-check-row' + litClass + (isCustom ? ' training-item-custom' : '') + '" data-item="' + item.id + '">' +
           '<label class="training-item-label">' +
             '<input type="checkbox"' + checked + ' onchange="App._onTrainingCheck(\'' + item.id + '\', this.checked)">' +
             '<span class="training-item-label-text">' + labelText + customBadge +
