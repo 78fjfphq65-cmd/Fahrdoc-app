@@ -11717,14 +11717,11 @@ var App = {
     var self = this;
     var lesson = opts.lesson || {};
     var email = String(lesson.studentEmail || '').trim();
-    var phone = String(lesson.studentPhone || '').trim();
     var dateLabel = self.formatDate(lesson.date);
     var studentName = String(lesson.studentName || '').trim();
-    var greeting = studentName ? ('Hallo ' + studentName + ', ') : '';
-    var shareText = greeting + 'im Anhang findest du deinen Fahrstunden-Bericht vom ' + dateLabel + '.';
 
-    // Fallback: nichts hinterlegt → alter Share-Sheet-Flow
-    if (!email && !phone) {
+    // Fallback: keine E-Mail hinterlegt → alter Share-Sheet-Flow
+    if (!email) {
       self._shareLessonPdfFallback(opts);
       return;
     }
@@ -11739,34 +11736,14 @@ var App = {
     var cancelLabel = (typeof t === 'function' ? t('abbrechen') : '') || 'Abbrechen';
     var titleLabel = 'Bericht senden an ' + (studentName || 'Sch\u00fcler');
 
-    // Buttons je nach vorhandenen Daten
-    var buttonsHtml = '';
-    if (email) {
-      buttonsHtml +=
-        '<button type="button" class="btn btn-primary" data-action="email" ' +
-        'style="width:100%;display:flex;align-items:center;gap:12px;justify-content:flex-start;padding:14px 16px;font-size:15px;margin-bottom:10px;text-align:left;">' +
-          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px;flex-shrink:0;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>' +
-          '<span style="flex:1;"><span style="display:block;font-weight:600;">Per E-Mail senden</span>' +
-          '<span style="display:block;font-size:12px;opacity:0.85;font-weight:400;">' + self._escapeHtml(email) + '</span></span>' +
-        '</button>';
-    }
-    if (phone) {
-      var phoneClean = self._normalizePhoneForLinks(phone);
-      buttonsHtml +=
-        '<button type="button" class="btn btn-secondary" data-action="whatsapp" ' +
-        'style="width:100%;display:flex;align-items:center;gap:12px;justify-content:flex-start;padding:14px 16px;font-size:15px;margin-bottom:10px;text-align:left;background:#25D366;color:#fff;border-color:#25D366;">' +
-          '<svg viewBox="0 0 24 24" fill="currentColor" style="width:22px;height:22px;flex-shrink:0;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/></svg>' +
-          '<span style="flex:1;"><span style="display:block;font-weight:600;">Per WhatsApp senden</span>' +
-          '<span style="display:block;font-size:12px;opacity:0.9;font-weight:400;">' + self._escapeHtml(phone) + '</span></span>' +
-        '</button>';
-      buttonsHtml +=
-        '<button type="button" class="btn btn-secondary" data-action="sms" ' +
-        'style="width:100%;display:flex;align-items:center;gap:12px;justify-content:flex-start;padding:14px 16px;font-size:15px;margin-bottom:10px;text-align:left;">' +
-          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px;flex-shrink:0;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
-          '<span style="flex:1;"><span style="display:block;font-weight:600;">Per SMS senden</span>' +
-          '<span style="display:block;font-size:12px;opacity:0.85;font-weight:400;">' + self._escapeHtml(phone) + '</span></span>' +
-        '</button>';
-    }
+    // E-Mail-Button (immer wenn wir hier sind)
+    var buttonsHtml =
+      '<button type="button" class="btn btn-primary" data-action="email" ' +
+      'style="width:100%;display:flex;align-items:center;gap:12px;justify-content:flex-start;padding:14px 16px;font-size:15px;margin-bottom:10px;text-align:left;">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px;flex-shrink:0;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>' +
+        '<span style="flex:1;"><span style="display:block;font-weight:600;">Per E-Mail senden</span>' +
+        '<span style="display:block;font-size:12px;opacity:0.85;font-weight:400;">' + self._escapeHtml(email) + '</span></span>' +
+      '</button>';
     // Immer verfuegbar: normales Teilen + Download
     buttonsHtml +=
       '<button type="button" class="btn btn-secondary" data-action="share" ' +
@@ -11801,12 +11778,6 @@ var App = {
       if (action === 'email') {
         close();
         self._sendLessonReportViaEmail(opts, email, dateLabel);
-      } else if (action === 'whatsapp') {
-        close();
-        self._sendLessonReportViaWhatsApp(opts, phone, shareText);
-      } else if (action === 'sms') {
-        close();
-        self._sendLessonReportViaSms(opts, phone, shareText);
       } else if (action === 'share') {
         close();
         self._shareLessonPdfFallback(opts);
@@ -11838,71 +11809,6 @@ var App = {
     }
   },
 
-  // WhatsApp: Auf iOS/Android oeffnet das System-Share-Sheet mit der PDF — User tippt
-  // "WhatsApp", waehlt den Kontakt, PDF ist bereits angehaengt. Fallback: wa.me + Download.
-  _sendLessonReportViaWhatsApp: async function(opts, phone, shareText) {
-    var self = this;
-
-    // Bevorzugter Weg: Share-Sheet mit PDF-Datei
-    if (opts.file && navigator.canShare && navigator.canShare({ files: [opts.file] })) {
-      try {
-        await navigator.share({
-          files: [opts.file],
-          title: 'Fahrstunden-Bericht',
-          text: shareText
-        });
-        self.showToast('Bericht geteilt \u2014 Empf\u00e4nger ausw\u00e4hlen und senden.');
-        return;
-      } catch (shareErr) {
-        if (shareErr && shareErr.name === 'AbortError') return;
-        // Weiterreichen an Fallback
-      }
-    }
-
-    // Fallback: wa.me-Chat + Download
-    var phoneDigits = self._normalizePhoneForLinks(phone);
-    var waUrl = 'https://wa.me/' + phoneDigits + '?text=' + encodeURIComponent(shareText);
-    setTimeout(function(){
-      try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
-    }, 800);
-    window.location.href = waUrl;
-    self.showToast('WhatsApp ge\u00f6ffnet. PDF wird gespeichert \u2014 bitte einmal \u00fcber \uff0b anh\u00e4ngen.');
-  },
-
-  // SMS: Auf iOS oeffnet das System-Share-Sheet mit der PDF — User tippt "Nachrichten",
-  // waehlt den Empfaenger, PDF ist bereits angehaengt. Fallback: sms:-Link + Download.
-  _sendLessonReportViaSms: async function(opts, phone, shareText) {
-    var self = this;
-    var isIOS = /iP(hone|ad|od)/i.test(navigator.userAgent);
-
-    // Bevorzugter Weg auf iOS: Share-Sheet mit PDF-Datei — zeigt "Nachrichten" als Ziel,
-    // und die iMessage-Komposition oeffnet mit angehaengter Datei.
-    if (opts.file && navigator.canShare && navigator.canShare({ files: [opts.file] })) {
-      try {
-        await navigator.share({
-          files: [opts.file],
-          title: 'Fahrstunden-Bericht',
-          text: shareText
-        });
-        self.showToast('Bericht geteilt \u2014 Empf\u00e4nger ausw\u00e4hlen und senden.');
-        return;
-      } catch (shareErr) {
-        if (shareErr && shareErr.name === 'AbortError') return;
-        // Weiterreichen an Fallback
-      }
-    }
-
-    // Fallback (Desktop-Browser, Android ohne File-Share): sms:-Link + Download
-    var phonePlus = self._normalizePhoneForLinks(phone, true);
-    var sep = isIOS ? '&' : '?';
-    var smsUrl = 'sms:' + phonePlus + sep + 'body=' + encodeURIComponent(shareText);
-    setTimeout(function(){
-      try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
-    }, 800);
-    window.location.href = smsUrl;
-    self.showToast('SMS ge\u00f6ffnet. PDF wird gespeichert \u2014 bitte einmal \u00fcber Anhang w\u00e4hlen.');
-  },
-
   // Fallback: System-Share oder Download (wie bisher)
   _shareLessonPdfFallback: async function(opts) {
     var self = this;
@@ -11922,23 +11828,6 @@ var App = {
     }
     try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
     self.showToast(t('berichtErstellt') || 'Bericht erstellt');
-  },
-
-  // Hilfsfunktion: Telefonnummer fuer wa.me/sms: normalisieren
-  // withPlus=true → mit '+' Praefix (fuer sms:), sonst nur Ziffern (fuer wa.me)
-  _normalizePhoneForLinks: function(phone, withPlus) {
-    var s = String(phone || '').trim();
-    // Deutsche 0-Praefix zu +49 umschreiben, wenn keine Laendervorwahl da
-    var digits = s.replace(/[^\d+]/g, '');
-    if (digits.charAt(0) === '+') {
-      digits = digits.replace(/[^\d]/g, '');
-      return withPlus ? ('+' + digits) : digits;
-    }
-    // Fuehrende 0 in Deutschland → +49
-    if (digits.charAt(0) === '0') {
-      digits = '49' + digits.slice(1);
-    }
-    return withPlus ? ('+' + digits) : digits;
   },
 
   // Zeichnet eine schematische Routen-Karte direkt in jsPDF.
