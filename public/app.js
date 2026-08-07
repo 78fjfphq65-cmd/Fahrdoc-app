@@ -9559,6 +9559,9 @@ var App = {
     var gpsStatus = document.getElementById('gps-status');
     if (mapEl) mapEl.style.display = 'none';
     if (gpsStatus) gpsStatus.style.display = 'none';
+    // Overlay-Zeile (GPS-Pille + Zentrieren-Button) im Karten-Modus komplett verstecken
+    var overlayEl = document.getElementById('lesson-map-overlay');
+    if (overlayEl) overlayEl.style.display = 'none';
     // Bottom-Panel schmaler machen: nur Timer + Beenden — keine Marker/Karten/Stats
     if (mapPanel) mapPanel.classList.add('mode-cards');
     // GPS/Marker/Distanz-Zellen ausblenden
@@ -9608,6 +9611,8 @@ var App = {
     var mapPanel = document.getElementById('lesson-map-panel');
     if (mapEl) mapEl.style.display = '';
     if (gpsStatus) gpsStatus.style.display = '';
+    var overlayEl = document.getElementById('lesson-map-overlay');
+    if (overlayEl) overlayEl.style.display = '';
     if (cardsEl) { cardsEl.style.display = 'none'; cardsEl.innerHTML = ''; }
     if (mapPanel) mapPanel.classList.remove('mode-cards');
     var statsRow = mapPanel && mapPanel.querySelector('.lesson-stats-row');
@@ -12781,6 +12786,64 @@ var App = {
     if (qmContainer && !qmContainer.querySelector('.quick-marker-bar')) {
       qmContainer.innerHTML = this.renderQuickMarkerBar();
     }
+    // Overlay-Zeile (GPS-Pille + Zentrieren-Button) einmal initial positionieren
+    // und einen ResizeObserver setzen, damit sie mitwandert, wenn die Sheet
+    // ein- oder ausgeklappt wird.
+    this._positionMapOverlay();
+    this._observeMapOverlay();
+  },
+
+  // Overlay-Zeile knapp über die Oberkante des Bottom-Sheets legen.
+  // Wird sowohl initial als auch bei Sheet-Resize aufgerufen.
+  _positionMapOverlay: function() {
+    var overlay = document.getElementById('lesson-map-overlay');
+    var panel = document.getElementById('lesson-map-panel');
+    if (!overlay || !panel) return;
+    // Panel-Höhe messen und Overlay direkt darüber setzen (12px Abstand).
+    var h = panel.getBoundingClientRect().height;
+    overlay.style.bottom = (Math.round(h) + 12) + 'px';
+  },
+
+  // ResizeObserver installieren, damit die Overlay-Zeile automatisch mitwandert,
+  // wenn sich die Sheet-Höhe ändert (Auf-/Zuklappen, Content-Änderung).
+  _observeMapOverlay: function() {
+    if (AppState._mapOverlayResizeObserver) return; // schon aktiv
+    var panel = document.getElementById('lesson-map-panel');
+    if (!panel || typeof ResizeObserver === 'undefined') return;
+    var self = this;
+    AppState._mapOverlayResizeObserver = new ResizeObserver(function() {
+      self._positionMapOverlay();
+    });
+    AppState._mapOverlayResizeObserver.observe(panel);
+  },
+
+  // Karte auf die zuletzt bekannte GPS-Position zentrieren. Fällt zurück auf
+  // das aktuelle Kartenzentrum, wenn noch kein Fix vorliegt.
+  recenterMap: function() {
+    if (!AppState.map) return;
+    var pos = AppState.lastKnownPos;
+    if (pos && typeof pos.lat === 'number' && typeof pos.lng === 'number') {
+      AppState.map.panTo(pos);
+      // Standard-Zoom-Level fuer Fahrschul-Ansicht wiederherstellen, falls der
+      // Nutzer weit rausgezoomt hatte.
+      if (AppState.map.getZoom() < 14) AppState.map.setZoom(17);
+      // Sheet-Overlap ausgleichen: Punkt in die Mitte des sichtbaren Bereichs
+      // schieben (analog zur Live-GPS-Zentrierung).
+      try {
+        var panel = document.getElementById('lesson-map-panel');
+        var mapEl = document.getElementById('lesson-map');
+        if (panel && mapEl) {
+          var pr = panel.getBoundingClientRect();
+          var mr = mapEl.getBoundingClientRect();
+          var overlap = Math.max(0, mr.bottom - pr.top);
+          var offsetY = Math.round(overlap / 2);
+          if (offsetY > 0) AppState.map.panBy(0, offsetY);
+        }
+      } catch (_e) { /* nicht kritisch */ }
+    } else {
+      // Kein Fix bisher: Nutzer informieren, statt stillschweigend nichts zu tun.
+      this.showToast(t('gpsWirdGesucht'));
+    }
   },
 
   startGPS: function() {
@@ -12867,6 +12930,9 @@ var App = {
             AppState.mapPolylineCasing.getPath().push(latLng);
           }
           AppState.mapCurrentPos.setPosition({ lat: smoothLat, lng: smoothLng });
+          // Aktuelle Position merken, damit der Zentrieren-Button darauf zurückspringen kann,
+          // auch wenn der Nutzer die Karte zwischendurch manuell verschoben hat.
+          AppState.lastKnownPos = { lat: smoothLat, lng: smoothLng };
           AppState.map.panTo({ lat: smoothLat, lng: smoothLng });
           // Bottom-Sheet verdeckt den unteren Kartenbereich — den Standort-Punkt
           // in den sichtbaren Bereich schieben, indem wir das Zentrum vertikal
@@ -13326,6 +13392,13 @@ var App = {
     AppState.map = null;
     AppState.mapPolyline = null;
     AppState.mapCurrentPos = null;
+    AppState.lastKnownPos = null;
+    // ResizeObserver für die Overlay-Zeile abhängen, damit er nicht auf
+    // toten Panels weiterläuft.
+    if (AppState._mapOverlayResizeObserver) {
+      try { AppState._mapOverlayResizeObserver.disconnect(); } catch (_e) {}
+      AppState._mapOverlayResizeObserver = null;
+    }
   },
 
   // ──── REVIEW MAP ────

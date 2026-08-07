@@ -441,10 +441,19 @@
       <div id="lesson-cards-container" style="display:none;flex:1;min-height:0;overflow-y:auto;background:var(--color-bg,#f7f6f2);"></div>
       <!-- Modus 'examiner': Karte (Sichtbarkeit per JS toggeln) -->
       <div id="lesson-map" style="flex:1;min-height:0;"></div>
-      <!-- GPS status indicator -->
-      <div id="gps-status" class="gps-status">
-        <span class="gps-status-dot" aria-hidden="true"></span>
-        <span id="gps-status-text">GPS wird gesucht…</span>
+      <!-- Overlay-Zeile direkt über dem Bottom-Sheet:
+           links die GPS-Pille, rechts der Zentrieren-Button -->
+      <div id="lesson-map-overlay" class="lesson-map-overlay">
+        <div id="gps-status" class="gps-status">
+          <span class="gps-status-dot" aria-hidden="true"></span>
+          <span id="gps-status-text">GPS wird gesucht…</span>
+        </div>
+        <button type="button" id="map-recenter-btn" class="map-recenter-btn" aria-label="Karte auf Standort zentrieren" onclick="App.recenterMap()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+          </svg>
+        </button>
       </div>
       <!-- Bottom panel over the map -->
       <div id="lesson-map-panel">
