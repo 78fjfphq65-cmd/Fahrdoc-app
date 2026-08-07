@@ -8,7 +8,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const { supabase, generateToken, generateId, hashPassword, verifyPassword } = require('./db');
-const { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail, sendStudentSetupEmail, sendSchoolWelcomeEmail } = require('./email');
+const { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail, sendStudentSetupEmail, sendSchoolWelcomeEmail, sendLessonReportEmail } = require('./email');
 const Stripe = require('stripe');
 const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -1800,8 +1800,10 @@ app.get('/api/lesson/:id', authMiddleware, async (req, res) => {
     });
 
     const { data: student } = await supabase.from('students')
-      .select('name').eq('id', lesson.student_id).single();
+      .select('name, email, phone').eq('id', lesson.student_id).single();
     lesson.studentName = student ? student.name : '?';
+    lesson.studentEmail = student ? (student.email || '') : '';
+    lesson.studentPhone = student ? (student.phone || '') : '';
 
     const { data: images } = await supabase.from('lesson_images')
       .select('id, filename, data').eq('lesson_id', lesson.id);
@@ -1832,6 +1834,79 @@ app.get('/api/lesson/:id', authMiddleware, async (req, res) => {
 
     res.json(lesson);
   } catch (err) {
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// POST /api/lesson/:id/send-report
+// Verschickt einen Fahrstunden-Bericht als E-Mail mit PDF-Anhang direkt an den Schüler.
+// Body: { pdfBase64: string (ohne data-uri Praefix), filename?: string, dateLabel?: string }
+app.post('/api/lesson/:id/send-report', authMiddleware, async (req, res) => {
+  try {
+    if (!(req.user.role === 'instructor' || req.user.role === 'school')) {
+      return res.status(403).json({ error: 'Nur Fahrlehrer oder Fahrschulen d\u00fcrfen Berichte verschicken' });
+    }
+    const lessonId = req.params.id;
+    const { pdfBase64, filename, dateLabel } = req.body || {};
+    if (!pdfBase64 || typeof pdfBase64 !== 'string' || pdfBase64.length < 100) {
+      return res.status(400).json({ error: 'PDF fehlt' });
+    }
+    // Erlaubt auch data-uri Praefix: strippen
+    const cleanBase64 = pdfBase64.replace(/^data:[^;]+;base64,/, '').replace(/\s+/g, '');
+
+    const { data: lesson } = await supabase.from('lessons')
+      .select('id, student_id, instructor_id, school_id, date').eq('id', lessonId).maybeSingle();
+    if (!lesson) return res.status(404).json({ error: 'Fahrstunde nicht gefunden' });
+
+    // Autorisierung: Instructor muss eigene Fahrstunde sein, School muss seine School sein
+    if (req.user.role === 'instructor' && lesson.instructor_id !== req.user.id) {
+      return res.status(403).json({ error: 'Kein Zugriff auf diese Fahrstunde' });
+    }
+    if (req.user.role === 'school' && lesson.school_id !== req.user.id) {
+      return res.status(403).json({ error: 'Kein Zugriff auf diese Fahrstunde' });
+    }
+
+    const { data: student } = await supabase.from('students')
+      .select('id, name, email').eq('id', lesson.student_id).maybeSingle();
+    if (!student) return res.status(404).json({ error: 'Sch\u00fcler nicht gefunden' });
+    if (!student.email) return res.status(400).json({ error: 'Beim Sch\u00fcler ist keine E-Mail hinterlegt' });
+
+    // Absender-Name ermitteln
+    let senderName = '';
+    let senderKind = 'instructor';
+    if (req.user.role === 'school') {
+      senderKind = 'school';
+      const { data: sch } = await supabase.from('schools').select('name').eq('id', req.user.id).maybeSingle();
+      senderName = (sch && sch.name) || '';
+    } else {
+      const { data: inst } = await supabase.from('instructors').select('name, account_type, school_id').eq('id', req.user.id).maybeSingle();
+      if (inst) {
+        senderName = inst.name || '';
+        if (inst.school_id && !inst.name) {
+          const { data: sch2 } = await supabase.from('schools').select('name').eq('id', inst.school_id).maybeSingle();
+          if (sch2 && sch2.name) senderName = sch2.name;
+        }
+      }
+    }
+
+    const safeFilename = String(filename || 'Fahrstunden-Bericht.pdf')
+      .replace(/[^a-zA-Z0-9_\-. ]/g, '').slice(0, 120) || 'Fahrstunden-Bericht.pdf';
+
+    const mailRes = await sendLessonReportEmail({
+      to: student.email,
+      studentName: student.name,
+      senderName: senderName,
+      senderKind: senderKind,
+      dateLabel: dateLabel || '',
+      pdfBase64: cleanBase64,
+      filename: safeFilename
+    });
+    if (!mailRes.success) {
+      return res.status(502).json({ error: mailRes.error || 'E-Mail konnte nicht gesendet werden' });
+    }
+    res.json({ ok: true, to: student.email });
+  } catch (err) {
+    console.error('[LESSON-SEND-REPORT] error:', err);
     res.status(500).json({ error: 'Serverfehler' });
   }
 });

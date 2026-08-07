@@ -11666,13 +11666,196 @@ var App = {
     var fileBase = String(pdfT('pdfDateiName') || 'Lesson').replace(/[^a-zA-Z0-9_\- ]/g, '').replace(/\s+/g, '_') || 'Lesson';
     var filename = fileBase + '_' + safeName + '_' + datePart + '.pdf';
 
-    // Web Share API (mit Datei) wenn unterstützt, sonst Download
+    // Versand-Dialog mit Optionen: Direkt-Mail, WhatsApp, SMS, Teilen, Download
+    var blob = doc.output('blob');
+    var pdfBase64 = doc.output('datauristring').replace(/^data:[^;]+;base64,/, '');
+    var file = null;
+    try { file = new File([blob], filename, { type: 'application/pdf' }); } catch (e) {}
+    self._openLessonSendDialog({
+      lesson: lesson,
+      filename: filename,
+      blob: blob,
+      file: file,
+      pdfBase64: pdfBase64,
+      doc: doc
+    });
+  },
+
+  // ══════════════════════════════════════════
+  //  BERICHT VERSAND-DIALOG
+  // ══════════════════════════════════════════
+  // Bietet je nach hinterlegten Kontaktdaten Direktversand-Optionen an.
+  _openLessonSendDialog: function(opts) {
+    var self = this;
+    var lesson = opts.lesson || {};
+    var email = String(lesson.studentEmail || '').trim();
+    var phone = String(lesson.studentPhone || '').trim();
+    var dateLabel = self.formatDate(lesson.date);
+    var studentName = String(lesson.studentName || '').trim();
+    var greeting = studentName ? ('Hallo ' + studentName + ', ') : '';
+    var shareText = greeting + 'im Anhang findest du deinen Fahrstunden-Bericht vom ' + dateLabel + '.';
+
+    // Fallback: nichts hinterlegt → alter Share-Sheet-Flow
+    if (!email && !phone) {
+      self._shareLessonPdfFallback(opts);
+      return;
+    }
+
+    var modalId = 'lesson-send-modal';
+    var existing = document.getElementById(modalId);
+    if (existing) existing.remove();
+    var modal = document.createElement('div');
+    modal.id = modalId;
+    modal.className = 'modal-overlay active';
+
+    var cancelLabel = (typeof t === 'function' ? t('abbrechen') : '') || 'Abbrechen';
+    var titleLabel = 'Bericht senden an ' + (studentName || 'Sch\u00fcler');
+
+    // Buttons je nach vorhandenen Daten
+    var buttonsHtml = '';
+    if (email) {
+      buttonsHtml +=
+        '<button type="button" class="btn btn-primary" data-action="email" ' +
+        'style="width:100%;display:flex;align-items:center;gap:12px;justify-content:flex-start;padding:14px 16px;font-size:15px;margin-bottom:10px;text-align:left;">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px;flex-shrink:0;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>' +
+          '<span style="flex:1;"><span style="display:block;font-weight:600;">Per E-Mail senden</span>' +
+          '<span style="display:block;font-size:12px;opacity:0.85;font-weight:400;">' + self._escapeHtml(email) + '</span></span>' +
+        '</button>';
+    }
+    if (phone) {
+      var phoneClean = self._normalizePhoneForLinks(phone);
+      buttonsHtml +=
+        '<button type="button" class="btn btn-secondary" data-action="whatsapp" ' +
+        'style="width:100%;display:flex;align-items:center;gap:12px;justify-content:flex-start;padding:14px 16px;font-size:15px;margin-bottom:10px;text-align:left;background:#25D366;color:#fff;border-color:#25D366;">' +
+          '<svg viewBox="0 0 24 24" fill="currentColor" style="width:22px;height:22px;flex-shrink:0;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/></svg>' +
+          '<span style="flex:1;"><span style="display:block;font-weight:600;">Per WhatsApp senden</span>' +
+          '<span style="display:block;font-size:12px;opacity:0.9;font-weight:400;">' + self._escapeHtml(phone) + '</span></span>' +
+        '</button>';
+      buttonsHtml +=
+        '<button type="button" class="btn btn-secondary" data-action="sms" ' +
+        'style="width:100%;display:flex;align-items:center;gap:12px;justify-content:flex-start;padding:14px 16px;font-size:15px;margin-bottom:10px;text-align:left;">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px;flex-shrink:0;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+          '<span style="flex:1;"><span style="display:block;font-weight:600;">Per SMS senden</span>' +
+          '<span style="display:block;font-size:12px;opacity:0.85;font-weight:400;">' + self._escapeHtml(phone) + '</span></span>' +
+        '</button>';
+    }
+    // Immer verfuegbar: normales Teilen + Download
+    buttonsHtml +=
+      '<button type="button" class="btn btn-secondary" data-action="share" ' +
+      'style="width:100%;display:flex;align-items:center;gap:12px;justify-content:flex-start;padding:14px 16px;font-size:15px;margin-bottom:10px;text-align:left;">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px;flex-shrink:0;"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>' +
+        '<span style="flex:1;"><span style="display:block;font-weight:600;">Anders teilen</span>' +
+        '<span style="display:block;font-size:12px;opacity:0.75;font-weight:400;">System-Teilen oder Download</span></span>' +
+      '</button>';
+
+    modal.innerHTML = '<div class="modal-content" style="max-width:420px;">' +
+      '<div class="modal-header"><h3 style="margin:0;font-size:16px;">' + self._escapeHtml(titleLabel) + '</h3>' +
+        '<button class="icon-btn" data-action="close" aria-label="' + cancelLabel + '">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+        '</button></div>' +
+      '<div class="modal-body" style="padding:14px 18px 18px;">' +
+        buttonsHtml +
+        '<button type="button" data-action="close" class="btn btn-secondary" style="width:100%;margin-top:4px;">' + cancelLabel + '</button>' +
+      '</div></div>';
+    document.body.appendChild(modal);
+
+    var close = function() {
+      modal.classList.remove('active');
+      setTimeout(function() { if (modal.parentNode) modal.parentNode.removeChild(modal); }, 200);
+    };
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) return close();
+      var btn = e.target.closest('button');
+      if (!btn) return;
+      var action = btn.getAttribute('data-action');
+      if (!action) return;
+      if (action === 'close') return close();
+      if (action === 'email') {
+        close();
+        self._sendLessonReportViaEmail(opts, email, dateLabel);
+      } else if (action === 'whatsapp') {
+        close();
+        self._sendLessonReportViaWhatsApp(opts, phone, shareText);
+      } else if (action === 'sms') {
+        close();
+        self._sendLessonReportViaSms(opts, phone, shareText);
+      } else if (action === 'share') {
+        close();
+        self._shareLessonPdfFallback(opts);
+      }
+    });
+  },
+
+  // Server-Versand per E-Mail
+  _sendLessonReportViaEmail: async function(opts, email, dateLabel) {
+    var self = this;
+    self.showToast('Bericht wird per E-Mail an ' + email + ' gesendet...');
     try {
-      var blob = doc.output('blob');
-      var file = new File([blob], filename, { type: 'application/pdf' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      var res = await ApiClient.post('/api/lesson/' + encodeURIComponent(opts.lesson.id) + '/send-report', {
+        pdfBase64: opts.pdfBase64,
+        filename: opts.filename,
+        dateLabel: dateLabel
+      });
+      if (res && res.ok) {
+        self.showToast('Bericht per E-Mail an ' + (res.to || email) + ' gesendet');
+      } else {
+        self.showToast('E-Mail konnte nicht gesendet werden');
+        // Fallback: PDF speichern, damit die Arbeit nicht verloren geht
+        try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
+      }
+    } catch (err) {
+      var msg = (err && err.message) || 'Fehler beim Senden';
+      self.showToast('Fehler: ' + msg);
+      try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
+    }
+  },
+
+  // WhatsApp: PDF via Share-Sheet mit vorbelegtem Chat oeffnen. Fallback: wa.me + Download.
+  _sendLessonReportViaWhatsApp: async function(opts, phone, shareText) {
+    var self = this;
+    var phoneDigits = self._normalizePhoneForLinks(phone);
+    // Wenn Web-Share mit Files unterstuetzt wird, direkt anbieten (User waehlt WhatsApp im Share-Sheet)
+    if (opts.file && navigator.canShare && navigator.canShare({ files: [opts.file] })) {
+      try {
         await navigator.share({
-          files: [file],
+          files: [opts.file],
+          title: 'Fahrstunden-Bericht',
+          text: shareText
+        });
+        self.showToast('Bericht geteilt');
+        return;
+      } catch (shareErr) {
+        if (shareErr && shareErr.name === 'AbortError') return;
+        // Weiterreichen an Fallback
+      }
+    }
+    // Fallback: PDF speichern + WhatsApp-Chat oeffnen
+    try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
+    var waUrl = 'https://wa.me/' + phoneDigits + '?text=' + encodeURIComponent(shareText);
+    window.open(waUrl, '_blank');
+    self.showToast('PDF gespeichert. WhatsApp geoeffnet \u2014 Datei bitte einmal aus dem Anhang-Menue anhaengen.');
+  },
+
+  // SMS: Nummer + Text vorbelegen. PDF wird gespeichert.
+  _sendLessonReportViaSms: function(opts, phone, shareText) {
+    var self = this;
+    var phonePlus = self._normalizePhoneForLinks(phone, true);
+    try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
+    // iOS mag ?body=... , Android mag ?body=... auch, aber Standard ist &body= nach dem ; — wir nehmen beide Varianten
+    var sep = /iP(hone|ad|od)/i.test(navigator.userAgent) ? '&' : '?';
+    var smsUrl = 'sms:' + phonePlus + sep + 'body=' + encodeURIComponent(shareText);
+    window.location.href = smsUrl;
+    self.showToast('PDF gespeichert. SMS geoeffnet \u2014 PDF ggf. \u00fcber Anhang einf\u00fcgen.');
+  },
+
+  // Fallback: System-Share oder Download (wie bisher)
+  _shareLessonPdfFallback: async function(opts) {
+    var self = this;
+    var lesson = opts.lesson || {};
+    try {
+      if (opts.file && navigator.canShare && navigator.canShare({ files: [opts.file] })) {
+        await navigator.share({
+          files: [opts.file],
           title: 'Fahrstunden-Bericht',
           text: 'Bericht zur Fahrstunde vom ' + self.formatDate(lesson.date)
         });
@@ -11680,11 +11863,27 @@ var App = {
         return;
       }
     } catch (shareErr) {
-      // Wenn der User abbricht, einfach speichern
       if (shareErr && shareErr.name === 'AbortError') return;
     }
-    doc.save(filename);
+    try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
     self.showToast(t('berichtErstellt') || 'Bericht erstellt');
+  },
+
+  // Hilfsfunktion: Telefonnummer fuer wa.me/sms: normalisieren
+  // withPlus=true → mit '+' Praefix (fuer sms:), sonst nur Ziffern (fuer wa.me)
+  _normalizePhoneForLinks: function(phone, withPlus) {
+    var s = String(phone || '').trim();
+    // Deutsche 0-Praefix zu +49 umschreiben, wenn keine Laendervorwahl da
+    var digits = s.replace(/[^\d+]/g, '');
+    if (digits.charAt(0) === '+') {
+      digits = digits.replace(/[^\d]/g, '');
+      return withPlus ? ('+' + digits) : digits;
+    }
+    // Fuehrende 0 in Deutschland → +49
+    if (digits.charAt(0) === '0') {
+      digits = '49' + digits.slice(1);
+    }
+    return withPlus ? ('+' + digits) : digits;
   },
 
   // Zeichnet eine schematische Routen-Karte direkt in jsPDF.

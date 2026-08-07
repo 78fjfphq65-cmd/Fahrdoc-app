@@ -431,4 +431,40 @@ async function sendSchoolWelcomeEmail({ to, schoolName, adminName }) {
   }
 }
 
-module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail, sendStudentSetupEmail, sendSchoolWelcomeEmail };
+// ============================================
+// Send lesson report (PDF-Anhang) an Fahrschüler
+// ============================================
+async function sendLessonReportEmail({ to, studentName, senderName, senderKind, dateLabel, pdfBase64, filename }) {
+  try {
+    const senderLabel = senderName ? senderName : (senderKind === 'school' ? 'Deine Fahrschule' : 'Dein Fahrlehrer');
+    const subject = 'Dein Fahrstunden-Bericht' + (dateLabel ? ' vom ' + dateLabel : '');
+    const body = emailLayout('Fahrstunden-Bericht', `
+      <p style="font-size: 16px; color: #333; line-height: 1.6;">Hallo${studentName ? ' ' + studentName : ''},</p>
+      <p style="font-size: 16px; color: #333; line-height: 1.6;">im Anhang findest du den Bericht zu deiner Fahrstunde${dateLabel ? ' vom <strong>' + dateLabel + '</strong>' : ''}.</p>
+      <p style="font-size: 15px; color: #555; line-height: 1.6;">Der Bericht enth\u00e4lt die Route, wichtige Markierungen sowie die Bewertung deiner \u00dcbungspunkte.</p>
+      <p style="font-size: 15px; color: #555; line-height: 1.6; margin-top: 24px;">Gute Fahrt!<br><strong>${senderLabel}</strong></p>
+      <p style="font-size: 12px; color: #999; line-height: 1.6; margin-top: 28px;">Diese E-Mail wurde \u00fcber FahrDoc versendet. Antworten gehen direkt an ${senderLabel}.</p>
+    `);
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [to],
+      subject: subject,
+      html: body,
+      attachments: [{
+        filename: filename || 'Fahrstunden-Bericht.pdf',
+        content: pdfBase64
+      }]
+    });
+    if (error) {
+      console.error('[EMAIL] Lesson report send error:', error);
+      return { success: false, error: error.message };
+    }
+    console.log(`[EMAIL] Lesson report sent to ${to} (id: ${data?.id})`);
+    return { success: true, id: data?.id };
+  } catch (err) {
+    console.error('[EMAIL] Lesson report send failed:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, generateCode, sendSubscriptionWelcomeEmail, sendSubscriptionCancelledEmail, sendPaymentFailedEmail, sendFeedbackEmail, sendStudentSetupEmail, sendSchoolWelcomeEmail, sendLessonReportEmail };
