@@ -11838,35 +11838,69 @@ var App = {
     }
   },
 
-  // WhatsApp: Chat mit vorbelegter Nummer + Text oeffnen. PDF wird nachtraeglich gespeichert.
-  _sendLessonReportViaWhatsApp: function(opts, phone, shareText) {
+  // WhatsApp: Auf iOS/Android oeffnet das System-Share-Sheet mit der PDF — User tippt
+  // "WhatsApp", waehlt den Kontakt, PDF ist bereits angehaengt. Fallback: wa.me + Download.
+  _sendLessonReportViaWhatsApp: async function(opts, phone, shareText) {
     var self = this;
+
+    // Bevorzugter Weg: Share-Sheet mit PDF-Datei
+    if (opts.file && navigator.canShare && navigator.canShare({ files: [opts.file] })) {
+      try {
+        await navigator.share({
+          files: [opts.file],
+          title: 'Fahrstunden-Bericht',
+          text: shareText
+        });
+        self.showToast('Bericht geteilt \u2014 Empf\u00e4nger ausw\u00e4hlen und senden.');
+        return;
+      } catch (shareErr) {
+        if (shareErr && shareErr.name === 'AbortError') return;
+        // Weiterreichen an Fallback
+      }
+    }
+
+    // Fallback: wa.me-Chat + Download
     var phoneDigits = self._normalizePhoneForLinks(phone);
     var waUrl = 'https://wa.me/' + phoneDigits + '?text=' + encodeURIComponent(shareText);
-    // PDF verzoegert speichern, damit WhatsApp-Navigation zuerst greift
     setTimeout(function(){
       try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
     }, 800);
-    // WhatsApp-Chat direkt oeffnen
     window.location.href = waUrl;
-    self.showToast('WhatsApp \u00f6ffnet den Chat. PDF wird gespeichert \u2014 bitte einmal \u00fcber \uff0b anh\u00e4ngen.');
+    self.showToast('WhatsApp ge\u00f6ffnet. PDF wird gespeichert \u2014 bitte einmal \u00fcber \uff0b anh\u00e4ngen.');
   },
 
-  // SMS: Nummer + Text vorbelegen. PDF wird gespeichert damit es angehaengt werden kann.
-  _sendLessonReportViaSms: function(opts, phone, shareText) {
+  // SMS: Auf iOS oeffnet das System-Share-Sheet mit der PDF — User tippt "Nachrichten",
+  // waehlt den Empfaenger, PDF ist bereits angehaengt. Fallback: sms:-Link + Download.
+  _sendLessonReportViaSms: async function(opts, phone, shareText) {
     var self = this;
-    var phonePlus = self._normalizePhoneForLinks(phone, true);
-    // iOS-Regel: sms:<nummer>&body=  |  Android: sms:<nummer>?body=
     var isIOS = /iP(hone|ad|od)/i.test(navigator.userAgent);
+
+    // Bevorzugter Weg auf iOS: Share-Sheet mit PDF-Datei — zeigt "Nachrichten" als Ziel,
+    // und die iMessage-Komposition oeffnet mit angehaengter Datei.
+    if (opts.file && navigator.canShare && navigator.canShare({ files: [opts.file] })) {
+      try {
+        await navigator.share({
+          files: [opts.file],
+          title: 'Fahrstunden-Bericht',
+          text: shareText
+        });
+        self.showToast('Bericht geteilt \u2014 Empf\u00e4nger ausw\u00e4hlen und senden.');
+        return;
+      } catch (shareErr) {
+        if (shareErr && shareErr.name === 'AbortError') return;
+        // Weiterreichen an Fallback
+      }
+    }
+
+    // Fallback (Desktop-Browser, Android ohne File-Share): sms:-Link + Download
+    var phonePlus = self._normalizePhoneForLinks(phone, true);
     var sep = isIOS ? '&' : '?';
     var smsUrl = 'sms:' + phonePlus + sep + 'body=' + encodeURIComponent(shareText);
-    // PDF nachtraeglich speichern (nach kurzem Delay, damit sms:-Navigation zuerst greift)
     setTimeout(function(){
       try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
     }, 800);
-    // SMS-App oeffnen
     window.location.href = smsUrl;
-    self.showToast('SMS ge\u00f6ffnet. PDF wird gespeichert \u2014 bitte einmal aus "Zuletzt" anh\u00e4ngen.');
+    self.showToast('SMS ge\u00f6ffnet. PDF wird gespeichert \u2014 bitte einmal \u00fcber Anhang w\u00e4hlen.');
   },
 
   // Fallback: System-Share oder Download (wie bisher)
