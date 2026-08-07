@@ -6304,14 +6304,19 @@ var App = {
   },
 
   openEditStudentModal: async function(studentId) {
-    if (!AppState.currentUser || AppState.currentUser.role !== 'school') return;
+    if (!AppState.currentUser) return;
+    var isSchool = AppState.currentUser.role === 'school';
+    var isSolo = App.isSolo();
+    if (!isSchool && !isSolo) return;
     try {
       var data = await ApiClient.get('/api/student-detail/' + studentId);
       var priceCats = [];
-      try {
-        var pcData = await ApiClient.get('/api/school/price-categories');
-        priceCats = (pcData && pcData.categories) || [];
-      } catch (e) { /* nicht kritisch */ }
+      if (isSchool) {
+        try {
+          var pcData = await ApiClient.get('/api/school/price-categories');
+          priceCats = (pcData && pcData.categories) || [];
+        } catch (e) { /* nicht kritisch */ }
+      }
       this.openModal('Fahrsch\u00fcler bearbeiten', this._studentFormHtml(data.student, [], priceCats));
     } catch (err) {
       this.showToast('Fehler beim Laden: ' + err.message);
@@ -6364,10 +6369,20 @@ var App = {
     if (btn) { btn.disabled = true; btn.textContent = studentId ? 'Speichere\u2026' : 'Lege an\u2026'; }
     try {
       var res;
+      // Solo-Fahrlehrer schicken an Instructor-Endpoint, Schulen an School-Endpoint
+      var isSoloUser = App.isSolo();
       if (studentId) {
-        res = await ApiClient.put('/api/school/students/' + studentId, payload);
+        if (isSoloUser) {
+          res = await ApiClient.put('/api/instructor/students/' + studentId, payload);
+        } else {
+          res = await ApiClient.put('/api/school/students/' + studentId, payload);
+        }
       } else {
-        res = await ApiClient.post('/api/school/students', payload);
+        if (isSoloUser) {
+          res = await ApiClient.post('/api/instructor/students', payload);
+        } else {
+          res = await ApiClient.post('/api/school/students', payload);
+        }
       }
       this.closeModalForce();
       // Cache invalidieren -> Dashboard frisch laden
@@ -6466,11 +6481,13 @@ var App = {
         }
         var pwStatus = st.password_hash ? '<span style="color:#16a34a;">\u2713 aktiviert</span>' : '<span style="color:#d97706;">noch nicht aktiviert</span>';
         var isSchoolRole = AppState.currentUser.role === 'school';
+        // Solo-Fahrlehrer dürfen ihre eigenen Schüler ebenfalls bearbeiten
+        var canEdit = isSchoolRole || App.isSolo();
         html += '<div class="card mb-4">' +
           '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3);gap:var(--space-2);flex-wrap:wrap;">' +
             '<div class="section-title" style="margin:0;">Stammdaten</div>' +
             '<div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap;">' + statusBadge +
-              (isSchoolRole ? '<button class="btn btn-sm btn-secondary" onclick="App.openEditStudentModal(\'' + st.id + '\')">Bearbeiten</button>' : '') +
+              (canEdit ? '<button class="btn btn-sm btn-secondary" onclick="App.openEditStudentModal(\'' + st.id + '\')">Bearbeiten</button>' : '') +
               (isSchoolRole && !st.password_hash ? '<button class="btn btn-sm btn-primary" onclick="App.resendStudentInvite(\'' + st.id + '\')">Einladung erneut senden</button>' : '') +
             '</div>' +
           '</div>' +
@@ -9607,7 +9624,13 @@ var App = {
   },
 
   _renderTrainingCards: function() {
+    // Erlaubt zwei Container: Live-Fahrstunde (#lesson-cards-container)
+    // und Edit-Modal (#edit-lesson-cards-container). Live hat Vorrang.
     var cardsEl = document.getElementById('lesson-cards-container');
+    if (!cardsEl || cardsEl.style.display === 'none') {
+      var editEl = document.getElementById('edit-lesson-cards-container');
+      if (editEl) cardsEl = editEl;
+    }
     if (!cardsEl || typeof TRAINING_CATALOG_B === 'undefined') return;
     var lang = (AppState.language || 'de');
     var state = this._trainingState || {};
@@ -11972,6 +11995,9 @@ var App = {
       var lesson = await ApiClient.get('/api/lesson/' + lessonId);
       AppState._editRatings = Object.assign({}, lesson.ratings);
       AppState._editRatingNotes = Object.assign({}, lesson.ratingNotes || {});
+      // docMode für später merken (saveEditedLesson entscheidet, was gesendet wird)
+      AppState._editDocMode = lesson.docMode || 'examiner';
+      AppState._editLessonStudentId = lesson.student_id || studentId;
       var html = '<form id="edit-lesson-form" onsubmit="App.saveEditedLesson(event, \'' + lessonId + '\', \'' + studentId + '\')">' +
         '<div class="form-group mb-4"><label class="form-label">' + t('fahrstundentyp') + '</label><select class="form-select" id="edit-lesson-type">' +
           '<option value="Übungsfahrt"' + (lesson.type === 'Übungsfahrt' ? ' selected' : '') + '>' + tType('Übungsfahrt') + '</option>' +
@@ -11983,6 +12009,29 @@ var App = {
         '<div class="form-group mb-4"><label class="form-label">' + t('notizen') + '</label>' +
           '<textarea class="form-textarea" id="edit-lesson-notes">' + this._escapeHtml(lesson.notes || '') + '</textarea>' +
           '<div class="text-xs text-muted" style="margin-top:4px;">\u{1F517} Tipp: Links (z.B. YouTube-Videos) k\u00f6nnen einfach reinkopiert werden \u2013 sie werden f\u00fcr den Sch\u00fcler klickbar.</div></div>';
+
+      // ─── KARTEN-MODUS: Ausbildungsdiagramm-Karten statt PFEP-Bewertung ───
+      if (AppState._editDocMode === 'cards') {
+        html += '<div class="section-title mb-2">' + t('bewertung') + '</div>';
+        html += '<div id="edit-lesson-cards-container" class="lesson-cards-container"></div>';
+        // Image upload section
+        html += '<div class="form-group mb-4"><label class="form-label">' + t('bilder') + '</label>' +
+          '<div class="image-upload-area">' +
+            '<input type="file" accept="image/*" multiple id="edit-image-input" style="display:none;" onchange="App.handleEditImageUpload(event)">' +
+            '<button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById(\'edit-image-input\').click()">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg> ' + t('bilderHinzufuegen') + '</button>' +
+            '<div id="edit-image-preview-list" class="image-preview-list"></div>' +
+          '</div></div>';
+        html += '<button type="submit" class="btn btn-primary btn-full btn-lg mt-4">' + t('speichern') + '</button></form>';
+        AppState._editExistingImages = (lesson.images || []).slice();
+        AppState._editPendingImages = [];
+        this.openModal(t('fahrstundeBearbeiten'), html);
+        setTimeout(function() { App.renderEditPendingImages(); }, 50);
+        // Karten-State laden und rendern
+        this._mountEditTrainingCards(lesson);
+        return;
+      }
+
       // ── PFEP-Bewertung im Edit-Modal (gleiche Optik wie Live-Maske) ──
       var _eGroups = evaluationGroupsWithLegacy(lesson && (lesson.license_class || lesson.licenseClass), lesson.ratings);
       var _eTotal = 0, _eRated = 0;
@@ -12145,18 +12194,89 @@ var App = {
     if (count) count.textContent = rated + ' / ' + total;
   },
 
+  // Karten-Ansicht für das Edit-Modal:
+  // - Vorbefüllt _trainingState mit den bereits erfassten Marks der Fahrstunde
+  // - Lädt Favoriten und Custom-Topics des Fahrlehrers
+  // - Rendert dieselben Karten wie im Live-Modus in #edit-lesson-cards-container
+  _mountEditTrainingCards: async function(lesson) {
+    // Vorbefüllen: die in DIESER Lesson erfassten Marks kommen aus lesson.trainingMarks
+    this._trainingState = {};
+    this._trainingMarks = {};
+    this._trainingFavorites = {};
+    this._trainingCustomTopics = [];
+    // Marks dieser Lesson als "geuebt in dieser Stunde" markieren und als aktuelle Werte setzen
+    var initialMarks = Array.isArray(lesson && lesson.trainingMarks) ? lesson.trainingMarks : [];
+    var self = this;
+    initialMarks.forEach(function(m) {
+      if (!m || !m.topic_id) return;
+      self._trainingState[m.topic_id] = m.value;
+      self._trainingMarks[m.topic_id] = { value: m.value, type: m.topic_type };
+    });
+    // Persistenten Schülerstand als Basis holen (damit man den Kontext sieht),
+    // die Marks der aktuellen Lesson überschreiben ihn weiter oben nicht mehr,
+    // aber ihre Werte gelten für diese Lesson.
+    var studentId = lesson && lesson.student_id;
+    var promises = [];
+    if (studentId) {
+      promises.push(ApiClient.get('/api/training-state/' + encodeURIComponent(studentId)).then(function(resp) {
+        if (resp && resp.items) resp.items.forEach(function(row) {
+          // Schülerstand nur als Fallback übernehmen, wenn diese Lesson den Wert nicht bereits gesetzt hat
+          if (self._trainingState[row.topic_id] === undefined) {
+            self._trainingState[row.topic_id] = row.value;
+          }
+        });
+      }).catch(function(e) { console.warn('[edit-cards] load state failed:', e && e.message); }));
+    }
+    promises.push(ApiClient.get('/api/training-favorites').then(function(resp) {
+      if (resp && resp.items) resp.items.forEach(function(row) { self._trainingFavorites[row.topic_id] = true; });
+    }).catch(function(e) { console.warn('[edit-cards] load favorites failed:', e && e.message); }));
+    promises.push(ApiClient.get('/api/training-custom-topics').then(function(resp) {
+      if (resp && resp.items) self._trainingCustomTopics = resp.items;
+    }).catch(function(e) { console.warn('[edit-cards] load custom failed:', e && e.message); }));
+    await Promise.all(promises);
+    // Wichtig: Live-Persistenz überspringen, weil wir im Edit-Modal sind (kein activeLesson)
+    // Rendern in #edit-lesson-cards-container (dank Container-Fallback in _renderTrainingCards)
+    this._renderTrainingCards();
+  },
+
   saveEditedLesson: async function(e, lessonId, studentId) {
     e.preventDefault();
     try {
       var editImages = (AppState._editExistingImages || []).concat(AppState._editPendingImages || []);
-      await ApiClient.put('/api/lessons/' + lessonId, {
+      var payload = {
         type: document.getElementById('edit-lesson-type').value,
         notes: document.getElementById('edit-lesson-notes').value,
-        ratings: _filterValidRatings(AppState._editRatings),
-        ratingNotes: AppState._editRatingNotes || {},
         images: editImages
-      });
-      this.closeModalForce(); AppState._editRatingNotes = {}; AppState._cachedData.instructorDash = null;
+      };
+      if (AppState._editDocMode === 'cards') {
+        // Karten-Modus: aus _trainingMarks das trainingMarks-Array zusammenbauen
+        var marks = this._trainingMarks || {};
+        var tmArr = [];
+        Object.keys(marks).forEach(function(topicId) {
+          var m = marks[topicId];
+          if (!m || (m.type !== 'check' && m.type !== 'rating')) return;
+          tmArr.push({
+            topic_id: topicId,
+            topic_type: m.type,
+            value: m.value,
+            note: null
+          });
+        });
+        payload.trainingMarks = tmArr;
+      } else {
+        payload.ratings = _filterValidRatings(AppState._editRatings);
+        payload.ratingNotes = AppState._editRatingNotes || {};
+      }
+      await ApiClient.put('/api/lessons/' + lessonId, payload);
+      this.closeModalForce();
+      AppState._editRatingNotes = {};
+      AppState._editDocMode = null;
+      // Karten-State aufräumen, damit die Live-View nicht daraus liest
+      this._trainingState = null;
+      this._trainingMarks = null;
+      this._trainingFavorites = null;
+      this._trainingCustomTopics = null;
+      AppState._cachedData.instructorDash = null;
       this.showToast(t('fahrstundeAktualisiert'));
       this.showLessonReview(lessonId, studentId, 'instructor');
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); }

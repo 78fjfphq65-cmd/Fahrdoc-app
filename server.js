@@ -2098,12 +2098,59 @@ app.put('/api/lessons/:id', authMiddleware, async (req, res) => {
       .select('*').eq('id', req.params.id).eq('instructor_id', req.user.id).single();
     if (!lesson) return res.status(404).json({ error: 'Fahrstunde nicht gefunden' });
 
-    const { type, notes, ratings, ratingNotes, images, markers } = req.body;
+    const { type, notes, ratings, ratingNotes, images, markers, trainingMarks } = req.body;
     const updates = {};
     if (type) updates.type = type;
     if (notes !== undefined) updates.notes = notes;
     if (Object.keys(updates).length > 0) {
       await supabase.from('lessons').update(updates).eq('id', req.params.id);
+    }
+
+    // ── Ausbildungsdiagramm-Karten-Bewertungen (Karten-Modus) nachträglich speichern ──
+    // trainingMarks: [{ topic_id, topic_type: 'check'|'rating', value: 0..5, note? }]
+    // Wir ersetzen die Marks dieser Fahrstunde komplett und aktualisieren den
+    // persistenten Ausbildungsstand des Schülers.
+    if (Array.isArray(trainingMarks) && lesson.doc_mode === 'cards' && lesson.student_id) {
+      try {
+        const validMarks = trainingMarks
+          .filter(m => m && m.topic_id && (m.topic_type === 'check' || m.topic_type === 'rating'))
+          .map(m => ({
+            topic_id: String(m.topic_id).slice(0, 128),
+            topic_type: m.topic_type,
+            value: Math.max(0, Math.min(5, parseInt(m.value, 10) || 0)),
+            note: (typeof m.note === 'string' && m.note.trim()) ? m.note.trim().slice(0, 500) : null
+          }));
+        // 1) Alte Marks dieser Lesson entfernen und neu einfügen
+        await supabase.from('lesson_training_marks').delete().eq('lesson_id', req.params.id);
+        if (validMarks.length > 0) {
+          const lessonMarkRows = validMarks.map(m => ({
+            lesson_id: req.params.id,
+            topic_id: m.topic_id,
+            topic_type: m.topic_type,
+            value: m.value,
+            note: m.note
+          }));
+          const insMarks = await supabase.from('lesson_training_marks').insert(lessonMarkRows);
+          if (insMarks.error) console.error('[PUT /api/lessons/:id] lesson_training_marks insert error:', insMarks.error.message);
+
+          // 2) Persistenten Ausbildungsstand pro Schüler upserten
+          const nowIso = new Date().toISOString();
+          const stateRows = validMarks.map(m => ({
+            student_id: lesson.student_id,
+            catalog_class: 'B',
+            topic_id: m.topic_id,
+            topic_type: m.topic_type,
+            value: m.value,
+            last_lesson_id: req.params.id,
+            updated_at: nowIso
+          }));
+          const insState = await supabase.from('student_training_state')
+            .upsert(stateRows, { onConflict: 'student_id,catalog_class,topic_id' });
+          if (insState.error) console.error('[PUT /api/lessons/:id] student_training_state upsert error:', insState.error.message);
+        }
+      } catch (tmErr) {
+        console.error('[PUT /api/lessons/:id] trainingMarks catch:', tmErr.message);
+      }
     }
 
     // Marker-Notiz-Nachtrag: Wenn der Fahrlehrer im Review eine Notiz zu einem
