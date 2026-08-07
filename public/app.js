@@ -11668,16 +11668,44 @@ var App = {
 
     // Versand-Dialog mit Optionen: Direkt-Mail, WhatsApp, SMS, Teilen, Download
     var blob = doc.output('blob');
-    var pdfBase64 = doc.output('datauristring').replace(/^data:[^;]+;base64,/, '');
-    var file = null;
-    try { file = new File([blob], filename, { type: 'application/pdf' }); } catch (e) {}
-    self._openLessonSendDialog({
-      lesson: lesson,
-      filename: filename,
-      blob: blob,
-      file: file,
-      pdfBase64: pdfBase64,
-      doc: doc
+    // Base64 sauber via Blob->FileReader extrahieren (nicht ueber datauristring wg. filename=-Segment)
+    var toBase64 = function(b) {
+      return new Promise(function(resolve, reject){
+        try {
+          var r = new FileReader();
+          r.onload = function(){
+            var s = String(r.result || '');
+            var idx = s.indexOf(',');
+            resolve(idx >= 0 ? s.slice(idx + 1) : s);
+          };
+          r.onerror = function(){ reject(new Error('read failed')); };
+          r.readAsDataURL(b);
+        } catch (e) { reject(e); }
+      });
+    };
+    toBase64(blob).then(function(pdfBase64){
+      var file = null;
+      try { file = new File([blob], filename, { type: 'application/pdf' }); } catch (e) {}
+      self._openLessonSendDialog({
+        lesson: lesson,
+        filename: filename,
+        blob: blob,
+        file: file,
+        pdfBase64: pdfBase64,
+        doc: doc
+      });
+    }).catch(function(){
+      // Fallback ohne Base64 (nur Share/Download moeglich)
+      var file = null;
+      try { file = new File([blob], filename, { type: 'application/pdf' }); } catch (e) {}
+      self._openLessonSendDialog({
+        lesson: lesson,
+        filename: filename,
+        blob: blob,
+        file: file,
+        pdfBase64: '',
+        doc: doc
+      });
     });
   },
 
@@ -11810,42 +11838,35 @@ var App = {
     }
   },
 
-  // WhatsApp: PDF via Share-Sheet mit vorbelegtem Chat oeffnen. Fallback: wa.me + Download.
-  _sendLessonReportViaWhatsApp: async function(opts, phone, shareText) {
+  // WhatsApp: Chat mit vorbelegter Nummer + Text oeffnen. PDF wird nachtraeglich gespeichert.
+  _sendLessonReportViaWhatsApp: function(opts, phone, shareText) {
     var self = this;
     var phoneDigits = self._normalizePhoneForLinks(phone);
-    // Wenn Web-Share mit Files unterstuetzt wird, direkt anbieten (User waehlt WhatsApp im Share-Sheet)
-    if (opts.file && navigator.canShare && navigator.canShare({ files: [opts.file] })) {
-      try {
-        await navigator.share({
-          files: [opts.file],
-          title: 'Fahrstunden-Bericht',
-          text: shareText
-        });
-        self.showToast('Bericht geteilt');
-        return;
-      } catch (shareErr) {
-        if (shareErr && shareErr.name === 'AbortError') return;
-        // Weiterreichen an Fallback
-      }
-    }
-    // Fallback: PDF speichern + WhatsApp-Chat oeffnen
-    try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
     var waUrl = 'https://wa.me/' + phoneDigits + '?text=' + encodeURIComponent(shareText);
-    window.open(waUrl, '_blank');
-    self.showToast('PDF gespeichert. WhatsApp geoeffnet \u2014 Datei bitte einmal aus dem Anhang-Menue anhaengen.');
+    // PDF verzoegert speichern, damit WhatsApp-Navigation zuerst greift
+    setTimeout(function(){
+      try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
+    }, 800);
+    // WhatsApp-Chat direkt oeffnen
+    window.location.href = waUrl;
+    self.showToast('WhatsApp \u00f6ffnet den Chat. PDF wird gespeichert \u2014 bitte einmal \u00fcber \uff0b anh\u00e4ngen.');
   },
 
-  // SMS: Nummer + Text vorbelegen. PDF wird gespeichert.
+  // SMS: Nummer + Text vorbelegen. PDF wird gespeichert damit es angehaengt werden kann.
   _sendLessonReportViaSms: function(opts, phone, shareText) {
     var self = this;
     var phonePlus = self._normalizePhoneForLinks(phone, true);
-    try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
-    // iOS mag ?body=... , Android mag ?body=... auch, aber Standard ist &body= nach dem ; — wir nehmen beide Varianten
-    var sep = /iP(hone|ad|od)/i.test(navigator.userAgent) ? '&' : '?';
+    // iOS-Regel: sms:<nummer>&body=  |  Android: sms:<nummer>?body=
+    var isIOS = /iP(hone|ad|od)/i.test(navigator.userAgent);
+    var sep = isIOS ? '&' : '?';
     var smsUrl = 'sms:' + phonePlus + sep + 'body=' + encodeURIComponent(shareText);
+    // PDF nachtraeglich speichern (nach kurzem Delay, damit sms:-Navigation zuerst greift)
+    setTimeout(function(){
+      try { opts.doc && opts.doc.save && opts.doc.save(opts.filename); } catch (e) {}
+    }, 800);
+    // SMS-App oeffnen
     window.location.href = smsUrl;
-    self.showToast('PDF gespeichert. SMS geoeffnet \u2014 PDF ggf. \u00fcber Anhang einf\u00fcgen.');
+    self.showToast('SMS ge\u00f6ffnet. PDF wird gespeichert \u2014 bitte einmal aus "Zuletzt" anh\u00e4ngen.');
   },
 
   // Fallback: System-Share oder Download (wie bisher)
