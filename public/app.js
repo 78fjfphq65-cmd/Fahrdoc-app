@@ -11908,19 +11908,46 @@ var App = {
       };
     };
 
-    // Polyline downsamplen für Performance
-    var maxLineSegments = 200;
-    var step = Math.max(1, Math.ceil(pts.length / maxLineSegments));
-    var sampled = [];
-    for (var i = 0; i < pts.length; i += step) sampled.push(pts[i]);
-    if (sampled[sampled.length - 1] !== pts[pts.length - 1]) sampled.push(pts[pts.length - 1]);
+    // Route an Pausen in Segmente zerlegen — sonst wuerde eine gerade Linie
+    // ueber die Pausenluecke gezogen.
+    var routeSegments = (App._splitRouteSegments
+      ? App._splitRouteSegments(pts)
+      : [pts]);
 
-    // Route zeichnen
+    // Downsampling fuer Performance — pro Segment, damit das Budget von
+    // 200 Linienstuecken auf die gesamte Route verteilt bleibt.
+    var maxLineSegments = 200;
+    var globalStep = Math.max(1, Math.ceil(pts.length / maxLineSegments));
+    var sampledSegments = routeSegments.map(function(seg) {
+      var out = [];
+      for (var i = 0; i < seg.length; i += globalStep) out.push(seg[i]);
+      if (seg.length && out[out.length - 1] !== seg[seg.length - 1]) out.push(seg[seg.length - 1]);
+      return out;
+    });
+
+    // Route zeichnen — jedes Segment als eigener Linienzug
     doc.setDrawColor(20, 184, 166); doc.setLineWidth(1.2);
-    for (var k = 1; k < sampled.length; k++) {
-      var p1 = project(sampled[k - 1]);
-      var p2 = project(sampled[k]);
-      doc.line(p1.x, p1.y, p2.x, p2.y);
+    sampledSegments.forEach(function(sampled) {
+      for (var k = 1; k < sampled.length; k++) {
+        var p1 = project(sampled[k - 1]);
+        var p2 = project(sampled[k]);
+        doc.line(p1.x, p1.y, p2.x, p2.y);
+      }
+    });
+
+    // Pausen als gestrichelte graue Verbindung andeuten
+    if (routeSegments.length > 1 && typeof doc.setLineDashPattern === 'function') {
+      doc.setLineDashPattern([1, 1], 0);
+      doc.setDrawColor(150, 155, 155); doc.setLineWidth(0.6);
+      for (var s = 0; s < routeSegments.length - 1; s++) {
+        var prevSeg = routeSegments[s];
+        var nextSeg = routeSegments[s + 1];
+        if (!prevSeg.length || !nextSeg.length) continue;
+        var g1 = project(prevSeg[prevSeg.length - 1]);
+        var g2 = project(nextSeg[0]);
+        doc.line(g1.x, g1.y, g2.x, g2.y);
+      }
+      doc.setLineDashPattern([], 0);   // Strichmuster wieder aufheben
     }
 
     // Start-Punkt (grün)
@@ -12737,28 +12764,12 @@ var App = {
     });
 
     // === Doppellinien-Casing für die Route ===
-    // Zwei Polylines uebereinander:
-    //   1. Casing (Kontur): breiter, dunkles Teal mit reduzierter Opacity
-    //      — sorgt fuer den weichen Uebergang zur Karte.
-    //   2. Top (Kernlinie): duenner, kraeftiges Teal, volle Opacity.
-    // Beide teilen sich dieselbe path-Referenz via LineSymbol,
-    // damit sie beim Push synchron bleiben — wir pushen aber auf beide.
-    AppState.mapPolylineCasing = new google.maps.Polyline({
-      path: [],
-      strokeColor: '#0C4E54',      // Dunkleres Teal fuer Casing
-      strokeOpacity: 0.55,
-      strokeWeight: 9,
-      zIndex: 1,
-      map: AppState.map
-    });
-    AppState.mapPolyline = new google.maps.Polyline({
-      path: [],
-      strokeColor: '#20808D',      // Nexus Chart-Teal (heller Kern)
-      strokeOpacity: 1.0,
-      strokeWeight: 5,
-      zIndex: 2,
-      map: AppState.map
-    });
+    // Die Route wird in Segmente aufgeteilt: pro Fahrt-Abschnitt zwischen zwei
+    // Pausen ein eigenes Polylinien-Paar. Dadurch entsteht keine gerade Linie
+    // quer ueber die Pausenluecke, wenn sich der Standort waehrend der Pause
+    // geaendert hat.
+    AppState.mapPolylineSegments = [];
+    this._startRouteSegment();
     // Current position marker: dezenter blauer Dot mit weissem Ring
     // (statt Pfeil — wirkt cleaner und rotiert nicht falsch bei stehendem Auto)
     AppState.mapCurrentPos = new google.maps.Marker({
@@ -12847,6 +12858,54 @@ var App = {
     }
   },
 
+  // Legt ein neues Polylinien-Paar (Casing + Kern) an und macht es zum
+  // aktiven Segment. Alle folgenden GPS-Punkte werden dort hinein gezeichnet.
+  // Zwei Polylines uebereinander:
+  //   1. Casing (Kontur): breiter, dunkles Teal mit reduzierter Opacity
+  //      — sorgt fuer den weichen Uebergang zur Karte.
+  //   2. Top (Kernlinie): duenner, kraeftiges Teal, volle Opacity.
+  _startRouteSegment: function() {
+    if (!AppState.map || typeof google === 'undefined' || !google.maps) return;
+    var casing = new google.maps.Polyline({
+      path: [],
+      strokeColor: '#0C4E54',      // Dunkleres Teal fuer Casing
+      strokeOpacity: 0.55,
+      strokeWeight: 9,
+      zIndex: 1,
+      map: AppState.map
+    });
+    var core = new google.maps.Polyline({
+      path: [],
+      strokeColor: '#20808D',      // Nexus Chart-Teal (heller Kern)
+      strokeOpacity: 1.0,
+      strokeWeight: 5,
+      zIndex: 2,
+      map: AppState.map
+    });
+    if (!AppState.mapPolylineSegments) AppState.mapPolylineSegments = [];
+    AppState.mapPolylineSegments.push({ core: core, casing: casing });
+    // Aktive Referenzen — die GPS-Callback pusht immer auf diese beiden.
+    AppState.mapPolyline = core;
+    AppState.mapPolylineCasing = casing;
+  },
+
+  // Zerlegt eine Punktliste anhand des segmentStart-Flags in Teil-Routen.
+  // Punkte ohne Flag (aeltere Fahrstunden) ergeben genau ein Segment,
+  // sodass bestehende Aufzeichnungen unveraendert dargestellt werden.
+  _splitRouteSegments: function(points) {
+    var segments = [];
+    var current = [];
+    (points || []).forEach(function(p, i) {
+      if (i > 0 && p && p.segmentStart) {
+        if (current.length > 0) segments.push(current);
+        current = [];
+      }
+      current.push(p);
+    });
+    if (current.length > 0) segments.push(current);
+    return segments;
+  },
+
   // startGPS(resume)
   //   resume === true  -> Watch nur neu aufsetzen, Strecke/Marker/Distanz BEHALTEN
   //                       (wird beim Fortsetzen nach Pause benutzt)
@@ -12868,6 +12927,7 @@ var App = {
       AppState.kalmanLat = null;
       AppState.kalmanLng = null;
       AppState.kalmanVariance = null;
+      AppState._pendingSegmentBreak = false;
     } else {
       // Beim Fortsetzen den Distanz-Anker loesen und die Glaettung neu
       // einschwingen lassen. Ohne das wuerde die Luftlinie zwischen dem
@@ -12875,6 +12935,9 @@ var App = {
       // Strecke aufaddiert (Standort-Drift oder ein Ortswechsel waehrend
       // der Pause). routePoints/routeMarkers/totalDistance bleiben erhalten.
       AppState.lastGpsPosition = null;
+      // Naechsten Punkt als Beginn eines neuen Routen-Segments markieren,
+      // damit keine gerade Linie ueber die Pausenluecke gezeichnet wird.
+      AppState._pendingSegmentBreak = true;
       AppState.kalmanLat = null;
       AppState.kalmanLng = null;
       AppState.kalmanVariance = null;
@@ -12937,6 +13000,17 @@ var App = {
 
         AppState.lastGpsPosition = { lat: smoothLat, lng: smoothLng };
         var point = { lat: smoothLat, lng: smoothLng, timestamp: Date.now() };
+        // Erster Punkt nach einer Pause: neues Segment beginnen, damit die
+        // Route nicht quer ueber die Pausenluecke durchgezogen wird.
+        if (AppState._pendingSegmentBreak) {
+          AppState._pendingSegmentBreak = false;
+          // Nur splitten, wenn vorher schon gefahren wurde — sonst waere das
+          // erste Segment leer.
+          if (AppState.routePoints.length > 0) {
+            point.segmentStart = true;
+            App._startRouteSegment();
+          }
+        }
         AppState.routePoints.push(point);
 
         // Update GPS status
@@ -13413,6 +13487,9 @@ var App = {
     AppState.kalmanVariance = null;
     AppState.map = null;
     AppState.mapPolyline = null;
+    AppState.mapPolylineCasing = null;
+    AppState.mapPolylineSegments = [];
+    AppState._pendingSegmentBreak = false;
     AppState.mapCurrentPos = null;
     AppState.lastKnownPos = null;
     // ResizeObserver für die Overlay-Zeile abhängen, damit er nicht auf
@@ -13443,26 +13520,60 @@ var App = {
       ]
     });
 
-    // Draw polyline mit Doppellinien-Casing (Kontur + Kern)
+    // Draw polyline mit Doppellinien-Casing (Kontur + Kern).
+    // Die Route wird an Pausen in Segmente zerlegt, damit keine gerade Linie
+    // ueber die Pausenluecke gezogen wird.
     var path = route.points.map(function(p) { return { lat: p.lat, lng: p.lng }; });
-    // Casing (Kontur): breiter, halbtransparent, dunkler Teal
-    new google.maps.Polyline({
-      path: path,
-      strokeColor: '#0C4E54',
-      strokeOpacity: 0.55,
-      strokeWeight: 9,
-      zIndex: 1,
-      map: map
+    var segments = this._splitRouteSegments(route.points);
+    segments.forEach(function(seg) {
+      var segPath = seg.map(function(p) { return { lat: p.lat, lng: p.lng }; });
+      if (segPath.length < 2) return; // Einzelpunkt ergibt keine Linie
+      // Casing (Kontur): breiter, halbtransparent, dunkler Teal
+      new google.maps.Polyline({
+        path: segPath,
+        strokeColor: '#0C4E54',
+        strokeOpacity: 0.55,
+        strokeWeight: 9,
+        zIndex: 1,
+        map: map
+      });
+      // Top (Kern): dünner, kräftig
+      new google.maps.Polyline({
+        path: segPath,
+        strokeColor: '#20808D',
+        strokeOpacity: 1.0,
+        strokeWeight: 5,
+        zIndex: 2,
+        map: map
+      });
     });
-    // Top (Kern): dünner, kräftig
-    new google.maps.Polyline({
-      path: path,
-      strokeColor: '#20808D',
-      strokeOpacity: 1.0,
-      strokeWeight: 5,
-      zIndex: 2,
-      map: map
-    });
+    // Pausen sichtbar machen: gestrichelte, dezente Verbindung zwischen dem
+    // Ende eines Segments und dem Anfang des naechsten. Zeigt dem Fahrlehrer,
+    // dass dort pausiert wurde, ohne die Strecke als gefahren darzustellen.
+    for (var si = 0; si < segments.length - 1; si++) {
+      var prevSeg = segments[si];
+      var nextSeg = segments[si + 1];
+      if (!prevSeg.length || !nextSeg.length) continue;
+      var a = prevSeg[prevSeg.length - 1];
+      var b = nextSeg[0];
+      new google.maps.Polyline({
+        path: [{ lat: a.lat, lng: a.lng }, { lat: b.lat, lng: b.lng }],
+        strokeOpacity: 0,   // Grundlinie unsichtbar — nur die Icons zeichnen
+        zIndex: 1,
+        map: map,
+        icons: [{
+          icon: {
+            path: 'M 0,-1 0,1',
+            strokeOpacity: 0.5,
+            strokeColor: '#7A7974',
+            strokeWeight: 2,
+            scale: 3
+          },
+          offset: '0',
+          repeat: '12px'
+        }]
+      });
+    }
 
     // Add numbered markers (clickable → Street View)
     // Farbe folgt der Quick-Marker-Kategorie; Fallback = rotes Legacy-Design
