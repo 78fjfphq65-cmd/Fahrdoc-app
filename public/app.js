@@ -9470,7 +9470,8 @@ var App = {
       AppState.lessonPaused = false;
       AppState.pausedDuration += Date.now() - AppState.pauseStartTime;
       AppState.pauseStartTime = null;
-      this.startGPS();
+      // resume=true: Strecke, Marker und Distanz der bisherigen Fahrt behalten
+      this.startGPS(true);
       var btn = document.getElementById('lesson-pause-btn');
       if (btn) {
         btn.classList.remove('is-resume');
@@ -12846,17 +12847,38 @@ var App = {
     }
   },
 
-  startGPS: function() {
+  // startGPS(resume)
+  //   resume === true  -> Watch nur neu aufsetzen, Strecke/Marker/Distanz BEHALTEN
+  //                       (wird beim Fortsetzen nach Pause benutzt)
+  //   resume falsy     -> kompletter Neustart, alle Tracking-Daten zuruecksetzen
+  startGPS: function(resume) {
     if (!navigator.geolocation) return;
-    AppState.routePoints = [];
-    AppState.routeMarkers = [];
-    AppState.mapMarkerObjects = [];
-    AppState.totalDistance = 0;
-    AppState.lastGpsPosition = null;
-    AppState.bestEffortPosition = null;
-    AppState.kalmanLat = null;
-    AppState.kalmanLng = null;
-    AppState.kalmanVariance = null;
+    // Doppelte Watches vermeiden: falls noch einer laeuft, erst abmelden.
+    if (AppState.gpsWatchId) {
+      try { navigator.geolocation.clearWatch(AppState.gpsWatchId); } catch (_e) {}
+      AppState.gpsWatchId = null;
+    }
+    if (!resume) {
+      AppState.routePoints = [];
+      AppState.routeMarkers = [];
+      AppState.mapMarkerObjects = [];
+      AppState.totalDistance = 0;
+      AppState.lastGpsPosition = null;
+      AppState.bestEffortPosition = null;
+      AppState.kalmanLat = null;
+      AppState.kalmanLng = null;
+      AppState.kalmanVariance = null;
+    } else {
+      // Beim Fortsetzen den Distanz-Anker loesen und die Glaettung neu
+      // einschwingen lassen. Ohne das wuerde die Luftlinie zwischen dem
+      // letzten Punkt vor der Pause und dem ersten danach als gefahrene
+      // Strecke aufaddiert (Standort-Drift oder ein Ortswechsel waehrend
+      // der Pause). routePoints/routeMarkers/totalDistance bleiben erhalten.
+      AppState.lastGpsPosition = null;
+      AppState.kalmanLat = null;
+      AppState.kalmanLng = null;
+      AppState.kalmanVariance = null;
+    }
 
     var gpsStatusEl = document.getElementById('gps-status');
     var gpsTextEl = document.getElementById('gps-status-text');
