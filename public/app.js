@@ -12787,6 +12787,21 @@ var App = {
 
     // Quick-Marker-Bar-Rendering: siehe _mountQuickMarkerBar (Panel-unabhängig).
     this._mountQuickMarkerBar();
+
+    // Die Karte wird direkt nach navigate() erzeugt, also bevor der Browser den
+    // Screen fertig ausgelegt hat (.screen ist bis dahin display:none). Auf iOS
+    // aendert sich die Hoehe danach noch, weil die Safari-Leiste ein- und
+    // ausfaehrt. Ohne Groessen-Update behaelt Maps die alte Groesse und laesst
+    // Randbereiche grau. Darum zweimal nachfassen, sobald das Layout steht.
+    var self = this;
+    requestAnimationFrame(function() {
+      self._nudgeMapSize();
+      requestAnimationFrame(function() { self._nudgeMapSize(); });
+    });
+    // Groessenaenderungen dauerhaft ueberwachen (Drehung, Safari-Leiste).
+    this._observeMapSize();
+    // Selbstheilung nach Funkloch oder Hintergrund-Phase aktivieren.
+    this._bindMapRecovery();
   },
 
   // Baut die 5-Button-Bar in den Container unter der Actions-Row.
@@ -12829,33 +12844,128 @@ var App = {
     AppState._mapOverlayResizeObserver.observe(panel);
   },
 
+  // Wie viele Pixel des Kartenbereichs verdeckt das Bottom-Sheet?
+  _mapSheetOffsetPx: function() {
+    var panel = document.getElementById('lesson-map-panel');
+    var mapEl = document.getElementById('lesson-map');
+    if (!panel || !mapEl) return 0;
+    var pr = panel.getBoundingClientRect();
+    var mr = mapEl.getBoundingClientRect();
+    var overlap = Math.max(0, mr.bottom - pr.top);
+    // Halbe Ueberlappung als Versatz — der Punkt sitzt dann mittig im
+    // sichtbaren Kartenausschnitt oberhalb der Sheet-Kante.
+    return Math.round(overlap / 2);
+  },
+
+  // Rechnet eine GPS-Position in das Kartenzentrum um, bei dem der Punkt
+  // mittig im sichtbaren Bereich oberhalb des Bottom-Sheets landet.
+  // Liefert immer ein {lat,lng}-Objekt — im Fehlerfall die Position selbst.
+  _sheetAdjustedCenter: function(lat, lng) {
+    try {
+      if (!AppState.map) return { lat: lat, lng: lng };
+      var offsetY = this._mapSheetOffsetPx();
+      if (offsetY <= 0) return { lat: lat, lng: lng };
+      var z = AppState.map.getZoom();
+      if (typeof z !== 'number') return { lat: lat, lng: lng };
+      // Meter pro Pixel in Web Mercator bei diesem Zoom/Breitengrad.
+      // Mercator ist konform, vertikal gilt derselbe Faktor wie horizontal.
+      var mpp = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, z);
+      // Zentrum nach Sueden verschieben, damit der Punkt nach oben wandert.
+      return { lat: lat - (offsetY * mpp) / 111320, lng: lng };
+    } catch (_e) {
+      return { lat: lat, lng: lng };
+    }
+  },
+
   // Karte auf die zuletzt bekannte GPS-Position zentrieren. Fällt zurück auf
-  // das aktuelle Kartenzentrum, wenn noch kein Fix vorliegt.
+  // einen Hinweis, wenn noch kein Fix vorliegt.
   recenterMap: function() {
     if (!AppState.map) return;
     var pos = AppState.lastKnownPos;
     if (pos && typeof pos.lat === 'number' && typeof pos.lng === 'number') {
-      AppState.map.panTo(pos);
       // Standard-Zoom-Level fuer Fahrschul-Ansicht wiederherstellen, falls der
-      // Nutzer weit rausgezoomt hatte.
+      // Nutzer weit rausgezoomt hatte. Vor dem Zentrieren setzen, damit der
+      // Sheet-Versatz mit dem endgueltigen Zoom gerechnet wird.
       if (AppState.map.getZoom() < 14) AppState.map.setZoom(17);
-      // Sheet-Overlap ausgleichen: Punkt in die Mitte des sichtbaren Bereichs
-      // schieben (analog zur Live-GPS-Zentrierung).
-      try {
-        var panel = document.getElementById('lesson-map-panel');
-        var mapEl = document.getElementById('lesson-map');
-        if (panel && mapEl) {
-          var pr = panel.getBoundingClientRect();
-          var mr = mapEl.getBoundingClientRect();
-          var overlap = Math.max(0, mr.bottom - pr.top);
-          var offsetY = Math.round(overlap / 2);
-          if (offsetY > 0) AppState.map.panBy(0, offsetY);
-        }
-      } catch (_e) { /* nicht kritisch */ }
+      // Sheet-Overlap ausgleichen und in EINEM panTo anfahren. Vorher liefen
+      // hier panTo und panBy hintereinander — die zweite Animation hat die
+      // erste abgebrochen.
+      AppState.map.panTo(this._sheetAdjustedCenter(pos.lat, pos.lng));
+      // Gelegenheit nutzen, um eventuell fehlende Kacheln nachzuladen.
+      this._nudgeMapSize();
     } else {
       // Kein Fix bisher: Nutzer informieren, statt stillschweigend nichts zu tun.
       this.showToast(t('gpsWirdGesucht'));
     }
+  },
+
+  // Teilt Google Maps mit, dass sich die Containergroesse geaendert haben kann.
+  // Ohne das behaelt die Karte eine veraltete Groesse — typische Folge sind
+  // grau bleibende Streifen am Rand. Tritt auf bei Geraetedrehung, beim
+  // Ein-/Ausblenden der iOS-Safari-Leiste und beim Umschalten der Ansicht.
+  _nudgeMapSize: function() {
+    if (!AppState.map || typeof google === 'undefined' || !google.maps) return;
+    try { google.maps.event.trigger(AppState.map, 'resize'); } catch (_e) {}
+  },
+
+  // ResizeObserver auf den Kartencontainer: jede Groessenaenderung wird an
+  // Google Maps durchgereicht.
+  _observeMapSize: function() {
+    if (AppState._mapSizeResizeObserver) return; // schon aktiv
+    var mapEl = document.getElementById('lesson-map');
+    if (!mapEl || typeof ResizeObserver === 'undefined') return;
+    var self = this;
+    AppState._mapSizeResizeObserver = new ResizeObserver(function() {
+      self._nudgeMapSize();
+    });
+    AppState._mapSizeResizeObserver.observe(mapEl);
+  },
+
+  // Baut das Kachel-Raster komplett neu auf, damit fehlgeschlagene
+  // Kachel-Requests erneut gestellt werden. Google Maps wiederholt sie von
+  // sich aus nicht — nach einem Funkloch (Tunnel, Tiefgarage) bleibt der
+  // betroffene Bereich sonst dauerhaft grau.
+  // Ein kurzer Zoom-Schritt verwirft das alte Raster und laedt es neu.
+  _repairMapTiles: function() {
+    if (!AppState.map || typeof google === 'undefined' || !google.maps) return;
+    if (AppState._mapRepairPending) return;   // nicht mehrfach parallel
+    var map = AppState.map;
+    var zoom = map.getZoom();
+    var center = map.getCenter();
+    if (typeof zoom !== 'number' || !center) return;
+    AppState._mapRepairPending = true;
+    this._nudgeMapSize();
+    try {
+      map.setZoom(zoom - 1);
+      // Rueckweg erst im naechsten Frame, sonst fasst Maps beide Schritte
+      // zusammen und das Raster wird nicht neu gebaut.
+      requestAnimationFrame(function() {
+        try {
+          map.setZoom(zoom);
+          map.setCenter(center);
+        } catch (_e) {}
+        AppState._mapRepairPending = false;
+      });
+    } catch (_e) {
+      AppState._mapRepairPending = false;
+    }
+  },
+
+  // Haengt die Selbstheilung der Karte an die Ereignisse, nach denen
+  // typischerweise Kacheln fehlen: Netz wieder da, oder App war im
+  // Hintergrund (Bildschirmsperre waehrend der Fahrt).
+  _bindMapRecovery: function() {
+    if (AppState._mapRecoveryBound) return;
+    AppState._mapRecoveryBound = true;
+    var self = this;
+    AppState._mapOnlineHandler = function() {
+      if (AppState.map) self._repairMapTiles();
+    };
+    AppState._mapVisibilityHandler = function() {
+      if (!document.hidden && AppState.map) self._repairMapTiles();
+    };
+    window.addEventListener('online', AppState._mapOnlineHandler);
+    document.addEventListener('visibilitychange', AppState._mapVisibilityHandler);
   },
 
   // Legt ein neues Polylinien-Paar (Casing + Kern) an und macht es zum
@@ -13029,26 +13139,20 @@ var App = {
           // Aktuelle Position merken, damit der Zentrieren-Button darauf zurückspringen kann,
           // auch wenn der Nutzer die Karte zwischendurch manuell verschoben hat.
           AppState.lastKnownPos = { lat: smoothLat, lng: smoothLng };
-          AppState.map.panTo({ lat: smoothLat, lng: smoothLng });
-          // Bottom-Sheet verdeckt den unteren Kartenbereich — den Standort-Punkt
-          // in den sichtbaren Bereich schieben, indem wir das Zentrum vertikal
-          // um die halbe Sheet-Höhe nach unten pannen (Karte + Marker wandern
-          // dadurch nach oben). Bei zusammengeklappter Sheet wird der Offset
-          // automatisch kleiner.
-          try {
-            var panel = document.getElementById('lesson-map-panel');
-            if (panel) {
-              var pr = panel.getBoundingClientRect();
-              var mapEl = document.getElementById('lesson-map');
-              var mr = mapEl ? mapEl.getBoundingClientRect() : null;
-              // Wie viel vom Kartenbereich verdeckt die Sheet (Overlap in Pixel)?
-              var overlap = mr ? Math.max(0, mr.bottom - pr.top) : pr.height;
-              // Halbe Ueberlappung als Offset — Punkt sitzt dann mittig im
-              // sichtbaren Kartenausschnitt oberhalb der Sheet-Kante.
-              var offsetY = Math.round(overlap / 2);
-              if (offsetY > 0) AppState.map.panBy(0, offsetY);
-            }
-          } catch (_e) { /* panBy nicht kritisch */ }
+          // Bottom-Sheet verdeckt den unteren Kartenbereich — der Standort-Punkt
+          // soll mittig im sichtbaren Ausschnitt oberhalb der Sheet-Kante sitzen.
+          // Der noetige Versatz wird direkt in Grad umgerechnet und in EINEM
+          // setCenter angewendet.
+          //
+          // Wichtig: hier stand vorher panTo() gefolgt von panBy(). Beide sind
+          // animiert, liefen pro GPS-Update uebereinander und haben sich
+          // gegenseitig abgebrochen. Bei ~1 Update/Sekunde war die Karte damit
+          // dauerhaft in Bewegung, wurde nie 'idle' — und Google Maps hat die
+          // Kacheln fuer durchfahrene Bereiche nicht fertig geladen. Ergebnis
+          // waren grau bleibende Flaechen, die im Kartenbild festhingen.
+          // setCenter ist unanimiert: die Karte kommt sofort zur Ruhe und die
+          // Kacheln werden vollstaendig nachgeladen.
+          AppState.map.setCenter(App._sheetAdjustedCenter(smoothLat, smoothLng));
           // Rotate map to driving direction
           var heading = pos.coords.heading;
           var spd = pos.coords.speed;
@@ -13492,11 +13596,32 @@ var App = {
     AppState._pendingSegmentBreak = false;
     AppState.mapCurrentPos = null;
     AppState.lastKnownPos = null;
+    AppState._mapRepairPending = false;
     // ResizeObserver für die Overlay-Zeile abhängen, damit er nicht auf
     // toten Panels weiterläuft.
     if (AppState._mapOverlayResizeObserver) {
       try { AppState._mapOverlayResizeObserver.disconnect(); } catch (_e) {}
       AppState._mapOverlayResizeObserver = null;
+    }
+    // Dito für den Größen-Observer des Kartencontainers.
+    if (AppState._mapSizeResizeObserver) {
+      try { AppState._mapSizeResizeObserver.disconnect(); } catch (_e) {}
+      AppState._mapSizeResizeObserver = null;
+    }
+    // Selbstheilungs-Listener abmelden, sonst laufen sie nach jeder
+    // Fahrstunde weiter und hängen sich bei der nächsten erneut an.
+    if (AppState._mapRecoveryBound) {
+      try {
+        if (AppState._mapOnlineHandler) {
+          window.removeEventListener('online', AppState._mapOnlineHandler);
+        }
+        if (AppState._mapVisibilityHandler) {
+          document.removeEventListener('visibilitychange', AppState._mapVisibilityHandler);
+        }
+      } catch (_e) {}
+      AppState._mapOnlineHandler = null;
+      AppState._mapVisibilityHandler = null;
+      AppState._mapRecoveryBound = false;
     }
   },
 
