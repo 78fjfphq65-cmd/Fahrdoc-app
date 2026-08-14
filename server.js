@@ -260,8 +260,19 @@ async function authMiddleware(req, res, next) {
     if (data) { user = data; user.role = 'school'; }
   } else if (session.user_role === 'instructor') {
     const { data } = await supabase.from('instructors')
-      .select('id, name, email, phone, school_id, verified, account_type, subscription_plan, subscription_status, solo_trial_ends_at, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id, is_super_admin')
+      .select('id, name, email, phone, school_id, verified, account_type, subscription_plan, subscription_status, solo_trial_ends_at, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id, is_super_admin, deactivated_at')
       .eq('id', session.user_id).single();
+    // Zugang von der Fahrschule entzogen: sofort sperren, auch wenn das Token
+    // noch gueltig waere. Beim Entzug werden die Sessions geloescht - dieser
+    // Check ist die zweite Verteidigungslinie (z.B. Race Condition mit einem
+    // parallel erzeugten Token).
+    if (data && data.deactivated_at) {
+      await supabase.from('sessions').delete().eq('token', token);
+      return res.status(403).json({
+        error: 'Deine Fahrschule hat deinen Zugang entzogen. Du brauchst einen neuen Einladungscode.',
+        code: 'ACCESS_REVOKED'
+      });
+    }
     if (data) { user = data; user.role = 'instructor'; }
   } else if (session.user_role === 'student') {
     const { data } = await supabase.from('students')
@@ -345,7 +356,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (!user) {
       const { data: inst } = await supabase.from('instructors')
-        .select('id, password_hash, verified').eq('email', email).maybeSingle();
+        .select('id, password_hash, verified, deactivated_at').eq('email', email).maybeSingle();
       if (inst) { user = inst; role = 'instructor'; }
     }
 
@@ -362,6 +373,16 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(403).json({ error: 'Dein Konto ist noch nicht aktiviert. Bitte nutze den Einladungslink aus der E-Mail oder lass dir vom Fahrlehrer eine neue Einladung schicken.' });
     }
     if (!verifyPassword(password, user.password_hash)) return res.status(401).json({ error: 'Ungültige E-Mail oder Passwort' });
+
+    // Zugang wurde von der Fahrschule entzogen. Passwort ist korrekt, daher
+    // gezielt darauf hinweisen, dass ein neuer Einladungscode noetig ist -
+    // sonst sucht der Fahrlehrer den Fehler beim Passwort.
+    if (role === 'instructor' && user.deactivated_at) {
+      return res.status(403).json({
+        error: 'Deine Fahrschule hat deinen Zugang entzogen. Mit einem neuen Einladungscode kannst du dich wieder freischalten.',
+        code: 'ACCESS_REVOKED'
+      });
+    }
 
     const token = generateToken();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -390,6 +411,97 @@ app.post('/api/auth/login', async (req, res) => {
     res.json({ token, user: fullUser });
   } catch (err) {
     console.error('Login error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// ============================================
+// POST /api/auth/instructor-rejoin
+// Wiedereintritt nach Zugangsentzug.
+//
+// Ein normaler Signup ist hier nicht moeglich: der Datensatz bleibt wegen der
+// dokumentierten Fahrstunden bestehen, und /api/auth/signup lehnt bereits
+// vergebene E-Mail-Adressen mit 409 ab. Darum dieser eigene Weg -
+// E-Mail + bekanntes Passwort + NEUER Einladungscode.
+//
+// Der Code darf jeder gueltige offene Fahrlehrer-Code sein, auch der einer
+// anderen Fahrschule. Alte Fahrstunden bleiben bei der alten Fahrschule,
+// weil lessons ihre eigene school_id tragen.
+// ============================================
+app.post('/api/auth/instructor-rejoin', async (req, res) => {
+  try {
+    const { email, password, inviteCode } = req.body;
+    if (!email || !password || !inviteCode) {
+      return res.status(400).json({ error: 'E-Mail, Passwort und Einladungscode erforderlich' });
+    }
+
+    const { data: inst } = await supabase.from('instructors')
+      .select('id, name, password_hash, deactivated_at')
+      .eq('email', email).maybeSingle();
+    // Bewusst dieselbe Meldung wie bei falschem Passwort, damit sich hierueber
+    // keine E-Mail-Adressen durchprobieren lassen.
+    if (!inst || !inst.password_hash || !verifyPassword(password, inst.password_hash)) {
+      return res.status(401).json({ error: 'Ungültige E-Mail oder Passwort' });
+    }
+    if (!inst.deactivated_at) {
+      return res.status(409).json({ error: 'Dein Zugang ist aktiv. Bitte melde dich normal an.' });
+    }
+
+    const { data: code } = await supabase.from('invite_codes')
+      .select('*').eq('code', inviteCode).eq('type', 'instructor')
+      .eq('status', 'offen').maybeSingle();
+    if (!code) return res.status(400).json({ error: 'Ungültiger oder bereits verwendeter Code' });
+
+    // Zugang freischalten und der Fahrschule des Codes zuordnen.
+    await supabase.from('instructors').update({
+      school_id: code.school_id, deactivated_at: null, deactivated_by: null
+    }).eq('id', inst.id);
+    await supabase.from('invite_codes').update({
+      status: 'verwendet', used_by: inst.name, used_by_id: inst.id
+    }).eq('id', code.id);
+
+    // Stripe-Menge nachziehen, falls der Platz zusaetzlich belegt wird
+    // (gleiche Logik wie beim Signup mit Code).
+    try {
+      if (stripe) {
+        const { data: subRow } = await supabase.from('subscriptions')
+          .select('stripe_subscription_id').eq('school_id', code.school_id).maybeSingle();
+        if (subRow && subRow.stripe_subscription_id) {
+          const stripeSub = await stripe.subscriptions.retrieve(subRow.stripe_subscription_id);
+          if (stripeSub && (stripeSub.status === 'active' || stripeSub.status === 'trialing')) {
+            const currentQty = stripeSub.items.data[0].quantity || 0;
+            const { count: usedNow } = await supabase.from('invite_codes')
+              .select('id', { count: 'exact', head: true })
+              .eq('school_id', code.school_id).eq('type', 'instructor').eq('status', 'verwendet');
+            if ((usedNow || 0) > currentQty) {
+              await stripe.subscriptions.update(subRow.stripe_subscription_id, {
+                items: [{ id: stripeSub.items.data[0].id, quantity: usedNow }],
+                proration_behavior: 'create_prorations'
+              });
+              console.log('[Auto-Quantity] Rejoin: School ' + code.school_id + ' auf ' + usedNow + ' Plaetze');
+            }
+          }
+        }
+      }
+    } catch (qtyErr) {
+      console.error('[Auto-Quantity Rejoin Error] ' + qtyErr.message);
+      // Nicht blockierend: der Wiedereintritt selbst war erfolgreich.
+    }
+
+    // Direkt einloggen, damit kein zweiter Schritt noetig ist.
+    const token = generateToken();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    await supabase.from('sessions').insert({
+      token, user_id: inst.id, user_role: 'instructor', expires_at: expiresAt
+    });
+    const { data: fullUser } = await supabase.from('instructors')
+      .select('id, name, email, phone, school_id, verified, account_type, subscription_plan, subscription_status, solo_trial_ends_at, is_super_admin')
+      .eq('id', inst.id).single();
+    if (fullUser) fullUser.role = 'instructor';
+
+    res.json({ token, user: fullUser });
+  } catch (err) {
+    console.error('Instructor rejoin error:', err);
     res.status(500).json({ error: 'Serverfehler' });
   }
 });
@@ -806,7 +918,9 @@ app.get('/api/school/dashboard', authMiddleware, async (req, res) => {
 
     // Alles parallel laden
     const [instRes, studRes, subRes, totalLessonsRes, newStudRes, recentLessonsRes] = await Promise.all([
-      supabase.from('instructors').select('id, name, email, phone').eq('school_id', schoolId),
+      // Nur aktive Fahrlehrer — wem der Zugang entzogen wurde, gehoert nicht in
+      // die Team-Uebersicht des Dashboards.
+      supabase.from('instructors').select('id, name, email, phone').eq('school_id', schoolId).is('deactivated_at', null),
       supabase.from('students').select('id, name, email, license_class, status, created_at').eq('school_id', schoolId),
       supabase.from('subscriptions').select('*').eq('school_id', schoolId).single(),
       supabase.from('lessons').select('id', { count: 'exact', head: true }).eq('school_id', schoolId).is('deleted_at', null),
@@ -850,24 +964,49 @@ app.get('/api/school/instructors', authMiddleware, async (req, res) => {
 
     // Parallel: instructors + codes laden
     const [instRes, codesRes] = await Promise.all([
-      supabase.from('instructors').select('id, name, email, phone').eq('school_id', schoolId),
+      supabase.from('instructors').select('id, name, email, phone, deactivated_at').eq('school_id', schoolId),
       supabase.from('invite_codes').select('*').eq('school_id', schoolId).eq('type', 'instructor').order('created_at', { ascending: false })
     ]);
     const instructors = instRes.data || [];
 
-    // Bulk: alle student_instructors-Mappings in EINER Query (statt N)
+    // Bulk: Schueler-Mappings, dokumentierte Fahrstunden und kommende Termine
+    // in je EINER Query (statt N). Die Zahlen braucht die Fahrschulansicht fuer
+    // die Rueckfrage vor dem Zugangsentzug.
     if (instructors.length > 0) {
       const instIds = instructors.map(i => i.id);
-      const { data: mappings } = await supabase.from('student_instructors')
-        .select('instructor_id, student_id').in('instructor_id', instIds);
-      const countByInst = {};
-      (mappings || []).forEach(m => {
-        countByInst[m.instructor_id] = (countByInst[m.instructor_id] || 0) + 1;
+      const todayStr = formatDateLocal(new Date());
+      const [mapRes, lessonRes, upcomingRes] = await Promise.all([
+        supabase.from('student_instructors').select('instructor_id, student_id').in('instructor_id', instIds),
+        supabase.from('lessons').select('instructor_id').in('instructor_id', instIds).is('deleted_at', null),
+        supabase.from('scheduled_lessons').select('instructor_id').in('instructor_id', instIds).gte('date', todayStr)
+      ]);
+      const tally = (rows) => {
+        const out = {};
+        (rows || []).forEach(r => { out[r.instructor_id] = (out[r.instructor_id] || 0) + 1; });
+        return out;
+      };
+      const byStudents = tally(mapRes.data);
+      const byLessons = tally(lessonRes.data);
+      const byUpcoming = tally(upcomingRes.data);
+      instructors.forEach(inst => {
+        inst.studentCount = byStudents[inst.id] || 0;
+        inst.lessonCount = byLessons[inst.id] || 0;
+        inst.upcomingCount = byUpcoming[inst.id] || 0;
+        inst.active = !inst.deactivated_at;
       });
-      instructors.forEach(inst => { inst.studentCount = countByInst[inst.id] || 0; });
     }
 
-    res.json({ instructors, codes: codesRes.data || [] });
+    // Aktive zuerst, innerhalb der Gruppen alphabetisch.
+    instructors.sort((a, b) => {
+      if (!!a.deactivated_at !== !!b.deactivated_at) return a.deactivated_at ? 1 : -1;
+      return (a.name || '').localeCompare(b.name || '', 'de');
+    });
+
+    res.json({
+      instructors,
+      codes: codesRes.data || [],
+      activeCount: instructors.filter(i => !i.deactivated_at).length
+    });
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
   }
@@ -2336,10 +2475,12 @@ app.get('/api/share-student/:id', authMiddleware, async (req, res) => {
       .select('*').eq('id', req.params.id).single();
     if (!student) return res.status(404).json({ error: 'Schüler nicht gefunden' });
 
+    // Gesperrte Fahrlehrer sind kein gueltiges Ziel fuer eine Schuelerfreigabe.
     const { data: otherInstructors } = await supabase.from('instructors')
       .select('id, name, email')
       .eq('school_id', req.user.school_id)
-      .neq('id', req.user.id);
+      .neq('id', req.user.id)
+      .is('deactivated_at', null);
 
     res.json({ student, otherInstructors: otherInstructors || [] });
   } catch (err) {
@@ -2575,8 +2716,9 @@ app.get('/api/schedule', authMiddleware, async (req, res) => {
 
     let instructors = [];
     if (req.user.role === 'school') {
+      // Auswahlliste fuer die Terminplanung: nur Fahrlehrer mit Zugang.
       const { data } = await supabase.from('instructors')
-        .select('id, name').eq('school_id', schoolId);
+        .select('id, name').eq('school_id', schoolId).is('deactivated_at', null);
       instructors = data || [];
     }
 
@@ -2664,8 +2806,10 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
       if (!targetInstructorId) return res.status(400).json({ error: 'Fahrlehrer-ID erforderlich' });
       schoolId = req.user.id;
       const { data: inst } = await supabase.from('instructors')
-        .select('id').eq('id', targetInstructorId).eq('school_id', schoolId).single();
+        .select('id, deactivated_at').eq('id', targetInstructorId).eq('school_id', schoolId).maybeSingle();
       if (!inst) return res.status(403).json({ error: 'Fahrlehrer gehört nicht zu dieser Fahrschule' });
+      // Kein Termin fuer jemanden, der die App nicht mehr oeffnen kann.
+      if (inst.deactivated_at) return res.status(403).json({ error: 'Diesem Fahrlehrer wurde der Zugang entzogen' });
     }
 
     // Check overlap (instructor)
@@ -4061,6 +4205,119 @@ app.put('/api/school/secretaries/:id', authMiddleware, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Secretaries PUT error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// ============================================
+// DELETE /api/school/instructors/:id
+// Entzieht einem Fahrlehrer den Zugang zur Fahrschule.
+//
+// Kein echtes DELETE: dokumentierte Fahrstunden sind GoBD-relevant und muessen
+// erhalten bleiben. Ausserdem stehen die Fremdschluessel von lessons und
+// students auf NO ACTION (Postgres wuerde blockieren), waehrend
+// scheduled_lessons und student_instructors auf CASCADE stehen - ein Hard
+// Delete wuerde also entweder scheitern oder stillschweigend den kompletten
+// Terminplan mitloeschen.
+//
+// Stattdessen: Zugang sperren, laufende Sitzungen beenden, Platz freigeben.
+// Der Fahrlehrer kann sich nur mit einem NEUEN Einladungscode zurueckholen.
+// ============================================
+app.delete('/api/school/instructors/:id', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const schoolId = req.user.id;
+    const instructorId = req.params.id;
+
+    // Nur Fahrlehrer der eigenen Fahrschule.
+    const { data: inst } = await supabase.from('instructors')
+      .select('id, name, email, deactivated_at')
+      .eq('id', instructorId).eq('school_id', schoolId).maybeSingle();
+    if (!inst) return res.status(404).json({ error: 'Fahrlehrer nicht gefunden' });
+    if (inst.deactivated_at) {
+      return res.status(409).json({ error: 'Der Zugang ist bereits entzogen' });
+    }
+
+    // 1) Zugang sperren
+    const { error: updErr } = await supabase.from('instructors')
+      .update({ deactivated_at: new Date().toISOString(), deactivated_by: schoolId })
+      .eq('id', instructorId);
+    if (updErr) throw updErr;
+
+    // 2) Alle laufenden Sitzungen beenden. Ohne das koennte er mit einem noch
+    //    gueltigen Token bis zu 30 Tage weiter Fahrstunden tracken.
+    await supabase.from('sessions').delete()
+      .eq('user_id', instructorId).eq('user_role', 'instructor');
+
+    // 3) Seinen verbrauchten Einladungscode entwerten. Damit wird der Platz in
+    //    der Sitzplatz-Zaehlung wieder frei (die zaehlt invite_codes mit
+    //    status='verwendet') und der alte Code laesst sich nicht wiederverwenden
+    //    - fuer die Rueckkehr ist zwingend ein neuer Code noetig.
+    await supabase.from('invite_codes')
+      .update({ status: 'widerrufen' })
+      .eq('school_id', schoolId).eq('type', 'instructor')
+      .eq('used_by_id', instructorId).eq('status', 'verwendet');
+
+    // 4) Fahrlehrer informieren, damit der Entzug nicht unerklaert bleibt.
+    try {
+      await createNotification(instructorId, 'instructor', 'access_revoked',
+        'Zugang entzogen',
+        'Deine Fahrschule hat deinen Zugang beendet. Für eine Rückkehr brauchst du einen neuen Einladungscode.',
+        schoolId);
+    } catch (_e) { /* nicht blockierend */ }
+
+    res.json({ success: true, name: inst.name });
+  } catch (err) {
+    console.error('Instructor revoke error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// ============================================
+// POST /api/school/instructors/:id/restore
+// Nimmt den Zugangsentzug zurück, ohne dass ein Code nötig ist - fuer den
+// Fall, dass der Inhaber sich vertippt hat.
+// ============================================
+app.post('/api/school/instructors/:id/restore', authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur für Fahrschulen' });
+    const { data: inst } = await supabase.from('instructors')
+      .select('id, name, deactivated_at')
+      .eq('id', req.params.id).eq('school_id', req.user.id).maybeSingle();
+    if (!inst) return res.status(404).json({ error: 'Fahrlehrer nicht gefunden' });
+    if (!inst.deactivated_at) return res.status(409).json({ error: 'Der Zugang ist bereits aktiv' });
+
+    // Beim Entzug wurde sein Code auf 'widerrufen' gesetzt und der Platz damit
+    // frei. Fuer die Ruecknahme muss der Platz wieder belegt werden, sonst
+    // stimmt die Sitzplatz-Zaehlung (= eingeloeste Codes) nicht mehr.
+    const { data: revokedCode } = await supabase.from('invite_codes')
+      .select('id').eq('school_id', req.user.id).eq('type', 'instructor')
+      .eq('used_by_id', inst.id).eq('status', 'widerrufen')
+      .order('created_at', { ascending: false }).maybeSingle();
+
+    if (revokedCode) {
+      const { count: usedSeats } = await supabase.from('invite_codes')
+        .select('id', { count: 'exact', head: true })
+        .eq('school_id', req.user.id).eq('type', 'instructor').eq('status', 'verwendet');
+      const { data: subRow } = await supabase.from('subscriptions')
+        .select('instructor_quantity').eq('school_id', req.user.id).maybeSingle();
+      const quantity = subRow && subRow.instructor_quantity ? subRow.instructor_quantity : null;
+      if (quantity !== null && (usedSeats || 0) >= quantity) {
+        return res.status(402).json({
+          error: 'Alle ' + quantity + ' Fahrlehrer-Plätze sind belegt. Bitte zuerst das Abo erweitern.'
+        });
+      }
+      const { error: codeBackErr } = await supabase.from('invite_codes')
+        .update({ status: 'verwendet' }).eq('id', revokedCode.id);
+      if (codeBackErr) throw codeBackErr;
+    }
+
+    const { error: reactErr } = await supabase.from('instructors')
+      .update({ deactivated_at: null, deactivated_by: null }).eq('id', inst.id);
+    if (reactErr) throw reactErr;
+    res.json({ success: true, name: inst.name });
+  } catch (err) {
+    console.error('Instructor restore error:', err);
     res.status(500).json({ error: 'Serverfehler' });
   }
 });

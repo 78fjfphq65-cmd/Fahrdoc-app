@@ -38,7 +38,7 @@ var TRANSLATIONS = {
   rolleWaehlen:    { de:'Rolle wählen', en:'Choose role', tr:'Rol seçin', ar:'اختر الدور', es:'Elegir rol', fr:'Choisir un rôle' },
   fahrschule:      { de:'Fahrschule', en:'Driving school', tr:'Sürücü kursu', ar:'مدرسة القيادة', es:'Autoescuela', fr:'Auto-école' },
   fahrschueler:    { de:'Fahrschüler', en:'Student', tr:'Öğrenci', ar:'طالب', es:'Alumno', fr:'Élève' },
-  fahrschulCode:   { de:'Fahrschul-Code', en:'School code', tr:'Okul kodu', ar:'رمز المدرسة', es:'Código de escuela', fr:'Code de l\'école' },
+  fahrschulCode:   { de:'Fahrschul-Code', en:'School code', tr:'Okul kodu', ar:'رمز المدرسة', es:'Código de escuela', fr:'Code de l\'école', pt:'Código da escola' },
   adresse:         { de:'Adresse', en:'Address', tr:'Adres', ar:'العنوان', es:'Dirección', fr:'Adresse' },
   fahrschulName:   { de:'Fahrschulname', en:'School name', tr:'Okul adı', ar:'اسم المدرسة', es:'Nombre de escuela', fr:'Nom de l\'école' },
 
@@ -163,6 +163,28 @@ var TRANSLATIONS = {
   einladungscodes:{ de:'Einladungscodes', en:'Invitation codes', tr:'Davet kodları', ar:'رموز الدعوة', es:'Códigos de invitación', fr:'Codes d\'invitation' },
   schuelerCodes:{ de:'Schüler-Codes', en:'Student codes', tr:'Öğrenci kodları', ar:'رموز الطلاب', es:'Códigos de alumnos', fr:'Codes élèves' },
   neuerCode:{ de:'Neuer Code', en:'New code', tr:'Yeni kod', ar:'رمز جديد', es:'Nuevo código', fr:'Nouveau code' },
+
+  // ── Zugangsentzug Fahrlehrer (Fahrschulansicht) ──
+  zugangEntziehen: { de:'Zugang entziehen', en:'Revoke access', tr:'Erişimi kaldır', ar:'إلغاء الوصول', es:'Revocar acceso', fr:'Révoquer l\'accès', pt:'Revogar acesso' },
+  zugangEntzogen: { de:'Zugang entzogen', en:'Access revoked', tr:'Erişim kaldırıldı', ar:'تم إلغاء الوصول', es:'Acceso revocado', fr:'Accès révoqué', pt:'Acesso revogado' },
+  zugangWiederherstellen: { de:'Zugang wiederherstellen', en:'Restore access', tr:'Erişimi geri yükle', ar:'استعادة الوصول', es:'Restaurar acceso', fr:'Rétablir l\'accès', pt:'Restaurar acesso' },
+  ehemaligeFahrlehrer: { de:'Ehemalige Fahrlehrer', en:'Former instructors', tr:'Eski eğitmenler', ar:'المدربون السابقون', es:'Instructores anteriores', fr:'Anciens moniteurs', pt:'Instrutores anteriores' },
+  zugangEntziehenFrage: { de:'Zugang von {name} entziehen?', en:'Revoke access for {name}?', tr:'{name} erişimi kaldırılsın mı?', ar:'إلغاء وصول {name}؟', es:'¿Revocar el acceso de {name}?', fr:'Révoquer l\'accès de {name} ?', pt:'Revogar o acesso de {name}?' },
+  zugangEntziehenErklaerung: { de:'{name} kann sich sofort nicht mehr anmelden und keine Fahrstunden mehr im Namen der Fahrschule aufzeichnen. Laufende Sitzungen werden beendet.', en:'{name} will immediately be unable to sign in or record lessons on behalf of the school. Active sessions are ended.', tr:'{name} anında giriş yapamaz ve okul adına ders kaydedemez. Aktif oturumlar sonlanır.', ar:'لن يتمكن {name} من تسجيل الدخول أو تسجيل الدروس باسم المدرسة فوراً. وستنتهي الجلسات النشطة.', es:'{name} no podrá iniciar sesión ni registrar clases en nombre de la autoescuela de inmediato. Las sesiones activas finalizan.', fr:'{name} ne pourra plus se connecter ni enregistrer de leçons au nom de l\'auto-école. Les sessions actives sont terminées.', pt:'{name} não poderá mais entrar nem registar aulas em nome da escola. As sessões ativas são encerradas.' },
+  zugangEntziehenBleibt: { de:'Erhalten bleiben: {lessons} dokumentierte Fahrstunden und {students} zugeordnete Schüler.', en:'Retained: {lessons} documented lessons and {students} assigned students.', tr:'Korunur: {lessons} kayıtlı ders ve {students} atanmış öğrenci.', ar:'يتم الاحتفاظ بـ: {lessons} درساً موثقاً و{students} طالباً معيناً.', es:'Se conservan: {lessons} clases documentadas y {students} alumnos asignados.', fr:'Conservés : {lessons} leçons documentées et {students} élèves attribués.', pt:'Mantidos: {lessons} aulas documentadas e {students} alunos atribuídos.' },
+  zugangEntziehenTermine: { de:'Achtung: {count} geplante Termine bleiben ihm zugeordnet. Bitte vorher umplanen.', en:'Note: {count} upcoming appointments stay assigned to them. Please reschedule first.', tr:'Dikkat: {count} planlanmış randevu ona atanmış kalır. Lütfen önce yeniden planlayın.', ar:'تنبيه: ستبقى {count} مواعيد مجدولة معينة له. يرجى إعادة الجدولة أولاً.', es:'Atención: {count} citas programadas siguen asignadas a él. Reprograma antes.', fr:'Attention : {count} rendez-vous planifiés lui restent attribués. Veuillez replanifier avant.', pt:'Atenção: {count} marcações agendadas continuam atribuídas a ele. Reagende antes.' },
+  zugangEntziehenNeuerCode: { de:'Für eine Rückkehr braucht er einen neuen Einladungscode.', en:'To return, they will need a new invitation code.', tr:'Geri dönmek için yeni bir davet koduna ihtiyacı olur.', ar:'للعودة، سيحتاج إلى رمز دعوة جديد.', es:'Para volver necesitará un nuevo código de invitación.', fr:'Pour revenir, il lui faudra un nouveau code d\'invitation.', pt:'Para regressar, precisará de um novo código de convite.' },
+  zugangEntzogenAm: { de:'Entzogen am {date}', en:'Revoked on {date}', tr:'{date} tarihinde kaldırıldı', ar:'أُلغي في {date}', es:'Revocado el {date}', fr:'Révoqué le {date}', pt:'Revogado em {date}' },
+  zugangEntzogenErfolg: { de:'Zugang von {name} entzogen', en:'Access revoked for {name}', tr:'{name} erişimi kaldırıldı', ar:'تم إلغاء وصول {name}', es:'Acceso de {name} revocado', fr:'Accès de {name} révoqué', pt:'Acesso de {name} revogado' },
+  zugangWiederhergestellt: { de:'Zugang von {name} wiederhergestellt', en:'Access restored for {name}', tr:'{name} erişimi geri yüklendi', ar:'تمت استعادة وصول {name}', es:'Acceso de {name} restaurado', fr:'Accès de {name} rétabli', pt:'Acesso de {name} restaurado' },
+  widerrufen: { de:'Widerrufen', en:'Revoked', tr:'İptal edildi', ar:'ملغى', es:'Revocado', fr:'Révoqué', pt:'Revogado' },
+  aktiveFahrlehrer: { de:'Aktive Fahrlehrer', en:'Active instructors', tr:'Aktif eğitmenler', ar:'المدربون النشطون', es:'Instructores activos', fr:'Moniteurs actifs', pt:'Instrutores ativos' },
+
+  // ── Wiedereintritt nach Zugangsentzug (Login) ──
+  zugangEntzogenTitel: { de:'Zugang entzogen', en:'Access revoked', tr:'Erişim kaldırıldı', ar:'تم إلغاء الوصول', es:'Acceso revocado', fr:'Accès révoqué', pt:'Acesso revogado' },
+  zugangEntzogenHinweis: { de:'Deine Fahrschule hat deinen Zugang beendet. Mit einem neuen Einladungscode kannst du dich wieder freischalten.', en:'Your driving school has ended your access. You can unlock your account again with a new invitation code.', tr:'Sürücü kursun erişimini sonlandırdı. Yeni bir davet koduyla hesabını tekrar açabilirsin.', ar:'أنهت مدرسة القيادة وصولك. يمكنك إعادة تفعيل حسابك برمز دعوة جديد.', es:'Tu autoescuela ha finalizado tu acceso. Puedes reactivar tu cuenta con un nuevo código de invitación.', fr:'Votre auto-école a mis fin à votre accès. Vous pouvez réactiver votre compte avec un nouveau code d\'invitation.', pt:'A tua escola encerrou o teu acesso. Podes reativar a conta com um novo código de convite.' },
+  neuerCodeEinloesen: { de:'Neuen Code einlösen', en:'Redeem new code', tr:'Yeni kodu kullan', ar:'استبدال الرمز الجديد', es:'Canjear nuevo código', fr:'Utiliser un nouveau code', pt:'Resgatar novo código' },
+  wiederFreigeschaltet: { de:'Willkommen zurück! Dein Zugang ist wieder aktiv.', en:'Welcome back! Your access is active again.', tr:'Tekrar hoş geldin! Erişimin yeniden aktif.', ar:'مرحباً بعودتك! أصبح وصولك نشطاً مرة أخرى.', es:'¡Bienvenido de nuevo! Tu acceso está activo otra vez.', fr:'Bon retour ! Votre accès est de nouveau actif.', pt:'Bem-vindo de volta! O teu acesso está novamente ativo.' },
   telefon:{ de:'Telefon', en:'Phone', tr:'Telefon', ar:'الهاتف', es:'Teléfono', fr:'Téléphone' },
   keineTermine:{ de:'Keine Termine', en:'No appointments', tr:'Randevu yok', ar:'لا توجد مواعيد', es:'Sin citas', fr:'Aucun rendez-vous' },
   erstelleTermin:{ de:'Erstelle einen Termin für diesen Tag', en:'Create an appointment for this day', tr:'Bu gün için randevu oluşturun', ar:'أنشئ موعداً لهذا اليوم', es:'Crear una cita para este día', fr:'Créer un rendez-vous pour ce jour' },
@@ -713,7 +735,7 @@ var LEVEL_KEY_MAP = {
 // ── Status key map (backend stores German values) ──
 var STATUS_KEY_MAP = {
   'bestätigt': 'bestaetigt', 'geplant': 'geplant', 'offen': 'offen',
-  'Offen': 'offen', 'verwendet': 'verwendet'
+  'Offen': 'offen', 'verwendet': 'verwendet', 'widerrufen': 'widerrufen'
 };
 
 // ── Core translation functions ──
