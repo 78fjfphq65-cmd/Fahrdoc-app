@@ -14,7 +14,7 @@ async function sendVerificationEmail(to, name, code, verifyToken, userId, role) 
   try {
     const baseUrl = process.env.APP_BASE_URL || 'https://www.fahrdoc.app';
     const verifyLink = verifyToken
-      ? baseUrl + '/verify.html?token=' + encodeURIComponent(verifyToken) + '&uid=' + encodeURIComponent(userId || '') + '&role=' + encodeURIComponent(role || '')
+      ? baseUrl + '/app/verify.html?token=' + encodeURIComponent(verifyToken) + '&uid=' + encodeURIComponent(userId || '') + '&role=' + encodeURIComponent(role || '')
       : '';
 
     const { data, error } = await resend.emails.send({
@@ -110,7 +110,12 @@ async function sendInviteEmail({ to, code, type, schoolName, senderName, senderR
   try {
     const isInstructor = type === 'instructor';
     const roleLabel = isInstructor ? 'Fahrlehrer' : 'Fahrschüler';
-    const registerUrl = 'https://www.fahrdoc.app?code=' + encodeURIComponent(code);
+    // Wichtig: direkt in die App (/app/), nicht auf die Landing-Page. Zusaetzlich
+    // die Rolle mitgeben, damit die richtige Registrierungsmaske vorausgewaehlt
+    // wird, statt sie aus dem Code-Praefix zu raten.
+    const baseUrl = process.env.APP_BASE_URL || 'https://www.fahrdoc.app';
+    const registerUrl = baseUrl + '/app/?code=' + encodeURIComponent(code) +
+      '&role=' + (isInstructor ? 'instructor' : 'student');
     const inviterLine = senderRole === 'school'
       ? schoolName + ' hat dich als ' + roleLabel + ' eingeladen'
       : senderName + ' (' + schoolName + ') hat dich eingeladen';
@@ -191,7 +196,7 @@ async function sendSubscriptionWelcomeEmail(to, schoolName, plan, amount) {
         <div style="font-size:14px;color:#666;margin-top:8px;">${priceText}</div>
       </div>
       ${plan === 'ki' ? '<p style="font-size: 15px; color: #333; line-height: 1.5;">\u2728 Mit FahrDoc KI kannst du ab sofort <strong>KI-Briefings</strong> f\u00fcr jeden Sch\u00fcler generieren \u2014 perfekt vor jeder Fahrstunde.</p>' : '<p style="font-size: 15px; color: #333; line-height: 1.5;">Falls du sp\u00e4ter auf FahrDoc KI upgraden m\u00f6chtest \u2014 du kannst jederzeit in der App wechseln.</p>'}
-      <div style="text-align:center;margin:28px 0;"><a href="https://www.fahrdoc.app" style="display:inline-block;background:#0d9488;color:#fff;font-size:16px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;">Zur App</a></div>
+      <div style="text-align:center;margin:28px 0;"><a href="${process.env.APP_BASE_URL || 'https://www.fahrdoc.app'}/app/" style="display:inline-block;background:#0d9488;color:#fff;font-size:16px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;">Zur App</a></div>
       <p style="font-size:14px;color:#666;line-height:1.5;">Du kannst dein Abo jederzeit in den Einstellungen verwalten oder k\u00fcndigen.</p>
     `);
     const { data, error } = await resend.emails.send({ from: FROM_EMAIL, to: [to], subject: 'FahrDoc \u2014 Abo aktiviert: ' + planName, html });
@@ -208,7 +213,7 @@ async function sendSubscriptionCancelledEmail(to, schoolName, endDate) {
       <p style="font-size: 16px; color: #333; line-height: 1.5;">Hallo ${schoolName || 'Fahrschule'},</p>
       <p style="font-size: 16px; color: #333; line-height: 1.5;">dein FahrDoc-Abo wurde gek\u00fcndigt. ${endText ? 'Du kannst FahrDoc noch bis zum <strong>' + endText + '</strong> nutzen.' : 'Dein Zugang endet zum n\u00e4chsten Abrechnungstermin.'}</p>
       <p style="font-size: 15px; color: #333; line-height: 1.5;">Schade, dass du gehst! Falls du Feedback hast, antworte einfach auf diese E-Mail \u2014 wir freuen uns \u00fcber jede R\u00fcckmeldung.</p>
-      <div style="text-align:center;margin:28px 0;"><a href="https://www.fahrdoc.app" style="display:inline-block;background:#0d9488;color:#fff;font-size:16px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;">Wieder abonnieren</a></div>
+      <div style="text-align:center;margin:28px 0;"><a href="${process.env.APP_BASE_URL || 'https://www.fahrdoc.app'}/app/" style="display:inline-block;background:#0d9488;color:#fff;font-size:16px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;">Wieder abonnieren</a></div>
       <p style="font-size:14px;color:#666;line-height:1.5;">Deine Daten bleiben gespeichert. Du kannst jederzeit zur\u00fcckkommen \u2014 alles ist noch da.</p>
     `);
     const { data, error } = await resend.emails.send({ from: FROM_EMAIL, to: [to], subject: 'FahrDoc \u2014 Abo gek\u00fcndigt', html });
@@ -233,7 +238,7 @@ async function sendPaymentFailedEmail(to, schoolName, amount) {
         </ul>
       </div>
       <p style="font-size: 15px; color: #333; line-height: 1.5;">Solange die Zahlung offen ist, bleibt dein Zugang aktiv. Wenn nach mehreren Versuchen keine Zahlung gelingt, wird dein Abo automatisch pausiert.</p>
-      <div style="text-align:center;margin:28px 0;"><a href="https://www.fahrdoc.app" style="display:inline-block;background:#0d9488;color:#fff;font-size:16px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;">Zahlungsdaten aktualisieren</a></div>
+      <div style="text-align:center;margin:28px 0;"><a href="${process.env.APP_BASE_URL || 'https://www.fahrdoc.app'}/app/" style="display:inline-block;background:#0d9488;color:#fff;font-size:16px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;">Zahlungsdaten aktualisieren</a></div>
     `);
     const { data, error } = await resend.emails.send({ from: FROM_EMAIL, to: [to], subject: 'FahrDoc \u2014 Zahlung fehlgeschlagen', html });
     if (error) { console.error('[EMAIL] Payment-failed send error:', error); return false; }

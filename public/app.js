@@ -519,14 +519,27 @@ var App = {
     // Handle invite code from URL (?code=XXX) — persist across reloads via session store
     var urlParams = new URLSearchParams(window.location.search);
     var inviteCode = urlParams.get('code');
+    var inviteRole = urlParams.get('role');
     var _ss = (function() { try { return window['session' + 'Storage']; } catch(e) { return null; } })();
     if (inviteCode) {
-      try { if (_ss) _ss.setItem('fahrdoc_invite_code', inviteCode); } catch(e) {}
+      try {
+        if (_ss) {
+          _ss.setItem('fahrdoc_invite_code', inviteCode);
+          if (inviteRole) _ss.setItem('fahrdoc_invite_role', inviteRole);
+          else _ss.removeItem('fahrdoc_invite_role');
+        }
+      } catch(e) {}
     } else {
-      try { if (_ss) inviteCode = _ss.getItem('fahrdoc_invite_code'); } catch(e) {}
+      try {
+        if (_ss) {
+          inviteCode = _ss.getItem('fahrdoc_invite_code');
+          inviteRole = _ss.getItem('fahrdoc_invite_role');
+        }
+      } catch(e) {}
     }
     if (inviteCode) {
       AppState._pendingInviteCode = inviteCode;
+      AppState._pendingInviteRole = inviteRole || null;
       // Clean URL but keep code in sessionStorage until consumed
       if (window.location.search.indexOf('code=') !== -1) {
         window.history.replaceState({}, '', window.location.pathname);
@@ -744,18 +757,27 @@ var App = {
     if (el) el.classList.add('active');
     // Auto-fill invite code when navigating to signup
     if (screen === 'signup' && AppState._pendingInviteCode) {
-      var code = AppState._pendingInviteCode;
+      var code = String(AppState._pendingInviteCode).trim().toUpperCase();
+      var wantRole = AppState._pendingInviteRole;
       AppState._pendingInviteCode = null;
+      AppState._pendingInviteRole = null;
       setTimeout(function() {
         var instField = document.getElementById('signup-school-code');
         var studField = document.getElementById('signup-invite-code');
-        if (code.startsWith('FL') && instField) {
+        // Rolle aus dem Link hat Vorrang; das Code-Praefix ist nur der Notnagel
+        // fuer Einladungen, die noch ohne role-Parameter unterwegs sind.
+        var asInstructor = wantRole === 'instructor' ||
+          (!wantRole && code.indexOf('FL') === 0);
+        if (asInstructor && instField) {
           App.setRole('instructor', document.querySelector('[data-role="instructor"]'));
           instField.value = code;
         } else if (studField) {
           App.setRole('student', document.querySelector('[data-role="student"]'));
           studField.value = code;
         }
+        // Fokus auf das erste noch leere Feld, damit direkt getippt werden kann
+        var first = document.getElementById('signup-firstname');
+        if (first && !first.value) { try { first.focus(); } catch(e) {} }
       }, 100);
     }
     // Pre-Select role from Welcome cards (signupAs)
@@ -1060,6 +1082,13 @@ var App = {
       // Marker setzen: dieser User durchläuft gerade eine echte Erstregistrierung
       // → nach Email-Verify zeigen wir das Welcome-Modal
       try { window['session' + 'Storage'].setItem('fahrdoc_pending_welcome', '1'); } catch(_) {}
+      // Einladungscode ist verbraucht - sonst zwingt er bei jedem weiteren
+      // Aufruf der App erneut in die Registrierung.
+      try {
+        var _s = window['session' + 'Storage'];
+        _s.removeItem('fahrdoc_invite_code');
+        _s.removeItem('fahrdoc_invite_role');
+      } catch(_) {}
       this.navigate('verify-email');
     } catch (err) { errorEl.textContent = err.message; errorEl.classList.remove('hidden'); }
     finally { this.showLoading(false); }

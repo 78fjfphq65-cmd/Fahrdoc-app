@@ -231,6 +231,32 @@ app.use('/api/', (req, res, next) => {
 });
 app.use('/api/', apiLimiter);
 app.use('/api/auth/', authLimiter);
+// Links aus E-Mails, die noch auf die Wurzel zeigen, in die App weiterleiten.
+// Aeltere Einladungen tragen ?code=..., Magic-Links ?setup=..., Bestaetigungen
+// ?verified=1 — auf der Landing-Page verpufft das alles wirkungslos.
+// Muss VOR den statischen Mounts stehen, sonst liefert express.static die
+// Landing-Page aus, bevor wir umleiten koennen.
+const APP_QUERY_KEYS = ['code', 'setup', 'verified'];
+// Seiten, die nur unter /app/ existieren, aber in aelteren E-Mails ohne /app/
+// verlinkt sind.
+const APP_ONLY_PAGES = ['/verify.html', '/impressum.html', '/datenschutz.html', '/agb.html', '/widerruf.html'];
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/app') || req.path.startsWith('/api')) return next();
+  const qs = new URLSearchParams();
+  Object.keys(req.query).forEach(k => {
+    const v = req.query[k];
+    qs.set(k, Array.isArray(v) ? v[0] : String(v));
+  });
+  const query = qs.toString();
+  if (APP_ONLY_PAGES.indexOf(req.path) !== -1) {
+    return res.redirect(302, '/app' + req.path + (query ? '?' + query : ''));
+  }
+  if (APP_QUERY_KEYS.some(k => req.query[k])) {
+    return res.redirect(302, '/app/?' + query);
+  }
+  next();
+});
+
 // App-Dateien unter /app/ ausliefern (CSS/JS via <base href="/app/">)
 app.use('/app', express.static(path.join(__dirname, 'public'), { dotfiles: 'allow' }));
 // Landing-Page (Marketing-Startseite) unter /

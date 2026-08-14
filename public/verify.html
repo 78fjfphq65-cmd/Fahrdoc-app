@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0d9488">
 <title>E-Mail bestätigen — FahrDoc</title>
-<link rel="icon" href="/icon-192.png">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="/app/icon-192.png">
+<link rel="apple-touch-icon" href="/app/apple-touch-icon.png">
 <style>
   * { box-sizing: border-box; }
   body {
@@ -98,13 +98,13 @@
     <div class="icon success">✓</div>
     <h1>E-Mail bestätigt</h1>
     <p>Dein Konto ist jetzt aktiv. Du wirst zur Anmeldeseite weitergeleitet…</p>
-    <a class="btn" href="/">Jetzt anmelden</a>
+    <a class="btn" href="/app/">Jetzt anmelden</a>
   </div>
   <div id="state-error" style="display:none;">
     <div class="icon error">!</div>
     <h1>Bestätigung fehlgeschlagen</h1>
     <p id="error-msg">Der Bestätigungslink ist ungültig oder abgelaufen.</p>
-    <a class="btn btn-secondary" href="/">Zurück zur Anmeldung</a>
+    <a class="btn btn-secondary" href="/app/">Zurück zur Anmeldung</a>
   </div>
 </div>
 
@@ -135,7 +135,7 @@
         show('success');
         // Auto-redirect to login after 2.5 seconds
         setTimeout(function() {
-          window.location.href = '/?verified=1';
+          window.location.href = '/app/?verified=1';
         }, 2500);
       } else {
         var msg = (res.data && res.data.error) ? res.data.error : 'Unbekannter Fehler.';
