@@ -403,6 +403,7 @@ var TRANSLATIONS = {
   konfliktFahrzeug: { de:'Fahrzeug belegt', en:'Vehicle busy', tr:'Araç meşgul', ar:'المركبة مشغولة', es:'Vehículo ocupado', fr:'Véhicule occupé' },
   konfliktePruefen: { de:'Konflikte prüfen...', en:'Checking conflicts...', tr:'Çakışmalar kontrol ediliyor...', ar:'جارٍ التحقق من التعارضات...', es:'Comprobando conflictos...', fr:'Vérification des conflits...' },
   wiederkehrendeTermineErstellt: { de:'Wiederkehrende Termine erstellt', en:'Recurring appointments created', tr:'Tekrarlayan randevular oluşturuldu', ar:'تم إنشاء المواعيد المتكررة', es:'Citas recurrentes creadas', fr:'Rendez-vous récurrents créés' },
+  termine: { de:'Termine', en:'appointments', tr:'randevu', ar:'مواعيد', es:'citas', fr:'rendez-vous', pt:'compromissos' },
   termineErstellt: { de:'{count} Termine erstellt', en:'{count} appointments created', tr:'{count} randevu oluşturuldu', ar:'تم إنشاء {count} مواعيد', es:'{count} citas creadas', fr:'{count} rendez-vous créés' },
   termineUebersprungen: { de:'{count} übersprungen (Konflikte)', en:'{count} skipped (conflicts)', tr:'{count} atlandı (çakışmalar)', ar:'{count} تم تخطيه (تعارضات)', es:'{count} omitidas (conflictos)', fr:'{count} ignorés (conflits)' },
   nurDiesenTermin: { de:'Nur diesen Termin löschen', en:'Delete only this appointment', tr:'Yalnızca bu randevuyu sil', ar:'حذف هذا الموعد فقط', es:'Eliminar solo esta cita', fr:'Supprimer uniquement ce rendez-vous' },

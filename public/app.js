@@ -2508,14 +2508,40 @@ var App = {
         html += '<div class="code-row"><div><span class="code-value">' + c.code + '</span></div>' +
           '<span class="badge ' + (c.status === 'offen' ? 'badge-success' : 'badge-neutral') + '">' + tStatus(c.status) + (c.used_by ? ' \u00b7 ' + c.used_by : '') + '</span></div>';
       });
-      var instructors = instData.instructors || [];
-      html += '<div class="section-header mt-4"><span class="section-title">' + t('fahrlehrer') + ' (' + instructors.length + ')</span></div>';
-      instructors.forEach(function(inst) {
-        html += '<div class="card card-interactive mb-3"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
+      var allInst = instData.instructors || [];
+      var esc = App.escapeHtml;
+      var activeInst = allInst.filter(function(i) { return i.active !== false; });
+      var revokedInst = allInst.filter(function(i) { return i.active === false; });
+
+      html += '<div class="section-header mt-4"><span class="section-title">' + t('fahrlehrer') + ' (' + activeInst.length + ')</span></div>';
+      activeInst.forEach(function(inst) {
+        html += '<div class="card mb-3"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
           App.avatarHtml(inst.name, '') +
-          '<div class="flex-1"><div style="font-weight:600;font-size:var(--text-sm);">' + inst.name + '</div>' +
-          '<div class="text-xs text-muted">' + inst.email + ' \u00b7 ' + (inst.studentCount || 0) + ' ' + t('schueler') + '</div></div></div></div>';
+          '<div class="flex-1" style="min-width:0;"><div style="font-weight:600;font-size:var(--text-sm);">' + esc(inst.name) + '</div>' +
+          '<div class="text-xs text-muted" style="overflow-wrap:anywhere;">' + esc(inst.email) + '</div>' +
+          '<div class="text-xs text-muted">' + (inst.studentCount || 0) + ' ' + t('schueler') + ' \u00b7 ' +
+            (inst.lessonCount || 0) + ' ' + t('fahrstunden') +
+            (inst.upcomingCount ? ' \u00b7 ' + inst.upcomingCount + ' ' + t('termine') : '') + '</div></div>' +
+          '<button class="icon-btn" onclick="App.revokeInstructorAccess(\'' + inst.id + '\')" title="' + t('zugangEntziehen') + '" aria-label="' + t('zugangEntziehen') + '" style="color:var(--color-error);flex-shrink:0;">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>' +
+          '</div></div>';
       });
+
+      if (revokedInst.length) {
+        html += '<div class="section-header mt-4"><span class="section-title">' + t('ehemaligeFahrlehrer') + ' (' + revokedInst.length + ')</span></div>';
+        revokedInst.forEach(function(inst) {
+          var since = inst.deactivated_at ? new Date(inst.deactivated_at).toLocaleDateString('de-DE') : '';
+          html += '<div class="card mb-3" style="opacity:0.62;"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
+            App.avatarHtml(inst.name, '') +
+            '<div class="flex-1" style="min-width:0;"><div style="font-weight:600;font-size:var(--text-sm);">' + esc(inst.name) +
+              ' <span class="badge badge-neutral">' + t('zugangEntzogen') + '</span></div>' +
+            '<div class="text-xs text-muted" style="overflow-wrap:anywhere;">' + esc(inst.email) + '</div>' +
+            (since ? '<div class="text-xs text-muted">' + t('zugangEntzogenAm', { date: since }) + '</div>' : '') +
+            '</div>' +
+            '<button class="btn btn-sm btn-ghost" onclick="App.restoreInstructorAccess(\'' + inst.id + '\')" style="flex-shrink:0;">' + t('zugangWiederherstellen') + '</button>' +
+            '</div></div>';
+        });
+      }
     }
     container.innerHTML = html;
   },
@@ -3503,53 +3529,6 @@ var App = {
     }
   },
 
-  renderSchoolInstructorsTab: async function() {
-    var main = document.getElementById('school-main');
-    main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
-    try {
-      var data = await ApiClient.get('/api/school/instructors');
-      // Fuer die Bestaetigungsdialoge merken, damit Namen mit Apostroph nicht
-      // durch inline-onclick-Strings muessen.
-      App._schoolInstructors = data.instructors || [];
-      var active = App._schoolInstructors.filter(function(i) { return i.active !== false; });
-      var revoked = App._schoolInstructors.filter(function(i) { return i.active === false; });
-
-      var html = '<div class="page-padding"><div class="section-header"><span class="section-title">' + t('fahrlehrer') + ' (' + active.length + ')</span></div>';
-      active.forEach(function(inst) {
-        html += '<div class="card mb-3"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
-          App.avatarHtml(inst.name, '') +
-          '<div class="flex-1" style="min-width:0;"><div style="font-weight:600;font-size:var(--text-sm);">' + App.escapeHtml(inst.name) + '</div>' +
-          '<div class="text-xs text-muted" style="overflow:hidden;text-overflow:ellipsis;">' + App.escapeHtml(inst.email || '') + ' · ' + (inst.studentCount || 0) + ' ' + t('schueler') + '</div></div>' +
-          '<button class="icon-btn" onclick="App.revokeInstructorAccess(\'' + inst.id + '\')" title="' + t('zugangEntziehen') + '" aria-label="' + t('zugangEntziehen') + '" style="color:var(--color-error);flex-shrink:0;">' +
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>' +
-          '</button>' +
-          '</div></div>';
-      });
-
-      if (revoked.length) {
-        html += '<div class="section-header mt-4"><span class="section-title">' + t('ehemaligeFahrlehrer') + ' (' + revoked.length + ')</span></div>';
-        revoked.forEach(function(inst) {
-          var when = inst.deactivated_at ? new Date(inst.deactivated_at).toLocaleDateString('de-DE') : '';
-          html += '<div class="card mb-3" style="opacity:0.62;"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
-            App.avatarHtml(inst.name, '') +
-            '<div class="flex-1" style="min-width:0;"><div style="font-weight:600;font-size:var(--text-sm);">' + App.escapeHtml(inst.name) +
-              ' <span class="badge badge-neutral">' + t('zugangEntzogen') + '</span></div>' +
-            '<div class="text-xs text-muted">' + (when ? t('zugangEntzogenAm', { date: when }) + ' · ' : '') + (inst.lessonCount || 0) + ' ' + t('fahrstunden') + '</div></div>' +
-            '<button class="btn btn-sm btn-ghost" onclick="App.restoreInstructorAccess(\'' + inst.id + '\')" style="flex-shrink:0;">' + t('zugangWiederherstellen') + '</button>' +
-            '</div></div>';
-        });
-      }
-
-      html += '<div class="section-header mt-4"><span class="section-title">' + t('einladungscodes') + '</span>' +
-        '<span class="section-action" onclick="App.generateNewCode(\'instructor\')">+ ' + t('neuerCode') + '</span></div>';
-      data.codes.forEach(function(c) {
-        html += '<div class="code-row"><div><span class="code-value">' + c.code + '</span></div>' +
-          '<span class="badge ' + (c.status === 'offen' ? 'badge-success' : 'badge-neutral') + '">' + tStatus(c.status) + (c.used_by ? ' · ' + c.used_by : '') + '</span></div>';
-      });
-      html += '</div>'; main.innerHTML = html;
-    } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
-  },
-
   // ============================================
   // Zugang eines Fahrlehrers entziehen / zurückgeben
   //
@@ -3557,7 +3536,21 @@ var App = {
   // GoBD-relevant und müssen erhalten bleiben. Entzogen wird nur der Zugang.
   // ============================================
   _findSchoolInstructor: function(id) {
-    return (this._schoolInstructors || []).filter(function(i) { return i.id === id; })[0] || null;
+    // Quelle ist bewusst der Dashboard-Datensatz: die Fahrlehrer-Liste wird in
+    // renderDashboardContent daraus gerendert, damit Namen mit Apostroph nicht
+    // durch inline-onclick-Strings muessen.
+    var list = (this._dashInstData && this._dashInstData.instructors) || [];
+    return list.filter(function(i) { return i.id === id; })[0] || null;
+  },
+
+  // Nach Entzug/Rueckgabe muss der 60s-Cache verworfen werden, sonst zeigt das
+  // Dashboard den alten Stand.
+  _reloadSchoolInstructors: async function() {
+    AppState._cachedData._dashboardBundle = null;
+    AppState._cachedData._dashboardBundleTs = 0;
+    AppState._cachedData._scheduleBundle = null;
+    this.dashboardViewMode = 'instructors';
+    await this.renderSchoolDashboardTab();
   },
 
   revokeInstructorAccess: async function(id) {
@@ -3573,7 +3566,7 @@ var App = {
       this.showLoading(true);
       var res = await ApiClient.del('/api/school/instructors/' + id);
       this.showToast(t('zugangEntzogenErfolg', { name: (res && res.name) || inst.name }));
-      await this.renderSchoolInstructorsTab();
+      await this._reloadSchoolInstructors();
     } catch (err) { this.showToast(t('fehler') + ': ' + (err.message || err)); }
     finally { this.showLoading(false); }
   },
@@ -3585,7 +3578,7 @@ var App = {
       this.showLoading(true);
       var res = await ApiClient.post('/api/school/instructors/' + id + '/restore', {});
       this.showToast(t('zugangWiederhergestellt', { name: (res && res.name) || inst.name }));
-      await this.renderSchoolInstructorsTab();
+      await this._reloadSchoolInstructors();
     } catch (err) { this.showToast(t('fehler') + ': ' + (err.message || err)); }
     finally { this.showLoading(false); }
   },
