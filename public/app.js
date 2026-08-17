@@ -299,17 +299,49 @@ var SCHEDULE_TYPE_CLASS = {
   'Nachtfahrt': 'type-nacht', 'Prüfungsvorbereitung': 'type-pruefvorb',
   'Praktische Prüfung': 'type-prakt-pruef', 'Theoretische Prüfung': 'type-theo-pruef'
 };
-var GRID_START_HOUR = 7;
+var GRID_START_HOUR = 7;   // Standard-Beginn der Wochenansicht
 var GRID_END_HOUR = 24;
 var PX_PER_MIN = 1; // 1 minute = 1 pixel
 var HOUR_HEIGHT = 60; // 60 min * 1px
 
 function timeToMinutes(t) {
-  var p = t.split(':');
-  return parseInt(p[0]) * 60 + parseInt(p[1]);
+  var p = String(t || '').split(':');
+  var h = parseInt(p[0], 10), m = parseInt(p[1], 10);
+  if (!isFinite(h)) return NaN;
+  return h * 60 + (isFinite(m) ? m : 0);
 }
-function slotTopPx(startTime) {
-  return (timeToMinutes(startTime) - GRID_START_HOUR * 60) * PX_PER_MIN;
+
+// Endzeit in Minuten. '00:00' bzw. eine Endzeit vor dem Start bedeutet
+// Mitternacht des Folgetags.
+function slotEndMinutes(slot) {
+  var start = timeToMinutes(slot.start_time);
+  var end = timeToMinutes(slot.end_time);
+  if (!isFinite(end) || (isFinite(start) && end <= start)) return 24 * 60;
+  return end;
+}
+
+// Sichtbaren Zeitbereich eines Gitters bestimmen. Standard ist 07:00-24:00,
+// aber frueher liegende Termine (Pruefung um 06:30, Nachtfahrt-Nachbereitung
+// usw.) ziehen den Beginn automatisch nach oben — sonst waeren sie unsichtbar.
+function computeGridRange(slots) {
+  var startHour = GRID_START_HOUR;
+  var endHour = GRID_END_HOUR;
+  // Manuell aufgeklappt: kompletter Tag ab 00:00, damit man auch frueh planen kann
+  if (AppState.gridShowEarly) startHour = 0;
+  (slots || []).forEach(function(s) {
+    if (!s || !s.start_time) return;
+    var sm = timeToMinutes(s.start_time);
+    if (isFinite(sm)) startHour = Math.min(startHour, Math.floor(sm / 60));
+    endHour = Math.max(endHour, Math.ceil(slotEndMinutes(s) / 60));
+  });
+  startHour = Math.max(0, Math.min(startHour, 23));
+  endHour = Math.min(24, Math.max(endHour, startHour + 1));
+  return { start: startHour, end: endHour };
+}
+
+function slotTopPx(startTime, startHour) {
+  var base = (typeof startHour === 'number' ? startHour : GRID_START_HOUR) * 60;
+  return (timeToMinutes(startTime) - base) * PX_PER_MIN;
 }
 function slotHeightPx(startTime, endTime) {
   return Math.max((timeToMinutes(endTime) - timeToMinutes(startTime)) * PX_PER_MIN, 20);
@@ -515,6 +547,10 @@ var App = {
     });
     // Apply initial language
     applyLanguageToDOM();
+    // Gemerkte Einstellung: fruehe Stunden im Kalender aufgeklappt lassen
+    try {
+      AppState.gridShowEarly = window['local' + 'Storage'].getItem('fahrdoc_grid_show_early') === '1';
+    } catch (e) { AppState.gridShowEarly = false; }
     if (ApiClient.token) this.autoLogin();
     // Handle invite code from URL (?code=XXX) — persist across reloads via session store
     var urlParams = new URLSearchParams(window.location.search);
@@ -1378,8 +1414,16 @@ var App = {
   },
 
   // Shared week grid renderer (admin + instructor)
-  renderWeekGridHtml: function(days, slots, onCellClick, onSlotClick, filterInstructorId) {
-    var totalMinutes = (GRID_END_HOUR - GRID_START_HOUR) * 60;
+  renderWeekGridHtml: function(days, slots, onCellClick, onSlotClick, filterInstructorId, forceStartHour) {
+    // Zeitbereich an die tatsaechlichen Termine anpassen (siehe computeGridRange)
+    var _range = computeGridRange(slots);
+    var gStart = _range.start, gEnd = _range.end;
+    // In der Mehrfachansicht wird ein gemeinsamer Beginn erzwungen, damit die
+    // Zeilen der Panels nebeneinander auf gleicher Hoehe liegen
+    if (typeof forceStartHour === 'number' && isFinite(forceStartHour)) {
+      gStart = Math.max(0, Math.min(gStart, forceStartHour));
+    }
+    var totalMinutes = (gEnd - gStart) * 60;
     var totalHeight = totalMinutes * PX_PER_MIN;
     // Helper: Fahrlehrer-Name ausblenden wenn redundant
     // - Fahrlehrer-Sicht: eigener Name immer ausblenden (eigener Plan)
@@ -1393,9 +1437,19 @@ var App = {
       if (_filterInstId && slot.instructor_id && String(slot.instructor_id) === String(_filterInstId)) return null;
       return slot.instructor_name;
     }
-    var html = '<div class="week-grid-scroll-wrapper"><div class="week-grid' + (AppState.slotOfferMode ? ' week-grid-offer-mode' : '') + '">';
+    // Bereich am Element hinterlegen, damit Klicks unabhaengig davon korrekt
+    // umgerechnet werden, wie viele Gitter (Mehrfachansicht) gleichzeitig da sind
+    var html = '<div class="week-grid-scroll-wrapper"><div class="week-grid' + (AppState.slotOfferMode ? ' week-grid-offer-mode' : '') +
+      '" data-start-hour="' + gStart + '" data-end-hour="' + gEnd + '">';
     // Header
-    html += '<div class="week-grid-header"><div class="week-grid-time-gutter"></div>';
+    var earlyOpen = gStart === 0;
+    var earlyTitle = earlyOpen
+      ? (t('frueheStundenVerbergen') || 'Fr\u00fche Stunden wieder ausblenden')
+      : (t('frueheStundenZeigen') || 'Fr\u00fche Stunden ab 00:00 anzeigen');
+    html += '<div class="week-grid-header"><div class="week-grid-time-gutter">' +
+      '<button type="button" class="week-grid-early-toggle" title="' + earlyTitle.replace(/"/g, '&quot;') + '"' +
+      ' aria-label="' + earlyTitle.replace(/"/g, '&quot;') + '" onclick="event.stopPropagation();App.toggleEarlyHours()">' +
+      (earlyOpen ? '\u25be' : '\u25b4') + '</button></div>';
     days.forEach(function(day, idx) {
       var isToday = day.toDateString() === new Date().toDateString();
       var holiday = getHolidayForDate(day);
@@ -1412,8 +1466,8 @@ var App = {
     html += '<div class="week-grid-body" style="height:' + totalHeight + 'px;">';
     // Time gutter
     html += '<div class="week-grid-time-gutter">';
-    for (var h = GRID_START_HOUR; h < GRID_END_HOUR; h++) {
-      html += '<div class="week-grid-time-label" style="top:' + ((h - GRID_START_HOUR) * HOUR_HEIGHT) + 'px;height:' + HOUR_HEIGHT + 'px;">' + String(h).padStart(2, '0') + ':00</div>';
+    for (var h = gStart; h < gEnd; h++) {
+      html += '<div class="week-grid-time-label" style="top:' + ((h - gStart) * HOUR_HEIGHT) + 'px;height:' + HOUR_HEIGHT + 'px;">' + String(h).padStart(2, '0') + ':00</div>';
     }
     html += '</div>';
     // Day columns
@@ -1424,12 +1478,12 @@ var App = {
       var daySlots = slots.filter(function(s) { return s.date === dayStr; });
       html += '<div class="week-grid-day-col' + (isToday ? ' today' : '') + (holiday ? ' holiday' : '') + '" onclick="App.onWeekGridCellClick(event, \'' + dayStr + '\', ' + JSON.stringify(onCellClick).replace(/"/g, '&quot;') + ')">';
       // Hour lines
-      for (var hh = GRID_START_HOUR; hh < GRID_END_HOUR; hh++) {
-        html += '<div class="week-grid-hour-line" style="top:' + ((hh - GRID_START_HOUR) * HOUR_HEIGHT) + 'px;"></div>';
+      for (var hh = gStart; hh < gEnd; hh++) {
+        html += '<div class="week-grid-hour-line" style="top:' + ((hh - gStart) * HOUR_HEIGHT) + 'px;"></div>';
       }
       // Sunset line + Nacht-Schraffur darunter
       var sunset = App.getSunsetTime(day);
-      var sunsetMinFromStart = (sunset.hours * 60 + sunset.minutes) - GRID_START_HOUR * 60;
+      var sunsetMinFromStart = (sunset.hours * 60 + sunset.minutes) - gStart * 60;
       if (sunsetMinFromStart > 0 && sunsetMinFromStart < totalMinutes) {
         var sunsetTopPx = sunsetMinFromStart * PX_PER_MIN;
         var nightHeight = totalHeight - sunsetTopPx;
@@ -1438,8 +1492,8 @@ var App = {
       }
       // Slots
       daySlots.forEach(function(slot) {
-        var top = slotTopPx(slot.start_time);
-        var height = slotHeightPx(slot.start_time, slot.end_time);
+        var top = slotTopPx(slot.start_time, gStart);
+        var height = Math.max((slotEndMinutes(slot) - timeToMinutes(slot.start_time)) * PX_PER_MIN, 20);
         var isBlock = slot.slot_type === 'block';
         var typeCls = isBlock ? 'slot-block' : slotTypeClass(slot.type);
         var isOffen = !slot.student_id && !isBlock;
@@ -1529,7 +1583,7 @@ var App = {
       if (AppState.slotOfferMode && AppState.slotOfferSelected.length > 0) {
         AppState.slotOfferSelected.forEach(function(sel) {
           if (sel.date === dayStr) {
-            var selTop = slotTopPx(sel.start_time);
+            var selTop = slotTopPx(sel.start_time, gStart);
             var selH = sel.duration_min * PX_PER_MIN;
             html += '<div class="week-grid-slot-offer-selected" style="top:' + selTop + 'px;height:' + selH + 'px;" onclick="event.stopPropagation();App.toggleSlotSelection(\'' + sel.date + '\', \'' + sel.start_time + '\')">' +
               sel.start_time + '\u2013' + sel.end_time + '</div>';
@@ -1778,17 +1832,41 @@ var App = {
     this.updateDurationDisplay();
   },
 
+  // Fruehe Stunden (00:00-07:00) ein-/ausklappen. Termine vor 07:00 werden
+  // ohnehin automatisch eingeblendet — der Schalter ist fuer das Planen davor.
+  toggleEarlyHours: function() {
+    AppState.gridShowEarly = !AppState.gridShowEarly;
+    try {
+      window['local' + 'Storage'].setItem('fahrdoc_grid_show_early', AppState.gridShowEarly ? '1' : '0');
+    } catch (e) {}
+    this.refreshScheduleView();
+  },
+
+  // Die aktuell sichtbare Kalenderansicht neu zeichnen
+  refreshScheduleView: function() {
+    var which = AppState._lastScheduleRenderer;
+    if (which === 'vehicle' && this.renderVehicleWeekView) this.renderVehicleWeekView();
+    else if (which === 'instructor' && this.renderInstructorDashboardTab) this.renderInstructorDashboardTab();
+    else if (this.renderSchoolScheduleTab) this.renderSchoolScheduleTab();
+  },
+
   // Click-to-time: calculate clicked time from mouse position in week grid column
   onWeekGridCellClick: function(event, dayStr, onCellClickTemplate) {
     var col = event.currentTarget;
     var rect = col.getBoundingClientRect();
     var yOffset = event.clientY - rect.top;
     var minutesFromStart = Math.round(yOffset / PX_PER_MIN);
-    var totalMinutes = GRID_START_HOUR * 60 + minutesFromStart;
+    // Zeitbereich des angeklickten Gitters lesen (kann je Gitter abweichen)
+    var gridEl = col.closest ? col.closest('.week-grid') : null;
+    var gStart = gridEl ? parseInt(gridEl.getAttribute('data-start-hour'), 10) : NaN;
+    var gEnd = gridEl ? parseInt(gridEl.getAttribute('data-end-hour'), 10) : NaN;
+    if (!isFinite(gStart)) gStart = GRID_START_HOUR;
+    if (!isFinite(gEnd)) gEnd = GRID_END_HOUR;
+    var totalMinutes = gStart * 60 + minutesFromStart;
     // Round to nearest 30-min step
     totalMinutes = Math.round(totalMinutes / 30) * 30;
-    if (totalMinutes < GRID_START_HOUR * 60) totalMinutes = GRID_START_HOUR * 60;
-    if (totalMinutes >= GRID_END_HOUR * 60) totalMinutes = (GRID_END_HOUR - 1) * 60 + 30;
+    if (totalMinutes < gStart * 60) totalMinutes = gStart * 60;
+    if (totalMinutes >= gEnd * 60) totalMinutes = (gEnd - 1) * 60 + 30;
     var hours = Math.floor(totalMinutes / 60);
     var mins = totalMinutes % 60;
     var timeStr = String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0');
@@ -2577,6 +2655,7 @@ var App = {
 
 
   renderSchoolScheduleTab: async function() {
+    AppState._lastScheduleRenderer = 'school';
     var main = document.getElementById('school-main');
     var self = this;
     this.initWeek();
@@ -2705,11 +2784,11 @@ var App = {
           html += '</select>';
           if (mv === 0) {
             // First panel uses already-loaded slots
-            html += this.renderWeekGridHtml(
+            html += '<div id="multi-view-grid0">' + this.renderWeekGridHtml(
               w.days, slots,
               "App.openScheduleModal('{DAY}', '09:00', null, AppState.multiViewInstructors[0])",
               "App.openScheduleModal(null, null, {SLOT})"
-            );
+            ) + '</div>';
           } else {
             html += '<div id="multi-view-grid' + mv + '"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>';
           }
@@ -2728,6 +2807,9 @@ var App = {
 
       // Load multi-view extra grids async
       if (AppState.multiViewCount > 1) {
+        this._rememberGridArgs(0, w.days, slots,
+          "App.openScheduleModal('{DAY}', '09:00', null, AppState.multiViewInstructors[0])",
+          "App.openScheduleModal(null, null, {SLOT})");
         for (var g = 1; g < AppState.multiViewCount; g++) {
           this._loadMultiViewGrid(g, w, wsStr, instructors);
         }
@@ -2808,14 +2890,46 @@ var App = {
           }
         });
       } catch(e) {}
-      container.innerHTML = this.renderWeekGridHtml(
-        w.days, slots2,
-        "App.openScheduleModal('{DAY}', '09:00', null, AppState.multiViewInstructors[" + panelIdx + "])",
-        "App.openScheduleModal(null, null, {SLOT})"
-      );
+      var cellCb = "App.openScheduleModal('{DAY}', '09:00', null, AppState.multiViewInstructors[" + panelIdx + "])";
+      var slotCb = "App.openScheduleModal(null, null, {SLOT})";
+      container.innerHTML = this.renderWeekGridHtml(w.days, slots2, cellCb, slotCb);
+      this._rememberGridArgs(panelIdx, w.days, slots2, cellCb, slotCb);
+      // Alle Panels auf denselben Beginn bringen (asynchron geladen)
+      this._alignMultiViewGrids();
       // Init drag-scroll on this panel after content loads
       this._initDragScrollOnPanel(container.closest('.multi-view-panel'));
     } catch (err) { container.innerHTML = '<p class="text-sm text-muted">' + t('fehler') + '</p>'; }
+  },
+
+  // Argumente eines Panels merken, damit es bei der Ausrichtung neu gezeichnet
+  // werden kann, ohne die Daten erneut zu laden
+  _rememberGridArgs: function(panelIdx, days, slots, cellCb, slotCb) {
+    var c = document.getElementById('multi-view-grid' + panelIdx);
+    if (!c) return;
+    c._gridArgs = { days: days, slots: slots, cellCb: cellCb, slotCb: slotCb };
+  },
+
+  // Gemeinsamen Beginn ueber alle Panels der Mehrfachansicht herstellen:
+  // hat ein Fahrlehrer eine Fahrstunde um 06:30, beginnen alle Panels bei 06:00,
+  // damit die Zeilen nebeneinander vergleichbar bleiben.
+  _alignMultiViewGrids: function() {
+    var panels = [];
+    for (var i = 0; i < 3; i++) {
+      var c = document.getElementById('multi-view-grid' + i);
+      if (c && c._gridArgs) {
+        var g = c.querySelector('.week-grid');
+        var s = g ? parseInt(g.getAttribute('data-start-hour'), 10) : NaN;
+        panels.push({ el: c, grid: g, start: isFinite(s) ? s : GRID_START_HOUR });
+      }
+    }
+    if (panels.length < 2) return;
+    var minStart = panels.reduce(function(m, p) { return Math.min(m, p.start); }, GRID_START_HOUR);
+    panels.forEach(function(p) {
+      if (p.start === minStart) return;
+      var a = p.el._gridArgs;
+      p.el.innerHTML = App.renderWeekGridHtml(a.days, a.slots, a.cellCb, a.slotCb, null, minStart);
+      App._initDragScrollOnPanel(p.el.closest('.multi-view-panel'));
+    });
   },
 
   _initDragScrollOnPanel: function(panel) {
@@ -3907,6 +4021,7 @@ var App = {
   // WEEK VIEW (same grid as Fahrstundenplanung, Mo-Sa, tabs per vehicle)
   // ═══════════════════════════════════════
   renderVehicleWeekView: async function() {
+    AppState._lastScheduleRenderer = 'vehicle';
     var main = document.getElementById('school-main');
     main.innerHTML = '<div class="page-padding" style="text-align:center;padding:var(--space-12);"><div class="loading-spinner"></div></div>';
     try {
@@ -5992,6 +6107,7 @@ var App = {
   },
 
   renderInstructorDashboardTab: async function() {
+    AppState._lastScheduleRenderer = 'instructor';
     var inst = AppState.currentUser;
     var main = document.getElementById('instructor-main');
 
