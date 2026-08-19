@@ -838,75 +838,162 @@ app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
   }
 });
 
+// ============================================
+// Passwort zuruecksetzen — Ablauf ueber Magic Link
+// ----------------------------------------------
+// Bewusst KEIN 6-stelliger Code mehr: der Nachweis liegt allein im Zugriff auf
+// das Postfach. Ein langer Zufalls-Token im Link ist sicherer als sechs Ziffern
+// und auf dem Handy deutlich bequemer (kein Abtippen zwischen zwei Apps).
+// Der Token wird in verification_codes mit type='password_reset' abgelegt, damit
+// keine neue Tabelle noetig ist — dieselbe Mechanik wie beim Schueler-Setup-Link.
+// ============================================
+
+// Konto zu einer E-Mail in allen drei Rollen-Tabellen suchen.
+// Bewusst ohne Ruecksicht auf Gross-/Kleinschreibung: im Bestand stehen Adressen
+// wie "Anil.yoengel@hotmail.de", und wer sein Passwort vergessen hat, weiss die
+// genaue Schreibweise erst recht nicht mehr. Die gefundene Original-Adresse wird
+// zurueckgegeben, damit die Mail an die real gespeicherte Adresse geht.
+async function findAccountByEmail(email) {
+  // In ILIKE sind % und _ Platzhalter — escapen, damit nur exakt (case-insensitiv)
+  // gesucht wird und niemand mit "%@%" ein fremdes Konto treffen kann.
+  const pattern = String(email).replace(/([\\%_])/g, '\\$1');
+  const tables = [
+    { table: 'schools', role: 'school', cols: 'id, email, admin_name, name', nameOf: r => r.admin_name || r.name || '' },
+    { table: 'instructors', role: 'instructor', cols: 'id, email, name', nameOf: r => r.name || '' },
+    { table: 'students', role: 'student', cols: 'id, email, name', nameOf: r => r.name || '' }
+  ];
+  for (const t of tables) {
+    const { data } = await supabase.from(t.table).select(t.cols)
+      .ilike('email', pattern).order('id', { ascending: true }).limit(1);
+    if (data && data.length) {
+      return { id: data[0].id, role: t.role, name: t.nameOf(data[0]), email: data[0].email, table: t.table };
+    }
+  }
+  return null;
+}
+
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 60 Minuten
+
+// Gueltigen Reset-Token laden (oder null). Prueft Typ, Verbrauch und Ablauf.
+async function loadResetToken(token) {
+  if (!token || typeof token !== 'string' || token.length < 20) return null;
+  const { data: vc } = await supabase.from('verification_codes')
+    .select('*').eq('code', token).eq('type', 'password_reset').eq('used', 0).maybeSingle();
+  if (!vc) return null;
+  if (new Date(vc.expires_at).getTime() < Date.now()) return null;
+  return vc;
+}
+
 // Request password reset
 app.post('/api/auth/forgot-password', async (req, res) => {
   try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'E-Mail erforderlich' });
-
-    // Find user in any table
-    let user = null; let role = null; let name = '';
-    const { data: s } = await supabase.from('schools').select('id, admin_name').eq('email', email).maybeSingle();
-    if (s) { user = s; role = 'school'; name = s.admin_name; }
-    if (!user) {
-      const { data: i } = await supabase.from('instructors').select('id, name').eq('email', email).maybeSingle();
-      if (i) { user = i; role = 'instructor'; name = i.name; }
+    const { email } = req.body || {};
+    if (!email || typeof email !== 'string' || email.indexOf('@') === -1) {
+      return res.status(400).json({ error: 'E-Mail erforderlich' });
     }
-    if (!user) {
-      const { data: st } = await supabase.from('students').select('id, name').eq('email', email).maybeSingle();
-      if (st) { user = st; role = 'student'; name = st.name; }
-    }
+    const account = await findAccountByEmail(email.trim());
 
-    // Always return success (don't reveal if email exists)
-    if (!user) return res.json({ success: true });
+    // Immer Erfolg melden — sonst koennte man ueber diesen Endpunkt herausfinden,
+    // welche Adressen bei FahrDoc Kunden sind.
+    if (!account) return res.json({ success: true });
 
-    const vCode = generateCode();
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-    await supabase.from('verification_codes').insert({
-      id: generateId(), user_id: user.id, user_role: role,
-      email, code: vCode, type: 'password_reset', expires_at: expiresAt
+    // Die real gespeicherte Adresse verwenden, nicht die Eingabe des Nutzers.
+    const mail = account.email;
+
+    // Aeltere, noch offene Reset-Links desselben Kontos entwerten, damit immer
+    // nur genau ein Link gueltig ist. Ueber user_id statt E-Mail, damit auch
+    // abweichende Schreibweisen zuverlaessig erfasst werden.
+    await supabase.from('verification_codes').update({ used: 1 })
+      .eq('user_id', account.id).eq('type', 'password_reset').eq('used', 0);
+
+    const token = generateToken();
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString();
+    const { error: insErr } = await supabase.from('verification_codes').insert({
+      id: generateId(), user_id: account.id, user_role: account.role,
+      email: mail, code: token, type: 'password_reset', expires_at: expiresAt
     });
-    await sendPasswordResetEmail(email, name, vCode);
+    if (insErr) {
+      console.error('[RESET] Token konnte nicht gespeichert werden:', insErr.message);
+      return res.status(500).json({ error: 'Serverfehler' });
+    }
+    await sendPasswordResetEmail(mail, account.name, token);
 
     res.json({ success: true });
   } catch (err) {
+    console.error('[RESET] forgot-password error:', err);
     res.status(500).json({ error: 'Serverfehler' });
   }
 });
 
-// Verify reset code and set new password
+// GET /api/auth/reset-token/:token — Link pruefen, bevor die Maske erscheint
+app.get('/api/auth/reset-token/:token', async (req, res) => {
+  try {
+    const vc = await loadResetToken(req.params.token);
+    if (!vc) return res.status(404).json({ error: 'Link ungueltig, abgelaufen oder bereits verwendet' });
+    const table = vc.user_role === 'school' ? 'schools' : vc.user_role === 'instructor' ? 'instructors' : 'students';
+    const nameCol = vc.user_role === 'school' ? 'admin_name' : 'name';
+    const { data: acc } = await supabase.from(table).select('id, ' + nameCol).eq('id', vc.user_id).maybeSingle();
+    if (!acc) return res.status(404).json({ error: 'Konto nicht gefunden' });
+    res.json({ ok: true, email: vc.email, name: acc[nameCol] || '', role: vc.user_role });
+  } catch (err) {
+    console.error('[RESET] reset-token error:', err);
+    res.status(500).json({ error: 'Serverfehler' });
+  }
+});
+
+// POST /api/auth/reset-password — neues Passwort per Link-Token setzen.
+// Nimmt ausschliesslich { token, password }. Kurze Zifferncodes gibt es hier
+// bewusst nicht mehr: sechs Ziffern liessen sich durchprobieren, der Token aus
+// der Mail nicht.
 app.post('/api/auth/reset-password', async (req, res) => {
   try {
-    const { email, code, newPassword } = req.body;
-    if (!email || !code || !newPassword) return res.status(400).json({ error: 'Alle Felder erforderlich' });
-    if (newPassword.length < 6) return res.status(400).json({ error: 'Passwort muss mindestens 6 Zeichen lang sein' });
+    const body = req.body || {};
+    const token = body.token;
+    const password = body.password;
 
-    const { data: vc } = await supabase.from('verification_codes')
-      .select('*')
-      .eq('email', email)
-      .eq('code', code)
-      .eq('type', 'password_reset')
-      .eq('used', 0)
-      .gt('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    if (!token) return res.status(400).json({ error: 'Link ungueltig' });
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'Passwort muss mindestens 6 Zeichen lang sein' });
+    }
 
-    if (!vc) return res.status(400).json({ error: 'Ungültiger oder abgelaufener Code' });
+    // Nachschlagen allein ueber den Token — die E-Mail muss nicht mitgeschickt
+    // werden, sie steckt bereits im Datensatz.
+    const vc = await loadResetToken(token);
+    if (!vc) return res.status(400).json({ error: 'Link ungueltig, abgelaufen oder bereits verwendet' });
 
-    // Mark code as used
+    const table = vc.user_role === 'school' ? 'schools' : vc.user_role === 'instructor' ? 'instructors' : 'students';
+    const pwHash = hashPassword(password);
+    // verified mitsetzen: wer die Mail geoeffnet hat, hat das Postfach belegt.
+    const { error: upErr } = await supabase.from(table)
+      .update({ password_hash: pwHash, verified: 1 }).eq('id', vc.user_id);
+    if (upErr) {
+      console.error('[RESET] Passwort konnte nicht gesetzt werden:', upErr.message);
+      return res.status(500).json({ error: 'Passwort konnte nicht gesetzt werden' });
+    }
+
+    // Token erst nach erfolgreichem Speichern verbrauchen, damit ein Serverfehler
+    // den Link nicht wertlos macht.
     await supabase.from('verification_codes').update({ used: 1 }).eq('id', vc.id);
 
-    // Update password
-    const pwHash = hashPassword(newPassword);
-    const table = vc.user_role === 'school' ? 'schools' : vc.user_role === 'instructor' ? 'instructors' : 'students';
-    await supabase.from(table).update({ password_hash: pwHash }).eq('id', vc.user_id);
-
-    // Invalidate all existing sessions for this user
+    // Alle bestehenden Sitzungen beenden — falls jemand Fremdes eingeloggt war.
     await supabase.from('sessions').delete().eq('user_id', vc.user_id);
 
-    res.json({ success: true });
+    // Frische Sitzung erzeugen, damit man direkt in der App landet und nicht noch
+    // einmal das gerade gesetzte Passwort eingeben muss.
+    const sessionToken = generateToken();
+    const sessExpires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { error: sessErr } = await supabase.from('sessions').insert({
+      token: sessionToken, user_id: vc.user_id, user_role: vc.user_role, expires_at: sessExpires
+    });
+    if (sessErr) {
+      // Passwort ist gesetzt — dann eben ohne Auto-Login, die App zeigt die Anmeldung.
+      console.error('[RESET] Session konnte nicht erzeugt werden:', sessErr.message);
+      return res.json({ success: true, role: vc.user_role });
+    }
+
+    res.json({ success: true, token: sessionToken, role: vc.user_role });
   } catch (err) {
+    console.error('[RESET] reset-password error:', err);
     res.status(500).json({ error: 'Serverfehler' });
   }
 });

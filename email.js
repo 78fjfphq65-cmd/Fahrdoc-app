@@ -61,8 +61,14 @@ async function sendVerificationEmail(to, name, code, verifyToken, userId, role) 
 // ============================================
 // Send password reset email
 // ============================================
-async function sendPasswordResetEmail(to, name, code) {
+// Passwort-Zuruecksetzen-Mail: ein Knopf, kein abzutippender Code. Der Token
+// steckt im Link, die App oeffnet damit direkt die Maske fuer das neue Passwort.
+async function sendPasswordResetEmail(to, name, token) {
   try {
+    const baseUrl = process.env.APP_BASE_URL || 'https://www.fahrdoc.app';
+    const resetUrl = baseUrl + '/app/?reset=' + encodeURIComponent(token);
+    const greetName = (name || '').trim();
+    const hallo = greetName ? 'Hallo ' + greetName + ',' : 'Hallo,';
     const { data, error } = await resend.emails.send({
       from: FROM_EMAIL,
       to: [to],
@@ -72,12 +78,15 @@ async function sendPasswordResetEmail(to, name, code) {
           <div style="text-align: center; margin-bottom: 32px;">
             <h1 style="font-size: 24px; color: #1a1a1a; margin: 0;">🚗 FahrDoc</h1>
           </div>
-          <p style="font-size: 16px; color: #333; line-height: 1.5;">Hallo ${name},</p>
-          <p style="font-size: 16px; color: #333; line-height: 1.5;">Du hast angefordert, dein Passwort zurückzusetzen. Dein Code lautet:</p>
+          <p style="font-size: 16px; color: #333; line-height: 1.5;">${hallo}</p>
+          <p style="font-size: 16px; color: #333; line-height: 1.5;">Du hast angefordert, dein FahrDoc-Passwort zurückzusetzen. Tippe auf den Button, dann kannst du direkt ein neues Passwort festlegen.</p>
           <div style="text-align: center; margin: 28px 0;">
-            <span style="font-size: 36px; font-weight: 700; letter-spacing: 8px; color: #1a1a1a; background: #f0f4f8; padding: 16px 32px; border-radius: 12px; display: inline-block;">${code}</span>
+            <a href="${resetUrl}" style="display:inline-block;background:#0d9488;color:#ffffff;font-size:16px;font-weight:600;padding:14px 32px;border-radius:10px;text-decoration:none;">Neues Passwort festlegen</a>
           </div>
-          <p style="font-size: 14px; color: #666; line-height: 1.5;">Der Code ist 15 Minuten gültig. Falls du kein Passwort-Reset angefordert hast, ignoriere diese E-Mail.</p>
+          <p style="font-size: 13px; color: #666; line-height: 1.5;">Falls der Button nicht funktioniert, kopiere diesen Link in deinen Browser:<br>
+            <a href="${resetUrl}" style="color:#0d9488;word-break:break-all;">${resetUrl}</a>
+          </p>
+          <p style="font-size: 14px; color: #666; line-height: 1.5;">Der Link ist 60 Minuten gültig und kann nur einmal verwendet werden. Falls du kein neues Passwort angefordert hast, ignoriere diese E-Mail — dein bisheriges Passwort bleibt unverändert gültig.</p>
           <hr style="border: none; border-top: 1px solid #eee; margin: 28px 0;">
           <p style="font-size: 12px; color: #999; text-align: center;">FahrDoc — Digitale Fahrstunden-Dokumentation</p>
         </div>
@@ -88,7 +97,8 @@ async function sendPasswordResetEmail(to, name, code) {
       console.error('[EMAIL] Reset send error:', error);
       return false;
     }
-    console.log(`[EMAIL] Password reset code sent to ${to} (id: ${data?.id})`);
+    // Bewusst ohne Token im Log — wer das Log liest, koennte sonst Konten kapern.
+    console.log(`[EMAIL] Password reset link sent to ${to} (id: ${data?.id})`);
     return true;
   } catch (err) {
     console.error('[EMAIL] Reset send failed:', err.message);

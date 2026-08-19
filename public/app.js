@@ -551,9 +551,20 @@ var App = {
     try {
       AppState.gridShowEarly = window['local' + 'Storage'].getItem('fahrdoc_grid_show_early') === '1';
     } catch (e) { AppState.gridShowEarly = false; }
-    if (ApiClient.token) this.autoLogin();
-    // Handle invite code from URL (?code=XXX) — persist across reloads via session store
     var urlParams = new URLSearchParams(window.location.search);
+    // Passwort-Zuruecksetzen-Link aus der E-Mail (?reset=TOKEN).
+    // Muss VOR autoLogin geprueft werden: sonst wuerde eine noch aktive Sitzung
+    // ins Dashboard springen und die Maske fuer das neue Passwort verdecken.
+    var resetToken = urlParams.get('reset');
+    if (resetToken) {
+      // Token sofort aus der Adresszeile entfernen, damit er nicht im Verlauf,
+      // in Lesezeichen oder beim Teilen des Links landet.
+      window.history.replaceState({}, '', window.location.pathname);
+      this.openResetPasswordFlow(resetToken);
+    } else if (ApiClient.token) {
+      this.autoLogin();
+    }
+    // Handle invite code from URL (?code=XXX) — persist across reloads via session store
     var inviteCode = urlParams.get('code');
     var inviteRole = urlParams.get('role');
     var _ss = (function() { try { return window['session' + 'Storage']; } catch(e) { return null; } })();
@@ -580,8 +591,9 @@ var App = {
       if (window.location.search.indexOf('code=') !== -1) {
         window.history.replaceState({}, '', window.location.pathname);
       }
-      // If not logged in, auto-navigate to signup
-      if (!ApiClient.token) {
+      // If not logged in, auto-navigate to signup.
+      // Nicht wenn gerade ein Passwort-Reset laeuft — der hat Vorrang.
+      if (!ApiClient.token && !resetToken) {
         setTimeout(function() { App.navigate('signup'); }, 600);
       }
     }
@@ -598,6 +610,114 @@ var App = {
     if (setupToken) {
       window.history.replaceState({}, '', window.location.pathname);
       setTimeout(function() { App.openSetupPasswordFlow(setupToken); }, 400);
+    }
+  },
+
+  // ──── PASSWORT VERGESSEN ────
+
+  // Schritt 1: E-Mail abschicken. Antwortet absichtlich immer gleich, egal ob es
+  // das Konto gibt — sonst koennte man ueber diese Maske Kundenadressen abfragen.
+  handleForgotPassword: async function(ev) {
+    if (ev) ev.preventDefault();
+    var mailEl = document.getElementById('forgot-email');
+    var errEl = document.getElementById('forgot-error');
+    var sentEl = document.getElementById('forgot-sent');
+    var btn = document.getElementById('forgot-submit');
+    var mail = ((mailEl || {}).value || '').trim();
+    if (errEl) { errEl.classList.add('hidden'); errEl.textContent = ''; }
+    if (!mail || mail.indexOf('@') === -1) {
+      if (errEl) { errEl.textContent = t('emailUngueltig') || 'Bitte gib eine gültige E-Mail-Adresse ein'; errEl.classList.remove('hidden'); }
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.textContent = t('wirdGesendet') || 'Wird gesendet…'; }
+    try {
+      await ApiClient.post('/api/auth/forgot-password', { email: mail });
+      if (sentEl) {
+        sentEl.textContent = (t('linkGesendetText') || 'Falls ein Konto mit dieser Adresse existiert, haben wir dir gerade einen Link geschickt. Bitte schau auch im Spam-Ordner. Der Link ist 60 Minuten gültig.');
+        sentEl.classList.remove('hidden');
+      }
+      if (btn) { btn.disabled = false; btn.textContent = t('erneutSenden') || 'Erneut senden'; }
+      if (mailEl) { try { mailEl.blur(); } catch (e) {} }
+    } catch (err) {
+      if (errEl) { errEl.textContent = (t('fehlerBeimSenden') || 'Senden fehlgeschlagen') + ': ' + (err.message || err); errEl.classList.remove('hidden'); }
+      if (btn) { btn.disabled = false; btn.textContent = t('linkSenden') || 'Link senden'; }
+    }
+  },
+
+  // Schritt 2: Der Link aus der Mail wurde geoeffnet. Erst pruefen, dann Maske
+  // zeigen — sonst tippt jemand ein Passwort und erfaehrt danach, dass der Link
+  // abgelaufen war.
+  openResetPasswordFlow: async function(token) {
+    // Falls noch eine alte Sitzung aktiv ist: abmelden, sonst landet man nach dem
+    // Speichern im Konto des vorher angemeldeten Nutzers.
+    if (ApiClient.token) {
+      ApiClient.setToken(null);
+      AppState.currentUser = null;
+    }
+    var info = null;
+    try {
+      info = await ApiClient.get('/api/auth/reset-token/' + encodeURIComponent(token));
+    } catch (err) {
+      this.navigate('forgot-password');
+      var fgErr = document.getElementById('forgot-error');
+      if (fgErr) {
+        fgErr.textContent = t('resetLinkUngueltig') || 'Dieser Link ist ungültig, abgelaufen oder wurde bereits verwendet. Fordere einen neuen an.';
+        fgErr.classList.remove('hidden');
+      }
+      return;
+    }
+    AppState._resetToken = token;
+    this.navigate('reset-password');
+    var sub = document.getElementById('reset-subtitle');
+    if (sub) {
+      var safeMail = String((info && info.email) || '').replace(/</g, '&lt;');
+      sub.innerHTML = (t('neuesPasswortFuer') || 'Neues Passwort für') + ' <strong>' + safeMail + '</strong>';
+    }
+    var e1 = document.getElementById('reset-error');
+    if (e1) { e1.classList.add('hidden'); e1.textContent = ''; }
+    var p1 = document.getElementById('reset-pw1');
+    var p2 = document.getElementById('reset-pw2');
+    if (p1) p1.value = '';
+    if (p2) p2.value = '';
+    setTimeout(function() { try { if (p1) p1.focus(); } catch (e) {} }, 150);
+  },
+
+  handleResetPassword: async function(ev) {
+    if (ev) ev.preventDefault();
+    var token = AppState._resetToken;
+    var errEl = document.getElementById('reset-error');
+    var btn = document.getElementById('reset-submit');
+    var pw1 = ((document.getElementById('reset-pw1') || {}).value) || '';
+    var pw2 = ((document.getElementById('reset-pw2') || {}).value) || '';
+    var showErr = function(msg) {
+      if (errEl) { errEl.textContent = msg; errEl.classList.remove('hidden'); }
+    };
+    if (errEl) { errEl.classList.add('hidden'); errEl.textContent = ''; }
+    if (!token) { showErr(t('resetLinkUngueltig') || 'Link ungültig — fordere einen neuen an'); return; }
+    if (pw1.length < 6) { showErr(t('passwortZuKurz') || 'Passwort zu kurz (mindestens 6 Zeichen)'); return; }
+    if (pw1 !== pw2) { showErr(t('passwoerterUngleich') || 'Die Passwörter stimmen nicht überein'); return; }
+    if (btn) { btn.disabled = true; btn.textContent = t('speichereEllipse') || 'Speichere…'; }
+    try {
+      var res = await ApiClient.post('/api/auth/reset-password', { token: token, password: pw1 });
+      if (!res || !res.success) throw new Error(t('speichernFehlgeschlagen') || 'Speichern fehlgeschlagen');
+      AppState._resetToken = null;
+      var p1 = document.getElementById('reset-pw1');
+      var p2 = document.getElementById('reset-pw2');
+      if (p1) p1.value = '';
+      if (p2) p2.value = '';
+      this.showToast(t('passwortGeaendert') || 'Passwort geändert');
+      if (res.token) {
+        // Direkt angemeldet — bewusst nur fuer diese Sitzung, nicht dauerhaft
+        // gespeichert, weil der Link auch auf einem fremden Geraet geoeffnet
+        // worden sein kann.
+        ApiClient.setToken(res.token, false);
+        await this.autoLogin();
+      } else {
+        this.navigate('login');
+      }
+    } catch (err) {
+      if (btn) { btn.disabled = false; btn.textContent = t('passwortSpeichern') || 'Passwort speichern'; }
+      showErr(err.message || String(err));
     }
   },
 
@@ -777,7 +897,8 @@ var App = {
   // ──── NAVIGATION ────
   screenMap: {
     'welcome': 'screen-welcome', 'login': 'screen-login', 'signup': 'screen-signup',
-    'verify-email': 'screen-verify-email', 'school-dashboard': 'screen-school-dashboard',
+    'verify-email': 'screen-verify-email', 'forgot-password': 'screen-forgot-password',
+    'reset-password': 'screen-reset-password', 'school-dashboard': 'screen-school-dashboard',
     'instructor-dashboard': 'screen-instructor-dashboard', 'student-dashboard': 'screen-student-dashboard',
     'lesson-setup': 'screen-lesson-setup', 'lesson-active': 'screen-lesson-active',
     'lesson-summary': 'screen-lesson-summary', 'lesson-review': 'screen-lesson-review',
@@ -825,6 +946,22 @@ var App = {
         else if (pre === 'solo') App.setRole('solo');
         else if (pre === 'invited') App.setRole('student');
       }, 50);
+    }
+    // Beim Oeffnen der "Passwort vergessen"-Maske die im Anmeldeformular bereits
+    // getippte Adresse uebernehmen — niemand soll sie zweimal eingeben muessen.
+    if (screen === 'forgot-password') {
+      var fgErr = document.getElementById('forgot-error');
+      if (fgErr) { fgErr.classList.add('hidden'); fgErr.textContent = ''; }
+      var fgSent = document.getElementById('forgot-sent');
+      if (fgSent) { fgSent.classList.add('hidden'); fgSent.textContent = ''; }
+      var fgBtn = document.getElementById('forgot-submit');
+      if (fgBtn) { fgBtn.disabled = false; fgBtn.textContent = t('linkSenden') || 'Link senden'; }
+      var loginMail = (document.getElementById('login-email') || {}).value || '';
+      var fgMail = document.getElementById('forgot-email');
+      if (fgMail) {
+        if (loginMail && !fgMail.value) fgMail.value = loginMail.trim();
+        setTimeout(function() { try { fgMail.focus(); } catch (e) {} }, 120);
+      }
     }
     if (screen === 'school-dashboard') this.initSchoolDashboard();
     if (screen === 'instructor-dashboard') this.initInstructorDashboard();
