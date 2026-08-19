@@ -1176,46 +1176,102 @@ var App = {
   },
 
   // ============================================
-  // Wiedereintritt nach Zugangsentzug
-  // Passwort bleibt gueltig, es fehlt nur ein neuer Einladungscode.
+  // Beitritt zu einer Fahrschule mit dem BESTEHENDEN Konto
+  //
+  // Zwei Wege fuehren hierher, beide brauchen dasselbe Formular:
+  //   1. Zugang entzogen — Passwort gilt weiter, es fehlt nur ein neuer Code.
+  //   2. Es gibt schon ein FahrDoc-Konto (meist Solo) und die Fahrschule laedt
+  //      ein. Frueher endete das in der Registrierung mit "E-Mail ist bereits
+  //      registriert" — einer Sackgasse.
+  //
+  // In beiden Faellen behaelt der Fahrlehrer sein Konto samt dokumentierten
+  // Fahrstunden; ein "Konto ersetzen" gibt es bewusst nicht.
   // ============================================
   openRejoinModal: function(email) {
     var pwField = document.getElementById('login-password');
-    var prefillPw = pwField ? pwField.value : '';
-    this.openModal(t('zugangEntzogenTitel'),
-      '<p class="text-sm text-muted mb-3">' + t('zugangEntzogenHinweis') + '</p>' +
-      '<div class="form-group"><label class="form-label">' + t('email') + '</label>' +
-        '<input type="email" id="rejoin-email" class="form-input" value="' + this.escapeHtml(email || '') + '" autocomplete="email"></div>' +
-      '<div class="form-group"><label class="form-label">' + t('passwort') + '</label>' +
-        '<input type="password" id="rejoin-password" class="form-input" value="' + this.escapeHtml(prefillPw) + '" autocomplete="current-password"></div>' +
-      '<div class="form-group"><label class="form-label">' + t('fahrschulCode') + '</label>' +
-        '<input type="text" id="rejoin-code" class="form-input" autocapitalize="characters" autocomplete="off"></div>' +
-      '<p id="rejoin-error" class="text-sm hidden" style="color:var(--color-error);"></p>' +
-      '<button class="btn btn-primary btn-block mt-2" onclick="App.submitRejoin()">' + t('neuerCodeEinloesen') + '</button>');
+    this.openJoinSchoolModal({ email: email, password: pwField ? pwField.value : '', revoked: true });
   },
 
-  submitRejoin: async function() {
+  openJoinSchoolModal: function(opts) {
+    opts = opts || {};
+    var revoked = !!opts.revoked;
+    // Eingaben zwischenspeichern: die Schuelerfrage ersetzt den Formularinhalt,
+    // danach sind die Felder nicht mehr im DOM.
+    AppState.joinCtx = {
+      email: opts.email || '', password: opts.password || '',
+      code: opts.code || '', revoked: revoked
+    };
+    this.openModal(revoked ? t('zugangEntzogenTitel') : t('beitretenTitel'),
+      '<p class="text-sm text-muted mb-3">' + (revoked ? t('zugangEntzogenHinweis') : t('beitretenHinweis')) + '</p>' +
+      '<div class="form-group"><label class="form-label">' + t('email') + '</label>' +
+        '<input type="email" id="rejoin-email" class="form-input" value="' + this.escapeHtml(opts.email || '') + '" autocomplete="email"></div>' +
+      '<div class="form-group"><label class="form-label">' + t('passwort') + '</label>' +
+        '<input type="password" id="rejoin-password" class="form-input" value="' + this.escapeHtml(opts.password || '') + '" autocomplete="current-password"></div>' +
+      '<div class="form-group"><label class="form-label">' + t('fahrschulCode') + '</label>' +
+        '<input type="text" id="rejoin-code" class="form-input" value="' + this.escapeHtml(opts.code || '') + '" autocapitalize="characters" autocomplete="off"></div>' +
+      '<p id="rejoin-error" class="text-sm hidden" style="color:var(--color-error);"></p>' +
+      '<button class="btn btn-primary btn-full mt-2" onclick="App.submitRejoin()">' +
+        (revoked ? t('neuerCodeEinloesen') : t('fahrschuleBeitreten')) + '</button>');
+  },
+
+  // Zweiter Schritt: nur wenn eigene Schueler vorhanden sind. Ohne Antwort
+  // aendert der Server nichts — die Frage muss also wirklich gestellt werden.
+  askStudentTransfer: function(info) {
+    var schule = this.escapeHtml(info.schoolName || '');
+    this.openModal(t('eigeneSchuelerFrage', { n: info.soloStudents }),
+      '<p class="text-sm text-muted mb-3">' + t('eigeneSchuelerErklaerung', { schule: schule }) + '</p>' +
+      '<p id="rejoin-error" class="text-sm hidden" style="color:var(--color-error);"></p>' +
+      '<button class="btn btn-primary btn-full" onclick="App.submitRejoin(false)">' +
+        t('schuelerPrivatBehalten') + ' <span style="opacity:.7;">(' + t('empfohlen') + ')</span></button>' +
+      '<button class="btn btn-secondary btn-full mt-2" onclick="App.submitRejoin(true)">' +
+        t('schuelerUebernehmen') + '</button>');
+  },
+
+  submitRejoin: async function(transferStudents) {
     var errorEl = document.getElementById('rejoin-error');
-    errorEl.classList.add('hidden');
-    var email = document.getElementById('rejoin-email').value.trim();
-    var pw = document.getElementById('rejoin-password').value;
-    var code = document.getElementById('rejoin-code').value.trim().toUpperCase();
-    if (!email || !pw || !code) {
-      errorEl.textContent = t('bitteAlleFelder') || 'Bitte alle Felder ausfüllen';
-      errorEl.classList.remove('hidden'); return;
+    if (errorEl) errorEl.classList.add('hidden');
+    var ctx = AppState.joinCtx || {};
+    var emailField = document.getElementById('rejoin-email');
+    if (emailField) {
+      // Erster Schritt: Eingaben uebernehmen.
+      var email = emailField.value.trim();
+      var pw = document.getElementById('rejoin-password').value;
+      var code = document.getElementById('rejoin-code').value.trim().toUpperCase();
+      if (!email || !pw || !code) {
+        if (errorEl) {
+          errorEl.textContent = t('bitteAlleFelder') || 'Bitte alle Felder ausfüllen';
+          errorEl.classList.remove('hidden');
+        }
+        return;
+      }
+      ctx = AppState.joinCtx = { email: email, password: pw, code: code, revoked: !!ctx.revoked };
     }
+    if (!ctx.email || !ctx.password || !ctx.code) return;
+
+    var body = { email: ctx.email, password: ctx.password, inviteCode: ctx.code };
+    if (transferStudents === true || transferStudents === false) body.transferStudents = transferStudents;
     try {
       this.showLoading(true);
-      var result = await ApiClient.post('/api/auth/instructor-rejoin', { email: email, password: pw, inviteCode: code });
+      var result = await ApiClient.post('/api/auth/instructor-join', body);
+      if (result.needsChoice) { this.showLoading(false); this.askStudentTransfer(result); return; }
       ApiClient.setToken(result.token, true);
       AppState.currentUser = result.user;
+      AppState.joinCtx = null;
       this.closeModalForce();
       this.applyBranding();
       this.navigate('instructor-dashboard');
-      this.showToast(t('wiederFreigeschaltet'));
+      var toast = ctx.revoked ? t('wiederFreigeschaltet') : t('beigetreten');
+      if (result.transferredStudents > 0) toast = t('schuelerUebernommen', { n: result.transferredStudents });
+      else if (result.keptStudents > 0) toast = t('schuelerPrivatGeblieben', { n: result.keptStudents });
+      this.showToast(toast);
     } catch (err) {
-      errorEl.textContent = err.message || t('serverfehler');
-      errorEl.classList.remove('hidden');
+      errorEl = document.getElementById('rejoin-error');
+      if (errorEl) {
+        errorEl.textContent = err.message || t('serverfehler');
+        errorEl.classList.remove('hidden');
+      } else {
+        this.showToast(err.message || t('serverfehler'));
+      }
     }
     finally { this.showLoading(false); }
   },
@@ -1263,7 +1319,16 @@ var App = {
         _s.removeItem('fahrdoc_invite_role');
       } catch(_) {}
       this.navigate('verify-email');
-    } catch (err) { errorEl.textContent = err.message; errorEl.classList.remove('hidden'); }
+    } catch (err) {
+      // Es gibt schon ein Konto zu dieser Adresse (typisch: FahrDoc Solo) und ein
+      // Einladungscode liegt vor. Statt der Sackgasse "E-Mail ist bereits
+      // registriert" den Beitritt mit dem bestehenden Konto anbieten.
+      if (err.code === 'ACCOUNT_EXISTS_CAN_JOIN') {
+        this.openJoinSchoolModal({ email: body.email, password: pw1, code: body.inviteCode });
+        return;
+      }
+      errorEl.textContent = err.message; errorEl.classList.remove('hidden');
+    }
     finally { this.showLoading(false); }
   },
 

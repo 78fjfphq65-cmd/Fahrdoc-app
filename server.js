@@ -364,6 +364,60 @@ async function linkStudentInstructor(studentId, instructorId) {
 }
 
 // ============================================
+// HELPER: E-Mail-Suche ohne Ruecksicht auf Gross-/Kleinschreibung
+// ----------------------------------------------
+// Postfaecher unterscheiden in der Praxis nicht zwischen "Info@" und "info@".
+// Im Bestand stehen beide Varianten — aus Importen und aus Tippfehlern bei der
+// Registrierung. Solange exakt verglichen wurde, hatte das zwei Folgen:
+// wer die Adresse anders schrieb als bei der Registrierung, kam nicht in sein
+// Konto; und die Doppelpruefung beim Registrieren schlug nicht an, sodass ein
+// zweites, leeres Konto entstehen konnte.
+//
+// % und _ sind in ILIKE Platzhalter. Sie werden escaped, damit eine Eingabe wie
+// "%@%" nicht auf ein fremdes Konto passt.
+// ============================================
+function emailLikePattern(email) {
+  return String(email == null ? '' : email).replace(/([\\%_])/g, '\\$1');
+}
+
+// ============================================
+// HELPER: Alle Konten zu einer Adresse einsammeln
+// ----------------------------------------------
+// Bewusst nicht nur das erste: dieselbe Adresse kann mehrfach vorkommen — als
+// Fahrschul-Inhaber und zusaetzlich als Fahrlehrer oder Fahrschueler, oder
+// doppelt in students, wenn ein Import denselben Schueler zweimal angelegt hat.
+// Vorher lief die Suche pro Tabelle mit .maybeSingle(): bei zwei Treffern gab
+// Supabase einen Fehler zurueck, data blieb null, und die Anmeldung endete mit
+// "Ungueltige E-Mail oder Passwort" — obwohl das Passwort stimmte. Betroffen
+// waren unter anderem doppelt importierte Schueler.
+//
+// Reihenfolge: Fahrschule, dann Fahrlehrer, dann Fahrschueler; innerhalb einer
+// Rolle das aeltere Konto zuerst. Damit ist die Wahl vorhersehbar, wenn zwei
+// Konten dasselbe Passwort haben.
+// ============================================
+async function findLoginCandidates(email) {
+  const pattern = emailLikePattern(email);
+  const tables = [
+    { table: 'schools', role: 'school', cols: 'id, email, password_hash, verified, created_at' },
+    { table: 'instructors', role: 'instructor', cols: 'id, email, password_hash, verified, deactivated_at, created_at' },
+    { table: 'students', role: 'student', cols: 'id, email, password_hash, verified, created_at' }
+  ];
+  const found = [];
+  for (const t of tables) {
+    // limit(5): mehr als eine Handvoll Konten pro Adresse gibt es nicht, und
+    // jeder Kandidat kostet unten einen bcrypt-Vergleich.
+    const { data, error } = await supabase.from(t.table).select(t.cols)
+      .ilike('email', pattern).order('created_at', { ascending: true }).limit(5);
+    if (error) {
+      console.error('[Login] Suche in ' + t.table + ' fehlgeschlagen: ' + error.message);
+      continue;
+    }
+    (data || []).forEach(row => found.push(Object.assign({}, row, { role: t.role })));
+  }
+  return found;
+}
+
+// ============================================
 // AUTH ROUTES
 // ============================================
 
@@ -372,33 +426,36 @@ app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'E-Mail und Passwort erforderlich' });
 
-    // Check all three tables
+    const candidates = await findLoginCandidates(email);
+    if (!candidates.length) return res.status(401).json({ error: 'Ungültige E-Mail oder Passwort' });
+
+    // Das Passwort entscheidet, welches Konto gemeint ist. Konten ohne gesetztes
+    // Passwort werden uebersprungen, sonst wuerde verifyPassword mit null werfen.
+    // Entzogene Fahrlehrer-Zugaenge kommen zuletzt: wer mit derselben Adresse
+    // auch ein aktives Konto hat, soll dort hinein und nicht in der Sperrmeldung
+    // haengen bleiben.
     let user = null;
     let role = null;
-
-    const { data: school } = await supabase.from('schools')
-      .select('id, password_hash, verified').eq('email', email).maybeSingle();
-    if (school) { user = school; role = 'school'; }
+    let gesperrt = null;
+    for (const c of candidates) {
+      if (!c.password_hash || !verifyPassword(password, c.password_hash)) continue;
+      if (c.role === 'instructor' && c.deactivated_at) {
+        if (!gesperrt) gesperrt = c;
+        continue;
+      }
+      user = c; role = c.role; break;
+    }
+    if (!user && gesperrt) { user = gesperrt; role = gesperrt.role; }
 
     if (!user) {
-      const { data: inst } = await supabase.from('instructors')
-        .select('id, password_hash, verified, deactivated_at').eq('email', email).maybeSingle();
-      if (inst) { user = inst; role = 'instructor'; }
+      // Wenn zu dieser Adresse ueberhaupt noch kein Passwort gesetzt ist, wurde das
+      // Konto eingeladen und nie aktiviert — dann ist der Einladungslink der Weg,
+      // nicht ein anderes Passwort.
+      if (candidates.every(c => !c.password_hash)) {
+        return res.status(403).json({ error: 'Dein Konto ist noch nicht aktiviert. Bitte nutze den Einladungslink aus der E-Mail oder lass dir vom Fahrlehrer eine neue Einladung schicken.' });
+      }
+      return res.status(401).json({ error: 'Ungültige E-Mail oder Passwort' });
     }
-
-    if (!user) {
-      const { data: stu } = await supabase.from('students')
-        .select('id, password_hash, verified').eq('email', email).maybeSingle();
-      if (stu) { user = stu; role = 'student'; }
-    }
-
-    if (!user) return res.status(401).json({ error: 'Ungültige E-Mail oder Passwort' });
-    // Konto wurde angelegt (z.B. von der Fahrschule eingeladen), aber das Passwort
-    // wurde noch nie gesetzt -> bcrypt.compareSync wuerde mit null werfen.
-    if (!user.password_hash) {
-      return res.status(403).json({ error: 'Dein Konto ist noch nicht aktiviert. Bitte nutze den Einladungslink aus der E-Mail oder lass dir vom Fahrlehrer eine neue Einladung schicken.' });
-    }
-    if (!verifyPassword(password, user.password_hash)) return res.status(401).json({ error: 'Ungültige E-Mail oder Passwort' });
 
     // Zugang wurde von der Fahrschule entzogen. Passwort ist korrekt, daher
     // gezielt darauf hinweisen, dass ein neuer Einladungscode noetig ist -
@@ -442,34 +499,56 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ============================================
-// POST /api/auth/instructor-rejoin
-// Wiedereintritt nach Zugangsentzug.
+// POST /api/auth/instructor-join  (Alias: /api/auth/instructor-rejoin)
+// Mit einem bestehenden Konto einer Fahrschule beitreten.
 //
-// Ein normaler Signup ist hier nicht moeglich: der Datensatz bleibt wegen der
-// dokumentierten Fahrstunden bestehen, und /api/auth/signup lehnt bereits
-// vergebene E-Mail-Adressen mit 409 ab. Darum dieser eigene Weg -
-// E-Mail + bekanntes Passwort + NEUER Einladungscode.
+// Deckt zwei Faelle ab, die technisch dasselbe sind:
+//   1. Wiedereintritt nach Zugangsentzug — der Datensatz bleibt wegen der
+//      dokumentierten Fahrstunden bestehen.
+//   2. Solo-Fahrlehrer wird von einer Fahrschule uebernommen. Genau hier lief
+//      es vorher in eine Sackgasse: /api/auth/signup lehnt eine bereits
+//      vergebene Adresse mit 409 ab, und dieser Weg verlangte einen entzogenen
+//      Zugang. Ein Solo-Fahrlehrer kam also gar nicht in eine Fahrschule,
+//      ausser mit einer zweiten E-Mail-Adresse.
+//
+// Bewusst KEIN "Konto ersetzen": am Konto haengen dokumentierte Fahrstunden,
+// und eine Loeschfunktion, die nur die Kenntnis einer E-Mail-Adresse
+// voraussetzt, waere eine Kontouebernahme. Stattdessen behaelt der Fahrlehrer
+// sein Konto und wechselt die Zugehoerigkeit.
 //
 // Der Code darf jeder gueltige offene Fahrlehrer-Code sein, auch der einer
 // anderen Fahrschule. Alte Fahrstunden bleiben bei der alten Fahrschule,
 // weil lessons ihre eigene school_id tragen.
+//
+// transferStudents entscheidet ueber die privaten Schueler des Solo-Kontos.
+// Fehlt der Wert und sind Schueler vorhanden, antwortet der Endpunkt mit
+// needsChoice und aendert nichts — die Frage muss gestellt werden, bevor
+// Schuelerdaten in den Bestand einer Fahrschule wandern.
 // ============================================
-app.post('/api/auth/instructor-rejoin', async (req, res) => {
+async function instructorJoinHandler(req, res) {
   try {
-    const { email, password, inviteCode } = req.body;
+    const { email, password, inviteCode, transferStudents } = req.body || {};
     if (!email || !password || !inviteCode) {
       return res.status(400).json({ error: 'E-Mail, Passwort und Einladungscode erforderlich' });
     }
 
-    const { data: inst } = await supabase.from('instructors')
-      .select('id, name, password_hash, deactivated_at')
-      .eq('email', email).maybeSingle();
+    // Mehrere Konten pro Adresse sind moeglich; das Passwort entscheidet.
+    const { data: instRows } = await supabase.from('instructors')
+      .select('id, name, password_hash, deactivated_at, account_type, school_id')
+      .ilike('email', emailLikePattern(email))
+      .order('created_at', { ascending: true }).limit(5);
+    let inst = null;
+    for (const row of (instRows || [])) {
+      if (row.password_hash && verifyPassword(password, row.password_hash)) { inst = row; break; }
+    }
     // Bewusst dieselbe Meldung wie bei falschem Passwort, damit sich hierueber
     // keine E-Mail-Adressen durchprobieren lassen.
-    if (!inst || !inst.password_hash || !verifyPassword(password, inst.password_hash)) {
+    if (!inst) {
       return res.status(401).json({ error: 'Ungültige E-Mail oder Passwort' });
     }
-    if (!inst.deactivated_at) {
+    // Wer bereits in einer Fahrschule aktiv ist, braucht keinen Beitritt.
+    // Ein Solo-Konto hat school_id = null und darf hier durch.
+    if (!inst.deactivated_at && inst.school_id) {
       return res.status(409).json({ error: 'Dein Zugang ist aktiv. Bitte melde dich normal an.' });
     }
 
@@ -478,10 +557,50 @@ app.post('/api/auth/instructor-rejoin', async (req, res) => {
       .eq('status', 'offen').maybeSingle();
     if (!code) return res.status(400).json({ error: 'Ungültiger oder bereits verwendeter Code' });
 
-    // Zugang freischalten und der Fahrschule des Codes zuordnen.
-    await supabase.from('instructors').update({
-      school_id: code.school_id, deactivated_at: null, deactivated_by: null
+    // Private Schueler des Solo-Kontos: school_id ist null, der Fahrlehrer ist
+    // Eigentuemer. Erst ab hier zaehlen, damit die Zahl nur nach bestandener
+    // Passwortpruefung und mit gueltigem Code herausgeht.
+    let soloStudents = 0;
+    const { count: soloCount } = await supabase.from('students')
+      .select('id', { count: 'exact', head: true })
+      .eq('owner_instructor_id', inst.id).is('school_id', null);
+    soloStudents = soloCount || 0;
+
+    if (soloStudents > 0 && transferStudents !== true && transferStudents !== false) {
+      const { data: sch } = await supabase.from('schools')
+        .select('name').eq('id', code.school_id).maybeSingle();
+      return res.json({
+        needsChoice: true,
+        soloStudents,
+        schoolName: sch ? sch.name : ''
+      });
+    }
+
+    // Zugang freischalten und der Fahrschule des Codes zuordnen. Der Kontotyp
+    // wechselt auf 'employed', und die Solo-Abofelder werden geleert, damit im
+    // Profil kein Solo-Abo mehr angezeigt wird.
+    const { error: updErr } = await supabase.from('instructors').update({
+      school_id: code.school_id, deactivated_at: null, deactivated_by: null,
+      account_type: 'employed',
+      subscription_plan: null, subscription_status: null, solo_trial_ends_at: null
     }).eq('id', inst.id);
+    if (updErr) {
+      console.error('Instructor join update error:', updErr.message);
+      return res.status(500).json({ error: 'Serverfehler' });
+    }
+
+    // Privatschueler nur auf ausdruecklichen Wunsch mitnehmen. Standard ist
+    // "behalten": sie gehoeren dem Fahrlehrer, nicht der Fahrschule, und im
+    // Bestand stehen sie oft schon ein zweites Mal bei der Fahrschule selbst.
+    let transferred = 0;
+    if (soloStudents > 0 && transferStudents === true) {
+      const { data: moved, error: trErr } = await supabase.from('students')
+        .update({ school_id: code.school_id })
+        .eq('owner_instructor_id', inst.id).is('school_id', null).select('id');
+      if (trErr) console.error('Schuelerübernahme fehlgeschlagen:', trErr.message);
+      else transferred = (moved || []).length;
+    }
+
     await supabase.from('invite_codes').update({
       status: 'verwendet', used_by: inst.name, used_by_id: inst.id
     }).eq('id', code.id);
@@ -525,12 +644,16 @@ app.post('/api/auth/instructor-rejoin', async (req, res) => {
       .eq('id', inst.id).single();
     if (fullUser) fullUser.role = 'instructor';
 
-    res.json({ token, user: fullUser });
+    res.json({ token, user: fullUser, transferredStudents: transferred, keptStudents: transferStudents === true ? 0 : soloStudents });
   } catch (err) {
-    console.error('Instructor rejoin error:', err);
+    console.error('Instructor join error:', err);
     res.status(500).json({ error: 'Serverfehler' });
   }
-});
+}
+
+app.post('/api/auth/instructor-join', instructorJoinHandler);
+// Alter Pfadname bleibt bestehen: aeltere geladene Oberflaechen rufen ihn noch auf.
+app.post('/api/auth/instructor-rejoin', instructorJoinHandler);
 
 app.post('/api/auth/signup', async (req, res) => {
   try {
@@ -539,11 +662,29 @@ app.post('/api/auth/signup', async (req, res) => {
       return res.status(400).json({ error: 'Alle Felder sind erforderlich' });
     }
 
-    // Check if email exists in any table
-    const { data: e1 } = await supabase.from('schools').select('id').eq('email', email).maybeSingle();
-    const { data: e2 } = await supabase.from('instructors').select('id').eq('email', email).maybeSingle();
-    const { data: e3 } = await supabase.from('students').select('id').eq('email', email).maybeSingle();
-    if (e1 || e2 || e3) return res.status(409).json({ error: 'E-Mail ist bereits registriert' });
+    // Ist die Adresse schon vergeben? Ohne Ruecksicht auf Gross-/Kleinschreibung,
+    // sonst laesst sich mit "Info@" ein zweites Konto zu "info@" anlegen — genau
+    // so sind im Bestand doppelte Fahrschul-Konten entstanden.
+    const pattern = emailLikePattern(email);
+    const { data: e1 } = await supabase.from('schools').select('id').ilike('email', pattern).limit(1);
+    const { data: e2 } = await supabase.from('instructors').select('id, school_id, deactivated_at').ilike('email', pattern).limit(1);
+    const { data: e3 } = await supabase.from('students').select('id').ilike('email', pattern).limit(1);
+    const vorhandenerFahrlehrer = (e2 && e2.length) ? e2[0] : null;
+    if ((e1 && e1.length) || vorhandenerFahrlehrer || (e3 && e3.length)) {
+      // Sonderfall Fahrlehrer mit Einladungscode: Wer schon ein Fahrlehrer-Konto
+      // hat (typisch: FahrDoc Solo) und von einer Fahrschule uebernommen wird,
+      // braucht kein zweites Konto, sondern einen Beitritt mit dem bestehenden.
+      // Frueher endete das hier mit "E-Mail ist bereits registriert" — eine
+      // Sackgasse, die nur mit einer zweiten E-Mail-Adresse zu umgehen war.
+      if (role === 'instructor' && inviteCode && vorhandenerFahrlehrer &&
+          (!vorhandenerFahrlehrer.school_id || vorhandenerFahrlehrer.deactivated_at)) {
+        return res.status(409).json({
+          error: 'Zu dieser E-Mail-Adresse gibt es schon ein FahrDoc-Konto. Melde dich mit deinem Passwort an, um der Fahrschule beizutreten — deine dokumentierten Fahrstunden bleiben erhalten.',
+          code: 'ACCOUNT_EXISTS_CAN_JOIN'
+        });
+      }
+      return res.status(409).json({ error: 'E-Mail ist bereits registriert' });
+    }
 
     const fullName = firstName + ' ' + lastName;
     const pwHash = hashPassword(password);
@@ -854,9 +995,7 @@ app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
 // genaue Schreibweise erst recht nicht mehr. Die gefundene Original-Adresse wird
 // zurueckgegeben, damit die Mail an die real gespeicherte Adresse geht.
 async function findAccountByEmail(email) {
-  // In ILIKE sind % und _ Platzhalter — escapen, damit nur exakt (case-insensitiv)
-  // gesucht wird und niemand mit "%@%" ein fremdes Konto treffen kann.
-  const pattern = String(email).replace(/([\\%_])/g, '\\$1');
+  const pattern = emailLikePattern(email);
   const tables = [
     { table: 'schools', role: 'school', cols: 'id, email, admin_name, name', nameOf: r => r.admin_name || r.name || '' },
     { table: 'instructors', role: 'instructor', cols: 'id, email, name', nameOf: r => r.name || '' },
@@ -1289,13 +1428,16 @@ app.post('/api/school/students', authMiddleware, async (req, res) => {
 
     // E-Mail-Eindeutigkeit: pro Fahrschule pruefen (Plus-Schueler koennen sich einloggen).
     // Verschiedene Fahrschulen duerfen dieselbe E-Mail nutzen; Solo-Konten sind komplett isoliert.
+    // Schreibweise-unabhaengig, sonst entstehen "Max@" und "max@" als zwei Schueler.
+    // limit(1) statt maybeSingle(): maybeSingle liefert bei mehreren Treffern einen
+    // Fehler und data=null — dann waere ein bestehendes Duplikat gerade nicht erkannt.
     const { data: dupInSchool } = await supabase
       .from('students')
       .select('id')
-      .eq('email', payload.email)
+      .ilike('email', emailLikePattern(payload.email))
       .eq('school_id', schoolId)
-      .maybeSingle();
-    if (dupInSchool) {
+      .limit(1);
+    if (dupInSchool && dupInSchool.length) {
       return res.status(409).json({ error: 'Ein Schueler mit dieser E-Mail existiert bereits in deiner Fahrschule' });
     }
 
@@ -1389,10 +1531,11 @@ app.put('/api/school/students/:id', authMiddleware, async (req, res) => {
       const { data: dupInSchool } = await supabase
         .from('students')
         .select('id')
-        .eq('email', payload.email)
+        .ilike('email', emailLikePattern(payload.email))
         .eq('school_id', req.user.id)
-        .maybeSingle();
-      if (dupInSchool && dupInSchool.id !== studentId) {
+        .neq('id', studentId)
+        .limit(1);
+      if (dupInSchool && dupInSchool.length) {
         return res.status(409).json({ error: 'Ein Schueler mit dieser E-Mail existiert bereits in deiner Fahrschule' });
       }
     }
@@ -1839,10 +1982,10 @@ app.post('/api/instructor/students', authMiddleware, async (req, res) => {
       const { data: dup } = await supabase
         .from('students')
         .select('id')
-        .eq('email', payload.email)
+        .ilike('email', emailLikePattern(payload.email))
         .eq('owner_instructor_id', req.user.id)
-        .maybeSingle();
-      if (dup) {
+        .limit(1);
+      if (dup && dup.length) {
         return res.status(409).json({ error: 'Ein Schueler mit dieser E-Mail existiert bereits in deinem Konto' });
       }
     }
