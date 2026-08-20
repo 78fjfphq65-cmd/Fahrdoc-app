@@ -287,7 +287,10 @@ function _filterValidRatings(ratings) {
 
 var SCHEDULE_PRESETS = {
   'Übungsfahrt': 90, 'Überlandfahrt': 225, 'Autobahnfahrt': 180,
-  'Nachtfahrt': 135, 'Prüfungsvorbereitung': 90, 'Praktische Prüfung': 55, 'Theoretische Prüfung': 45
+  'Nachtfahrt': 135, 'Prüfungsvorbereitung': 90, 'Praktische Prüfung': 55, 'Theoretische Prüfung': 45,
+  // "Sonstiges" = Termin, der keine Fahrstunde ist (Beratung, Sehtest, privater
+  // Termin ...). Wird nicht dokumentiert und nicht abgerechnet.
+  'Sonstiges': 90
 };
 var SCHEDULE_TYPES = Object.keys(SCHEDULE_PRESETS);
 var DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -297,7 +300,8 @@ var DAY_NAMES_LONG = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag',
 var SCHEDULE_TYPE_CLASS = {
   'Übungsfahrt': 'type-uebung', 'Überlandfahrt': 'type-ueberland', 'Autobahnfahrt': 'type-autobahn',
   'Nachtfahrt': 'type-nacht', 'Prüfungsvorbereitung': 'type-pruefvorb',
-  'Praktische Prüfung': 'type-prakt-pruef', 'Theoretische Prüfung': 'type-theo-pruef'
+  'Praktische Prüfung': 'type-prakt-pruef', 'Theoretische Prüfung': 'type-theo-pruef',
+  'Sonstiges': 'type-sonstiges'
 };
 var GRID_START_HOUR = 7;   // Standard-Beginn der Wochenansicht
 var GRID_END_HOUR = 24;
@@ -2073,6 +2077,9 @@ var App = {
   },
 
   onScheduleTypeChange: function() {
+    var typeEl0 = document.getElementById('schedule-type');
+    var hintEl = document.getElementById('schedule-type-hint');
+    if (hintEl && typeEl0) hintEl.style.display = (typeEl0.value === 'Sonstiges') ? '' : 'none';
     if (AppState.scheduleManualEndTime) return;
     var type = document.getElementById('schedule-type').value;
     var duration = SCHEDULE_PRESETS[type] || 90;
@@ -2209,6 +2216,9 @@ var App = {
       });
       html += '</select>';
     }
+    // Erklaerung, was "Sonstiges" bedeutet — nur sichtbar wenn der Typ gewaehlt ist.
+    html += '<div id="schedule-type-hint" class="text-sm text-muted" style="margin-top:6px;' +
+      (type === 'Sonstiges' ? '' : 'display:none;') + '">' + t('sonstigesHinweis') + '</div>';
     html += '</div>';
 
     html += '<div class="form-group mb-3"><label class="form-label">' + t('datum') + '</label>';
@@ -2353,7 +2363,8 @@ var App = {
       }
       html += '</div>';
       // "Fahrstunde starten" button for instructor when student is assigned
-      if (AppState.currentUser && AppState.currentUser.role === 'instructor' && editSlot.student_id) {
+      // "Sonstiges" ist keine Fahrstunde — daraus wird nichts dokumentiert.
+      if (AppState.currentUser && AppState.currentUser.role === 'instructor' && editSlot.student_id && editSlot.type !== 'Sonstiges') {
         html += '<button type="button" class="btn btn-full btn-lg mt-3" style="background:var(--color-success);color:#fff;" ' +
           'onclick="App.closeModalForce();App.startLessonFromSlot(\'' + editSlot.student_id + '\', \'' + editSlot.type + '\', \'' + editSlot.license_class + '\')">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polygon points="5,3 19,12 5,21 5,3"/></svg> '+t('fahrstundeStarten')+'</button>';
@@ -7354,6 +7365,8 @@ var App = {
           var _todayStr = formatDateLocal(new Date());
           var _plannedMin = 0;
           scheduled.forEach(function(s) {
+            // "Sonstiges" ist kein Fahrunterricht und zaehlt nicht in die Fahrzeit.
+            if (s.type === 'Sonstiges') return;
             if (s.start_time && s.end_time) {
               var a = s.start_time.split(':'), b = s.end_time.split(':');
               var diff = (parseInt(b[0], 10) * 60 + parseInt(b[1], 10)) - (parseInt(a[0], 10) * 60 + parseInt(a[1], 10));

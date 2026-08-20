@@ -423,7 +423,8 @@ var TRANSLATIONS = {
   krank: { de:'Krank', en:'Sick', tr:'Hastalık', ar:'مرض', es:'Enfermo', fr:'Maladie' },
   fortbildung: { de:'Fortbildung', en:'Training', tr:'Eğitim', ar:'تدريب', es:'Formación', fr:'Formation' },
   privat: { de:'Privat', en:'Private', tr:'Özel', ar:'شخصي', es:'Privado', fr:'Privé' },
-  sonstiges: { de:'Sonstiges', en:'Other', tr:'Diğer', ar:'أخرى', es:'Otro', fr:'Autre' },
+  sonstiges: { de:'Sonstiges', en:'Other', tr:'Diğer', ar:'أخرى', es:'Otro', fr:'Autre', pt:'Outro' },
+  sonstigesHinweis: { de:'Kein Fahrunterricht — dieser Termin blockt nur Zeit und wird nicht dokumentiert oder abgerechnet.', en:'Not a driving lesson — this appointment only blocks time and is neither documented nor billed.', tr:'Direksiyon dersi değil — bu randevu yalnızca zaman ayırır, belgelenmez ve faturalandırılmaz.', ar:'ليست حصة قيادة — هذا الموعد يحجز الوقت فقط ولا يُوثَّق ولا يُحتسب في الفاتورة.', es:'No es una clase de conducción: esta cita solo bloquea tiempo y no se documenta ni se factura.', fr:'Pas une leçon de conduite — ce rendez-vous ne fait que bloquer du temps et n’est ni documenté ni facturé.', pt:'Não é uma aula de condução — este compromisso apenas bloqueia tempo e não é documentado nem faturado.' },
   feiertag: { de:'Feiertag', en:'Public holiday', tr:'Resmi tatil', ar:'عطلة رسمية', es:'Día festivo', fr:'Jour férié' },
   alleTageLoeschen: { de:'Alle Tage löschen', en:'Delete all days', tr:'Tüm günleri sil', ar:'حذف جميع الأيام', es:'Eliminar todos los días', fr:'Supprimer tous les jours' },
   emailBestaetigt: { de:'E-Mail bestätigt', en:'Email confirmed', tr:'E-posta onaylandı', ar:'تم تأكيد البريد الإلكتروني', es:'Correo confirmado', fr:'E-mail confirmé' },
@@ -723,7 +724,7 @@ var TYPE_KEY_MAP = {
   'Autobahnfahrt': 'autobahnfahrt', 'Nachtfahrt': 'nachtfahrt',
   'Prüfungsvorbereitung': 'pruefungsvorbereitung',
   'Praktische Prüfung': 'praktischePruefung', 'Theoretische Prüfung': 'theoretischePruefung',
-  'Zeitsperre': 'zeitsperre'
+  'Zeitsperre': 'zeitsperre', 'Sonstiges': 'sonstiges'
 };
 
 // ── Skill task key map ──

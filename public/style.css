@@ -5633,3 +5633,10 @@ html[dir="rtl"] .notif-panel {
   color: var(--text-muted);
   line-height: 1.5;
 }
+
+/* Sonstiges — Termin ohne Fahrunterricht (Beratung, privater Termin ...) */
+.type-sonstiges {
+  background: #e0f2f1;
+  border-left-color: #00897b;
+  color: #00504a;
+}
