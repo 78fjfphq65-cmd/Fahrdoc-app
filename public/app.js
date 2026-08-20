@@ -2831,8 +2831,7 @@ var App = {
   // scheinbar zufaellig. Darum wird nach Rang sortiert:
   //   0 = der Name beginnt so
   //   1 = ein weiteres Wort des Namens beginnt so (Nachname, Doppelname)
-  //   2 = kommt mitten in einem Wort vor — nur als Rueckfall, wenn es sonst
-  //       keinen einzigen Treffer gibt
+  // Es zaehlt ausschliesslich der Wortanfang: "ab" findet nie "Sabine".
   // Mehrere Suchwoerter muessen alle passen: "do ba" findet "Domingos Bata".
   // ============================================
   searchNormalize: function(str) {
@@ -2861,7 +2860,6 @@ var App = {
           if (nameWords[j].indexOf(w) === 0) { rank = 1; break; }
         }
       }
-      if (rank === -1 && n.indexOf(w) !== -1) rank = 2;
       if (rank === -1) return -1;
       if (rank > worst) worst = rank;
     }
@@ -2878,9 +2876,6 @@ var App = {
       var rank = self.searchRank(name, query);
       if (rank >= 0) scored.push({ item: item, rank: rank, sortName: self.searchNormalize(name) });
     });
-    // Treffer mitten im Wort nur zeigen, wenn es gar keine am Wortanfang gibt.
-    var hasPrefixHit = scored.some(function(s) { return s.rank < 2; });
-    if (hasPrefixHit) scored = scored.filter(function(s) { return s.rank < 2; });
     scored.sort(function(a, b) {
       if (a.rank !== b.rank) return a.rank - b.rank;
       return a.sortName < b.sortName ? -1 : (a.sortName > b.sortName ? 1 : 0);
