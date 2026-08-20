@@ -544,6 +544,10 @@ var App = {
         var sr = document.getElementById('dashboard-search-results');
         if (sr) sr.classList.remove('visible');
       }
+      // Gleiches Verhalten fuer die Schuelersuche im Termin-Dialog
+      if (!e.target.closest('.combo-wrapper')) {
+        document.querySelectorAll('.combo-results').forEach(function(cr) { cr.classList.remove('visible'); });
+      }
     });
     // Apply initial language
     applyLanguageToDOM();
@@ -2172,7 +2176,18 @@ var App = {
       var roStudentName = editSlot.student_name ? (editSlot.student_name + (editSlot.student_license_class ? ' (Klasse ' + editSlot.student_license_class + ')' : '')) : '— Offener Block —';
       html += roField(roStudentName);
     } else {
-      html += '<select class="form-select" id="schedule-student"><option value="">— Offener Block —</option></select>';
+      // Suchfeld statt Auswahlliste: bei mehreren hundert Schuelern ist ein
+      // Dropdown nicht bedienbar. Die Kennung steht im versteckten Feld, damit
+      // alle bestehenden Stellen weiter schedule-student.value lesen koennen.
+      html += '<input type="hidden" id="schedule-student" value="' + studentId + '">' +
+        '<div class="combo-wrapper">' +
+          '<input class="form-input" type="text" id="schedule-student-search" autocomplete="off"' +
+            ' value="' + this.escapeHtml(isEdit && editSlot.student_name ? (editSlot.student_name + (editSlot.student_license_class ? ' (' + t('klasse') + ' ' + editSlot.student_license_class + ')' : '')) : '') + '"' +
+            ' placeholder="' + t('schuelerSuchenPlatzhalter') + '"' +
+            ' oninput="App.onScheduleStudentSearch(this.value)" onfocus="this.select()">' +
+          '<div class="combo-results" id="schedule-student-results"></div>' +
+          '<div id="schedule-student-hint" class="combo-hint"></div>' +
+        '</div>';
     }
     html += '</div>';
 
@@ -2359,6 +2374,8 @@ var App = {
   },
 
   loadScheduleStudents: async function(preSelectId, instructorId) {
+    // Liste des vorigen Dialogs verwerfen, damit die Suche nichts Veraltetes zeigt.
+    AppState.scheduleStudentList = [];
     try {
       var students;
       if (AppState.currentUser.role === 'instructor') {
@@ -2369,18 +2386,102 @@ var App = {
         var data = await ApiClient.get('/api/school/students');
         students = data.students || [];
       }
-      var sel = document.getElementById('schedule-student');
-      if (!sel) return;
-      sel.innerHTML = '<option value="">— ' + t('offenerBlock') + ' —</option>';
-      students.forEach(function(st) {
-        var selected = st.id === preSelectId ? ' selected' : '';
-        sel.innerHTML += '<option value="' + st.id + '"' + selected + '>' + st.name + ' (Klasse ' + st.license_class + ')</option>';
-      });
-      // Saldo-Banner an Dropdown-Wechsel binden + initial laden
-      var self = this;
-      sel.onchange = function() { self._loadScheduleStudentBalance(this.value); };
+      AppState.scheduleStudentList = students;
+      var hidden = document.getElementById('schedule-student');
+      if (!hidden) return;
+      hidden.value = preSelectId || '';
+      var field = document.getElementById('schedule-student-search');
+      if (field) {
+        var pre = null;
+        for (var i = 0; i < students.length; i++) {
+          if (students[i].id === preSelectId) { pre = students[i]; break; }
+        }
+        field.value = pre ? this.scheduleStudentLabel(pre) : '';
+      }
+      this._renderScheduleStudentHint();
       this._loadScheduleStudentBalance(preSelectId);
     } catch(e) {}
+  },
+
+  scheduleStudentLabel: function(st) {
+    if (!st) return '';
+    return st.name + (st.license_class ? ' (' + t('klasse') + ' ' + st.license_class + ')' : '');
+  },
+
+  // Sucht im Termin-Dialog nach einem Schueler. Leeres Feld bedeutet
+  // "offener Block" — genau wie vorher der erste Eintrag der Auswahlliste.
+  onScheduleStudentSearch: function(value) {
+    var resultsEl = document.getElementById('schedule-student-results');
+    var hidden = document.getElementById('schedule-student');
+    if (!resultsEl || !hidden) return;
+    if (!value || !value.trim()) {
+      hidden.value = '';
+      resultsEl.innerHTML = '';
+      resultsEl.classList.remove('visible');
+      this._renderScheduleStudentHint();
+      this._loadScheduleStudentBalance('');
+      return;
+    }
+    var matches = this.searchFilter(AppState.scheduleStudentList || [], value);
+    if (matches.length === 0) {
+      resultsEl.innerHTML = '<div class="dashboard-search-no-results">' + t('keineErgebnisse') + '</div>';
+      resultsEl.classList.add('visible');
+      return;
+    }
+    var self = this;
+    var limit = 12;
+    var html = '';
+    matches.slice(0, limit).forEach(function(st) {
+      html += '<div class="dashboard-search-item" data-id="' + st.id + '">' +
+        '<div>' + self.avatarHtml(st.name, 'sm') + '</div>' +
+        '<div><div class="dashboard-search-item-name">' + self.escapeHtml(st.name) + '</div>' +
+        '<div class="dashboard-search-item-role">' + (st.license_class ? t('klasse') + ' ' + self.escapeHtml(st.license_class) : '') + '</div></div></div>';
+    });
+    if (matches.length > limit) {
+      html += '<div class="dashboard-search-no-results">' + t('weitereTreffer', { n: matches.length - limit }) + '</div>';
+    }
+    resultsEl.innerHTML = html;
+    resultsEl.querySelectorAll('.dashboard-search-item').forEach(function(row) {
+      row.addEventListener('click', function() {
+        self.pickScheduleStudent(this.getAttribute('data-id'));
+      });
+    });
+    resultsEl.classList.add('visible');
+  },
+
+  pickScheduleStudent: function(id) {
+    var hidden = document.getElementById('schedule-student');
+    var field = document.getElementById('schedule-student-search');
+    var resultsEl = document.getElementById('schedule-student-results');
+    var list = AppState.scheduleStudentList || [];
+    var st = null;
+    for (var i = 0; i < list.length; i++) { if (list[i].id === id) { st = list[i]; break; } }
+    if (!st || !hidden) return;
+    hidden.value = st.id;
+    if (field) field.value = this.scheduleStudentLabel(st);
+    if (resultsEl) { resultsEl.innerHTML = ''; resultsEl.classList.remove('visible'); }
+    this._renderScheduleStudentHint();
+    this._loadScheduleStudentBalance(st.id);
+  },
+
+  clearScheduleStudent: function() {
+    var field = document.getElementById('schedule-student-search');
+    if (field) field.value = '';
+    this.onScheduleStudentSearch('');
+    if (field) field.focus();
+  },
+
+  _renderScheduleStudentHint: function() {
+    var el = document.getElementById('schedule-student-hint');
+    if (!el) return;
+    var hidden = document.getElementById('schedule-student');
+    var id = hidden ? hidden.value : '';
+    if (!id) {
+      el.innerHTML = '<span class="text-xs text-muted">— ' + t('offenerBlock') + ' —</span>';
+      return;
+    }
+    // Der Name steht bereits im Suchfeld — hier reicht der Weg zurueck.
+    el.innerHTML = '<a href="#" class="text-xs" onclick="event.preventDefault();App.clearScheduleStudent();">' + t('auswahlAufheben') + '</a>';
   },
 
   // Laedt den offenen Saldo eines Schuelers und zeigt einen Banner im Termin-Modal.
@@ -2721,43 +2822,134 @@ var App = {
     } catch (err) { main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + err.message + '</p></div>'; }
   },
 
+  // ============================================
+  // Namenssuche (Dashboard und Schuelerauswahl im Termin)
+  //
+  // Tippt jemand "A", sollen alle Namen mit A erscheinen; kommt ein "b" dazu,
+  // nur noch die mit "Ab". Ein blosses indexOf() wuerde bei "ab" auch "Sabine"
+  // liefern — die Liste wuerde beim Weitertippen also nicht enger, sondern
+  // scheinbar zufaellig. Darum wird nach Rang sortiert:
+  //   0 = der Name beginnt so
+  //   1 = ein weiteres Wort des Namens beginnt so (Nachname, Doppelname)
+  //   2 = kommt mitten in einem Wort vor — nur als Rueckfall, wenn es sonst
+  //       keinen einzigen Treffer gibt
+  // Mehrere Suchwoerter muessen alle passen: "do ba" findet "Domingos Bata".
+  // ============================================
+  searchNormalize: function(str) {
+    var s = (str || '').toString().toLowerCase();
+    // Akzente abstreifen, damit "ozturk" auch Öztürk und "goncalves" auch
+    // Gonçalves findet — bei den Namen in einer Fahrschule der Normalfall.
+    if (s.normalize) s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    s = s.replace(/\u00df/g, 'ss').replace(/\u00e6/g, 'ae').replace(/\u00f8/g, 'o').replace(/\u0142/g, 'l');
+    return s.replace(/[^a-z0-9]+/g, ' ').trim();
+  },
+
+  // Rang eines Namens zur Suchanfrage, oder -1 wenn er nicht passt.
+  searchRank: function(name, query) {
+    var n = this.searchNormalize(name);
+    var q = this.searchNormalize(query);
+    if (!q) return -1;
+    var nameWords = n.split(' ');
+    var queryWords = q.split(' ');
+    var worst = 0;
+    for (var i = 0; i < queryWords.length; i++) {
+      var w = queryWords[i];
+      var rank = -1;
+      if (n.indexOf(w) === 0) rank = 0;
+      else {
+        for (var j = 1; j < nameWords.length; j++) {
+          if (nameWords[j].indexOf(w) === 0) { rank = 1; break; }
+        }
+      }
+      if (rank === -1 && n.indexOf(w) !== -1) rank = 2;
+      if (rank === -1) return -1;
+      if (rank > worst) worst = rank;
+    }
+    return worst;
+  },
+
+  // Filtert und sortiert eine Liste. nameOf liefert den Namen eines Eintrags.
+  searchFilter: function(list, query, nameOf) {
+    var self = this;
+    var get = nameOf || function(x) { return x.name; };
+    var scored = [];
+    (list || []).forEach(function(item) {
+      var name = get(item);
+      var rank = self.searchRank(name, query);
+      if (rank >= 0) scored.push({ item: item, rank: rank, sortName: self.searchNormalize(name) });
+    });
+    // Treffer mitten im Wort nur zeigen, wenn es gar keine am Wortanfang gibt.
+    var hasPrefixHit = scored.some(function(s) { return s.rank < 2; });
+    if (hasPrefixHit) scored = scored.filter(function(s) { return s.rank < 2; });
+    scored.sort(function(a, b) {
+      if (a.rank !== b.rank) return a.rank - b.rank;
+      return a.sortName < b.sortName ? -1 : (a.sortName > b.sortName ? 1 : 0);
+    });
+    return scored.map(function(s) { return s.item; });
+  },
+
   _searchData: null,
+  _searchDataAt: 0,
+  _searchTimer: null,
+  _searchSeq: 0,
   _loadSearchData: async function() {
-    if (this._searchData) return;
+    // Wie die uebrigen Zwischenspeicher nach einer Minute erneuern, sonst fehlen
+    // gerade angelegte Schueler bis zum naechsten Neuladen der Seite.
+    if (this._searchData && (Date.now() - this._searchDataAt) < 60000) return;
     try {
       var studData = await ApiClient.get('/api/school/students');
       var instData = await ApiClient.get('/api/school/instructors');
       this._searchData = { students: studData.students || [], instructors: instData.instructors || [] };
-    } catch(e) { this._searchData = { students: [], instructors: [] }; }
+      this._searchDataAt = Date.now();
+    } catch(e) {
+      this._searchData = { students: [], instructors: [] };
+      // Nach einem Fehler nur kurz merken, damit es gleich wieder versucht wird.
+      this._searchDataAt = Date.now() - 55000;
+    }
   },
 
-  onDashboardSearch: async function(query) {
+  onDashboardSearch: function(query) {
+    var self = this;
     var resultsEl = document.getElementById('dashboard-search-results');
     if (!resultsEl) return;
-    if (!query || query.length < 2) { resultsEl.classList.remove('visible'); return; }
+    clearTimeout(this._searchTimer);
+    if (!query || !query.trim()) {
+      this._searchSeq++;
+      resultsEl.classList.remove('visible');
+      return;
+    }
+    // Kurz abwarten: sonst laeuft bei jedem Tastendruck eine Suche.
+    this._searchTimer = setTimeout(function() { self._runDashboardSearch(query); }, 120);
+  },
+
+  _runDashboardSearch: async function(query) {
+    var seq = ++this._searchSeq;
+    var resultsEl = document.getElementById('dashboard-search-results');
+    if (!resultsEl) return;
     await this._loadSearchData();
-    var q = query.toLowerCase();
+    // Inzwischen weitergetippt oder Feld geleert: dieses Ergebnis ist veraltet.
+    if (seq !== this._searchSeq) return;
     var results = [];
-    (this._searchData.instructors || []).forEach(function(inst) {
-      if (inst.name.toLowerCase().indexOf(q) !== -1) {
-        results.push({ id: inst.id, name: inst.name, role: 'fahrlehrer', type: 'instructor' });
-      }
+    this.searchFilter(this._searchData.instructors, query).forEach(function(inst) {
+      results.push({ id: inst.id, name: inst.name, role: 'fahrlehrer', type: 'instructor' });
     });
-    (this._searchData.students || []).forEach(function(stu) {
-      if (stu.name.toLowerCase().indexOf(q) !== -1) {
-        results.push({ id: stu.id, name: stu.name, role: 'fahrschueler', type: 'student', licenseClass: stu.license_class });
-      }
+    this.searchFilter(this._searchData.students, query).forEach(function(stu) {
+      results.push({ id: stu.id, name: stu.name, role: 'fahrschueler', type: 'student', licenseClass: stu.license_class });
     });
     if (results.length === 0) {
       resultsEl.innerHTML = '<div class="dashboard-search-no-results">' + t('keineErgebnisse') + '</div>';
     } else {
       var html = '';
-      results.slice(0, 10).forEach(function(r) {
+      var limit = 12;
+      results.slice(0, limit).forEach(function(r) {
         html += '<div class="dashboard-search-item" data-type="' + r.type + '" data-id="' + r.id + '">' +
           '<div>' + App.avatarHtml(r.name, 'sm') + '</div>' +
-          '<div><div class="dashboard-search-item-name">' + r.name + '</div>' +
+          '<div><div class="dashboard-search-item-name">' + App.escapeHtml(r.name) + '</div>' +
           '<div class="dashboard-search-item-role">' + t(r.role) + (r.licenseClass ? ' \u00b7 ' + t('klasse') + ' ' + r.licenseClass : '') + '</div></div></div>';
       });
+      if (results.length > limit) {
+        html += '<div class="dashboard-search-no-results">' + t('weitereTreffer', { n: results.length - limit }) + '</div>';
+      }
       resultsEl.innerHTML = html;
       // Attach click handlers via event delegation
       resultsEl.querySelectorAll('.dashboard-search-item').forEach(function(item) {
