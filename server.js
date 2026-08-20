@@ -2687,11 +2687,29 @@ app.get('/api/student-detail/:id', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Kein Zugriff' });
     }
 
-    const [lessonsRes, instructors] = await Promise.all([
+    // Kuenftige Termine mitliefern: im Verlauf soll neben den absolvierten
+    // Stunden auch stehen, was noch eingeplant ist. Zeitsperren sind keine
+    // Fahrstunden und bleiben aussen vor.
+    const todayStr = formatDateLocal(new Date());
+    const [lessonsRes, scheduledRes, instructors] = await Promise.all([
       supabase.from('lessons').select('*, instructors(name)').eq('student_id', student.id).is('deleted_at', null).order('date', { ascending: false }).order('created_at', { ascending: false }),
+      supabase.from('scheduled_lessons')
+        .select('id, date, start_time, end_time, type, license_class, status, notes, instructor_id, created_by_role, instructors(name)')
+        .eq('student_id', student.id)
+        .neq('type', 'Zeitsperre')
+        .gte('date', todayStr)
+        .order('date', { ascending: true })
+        .order('start_time', { ascending: true }),
       getStudentInstructors(student.id)
     ]);
     const lessons = lessonsRes.data || [];
+    const scheduled = (scheduledRes.data || [])
+      .filter(s => s.status !== 'abgesagt' && s.status !== 'storniert')
+      .map(s => {
+        const name = s.instructors?.name || null;
+        delete s.instructors;
+        return Object.assign(s, { instructor_name: name });
+      });
     const lessonIds = lessons.map(l => l.id);
     let ratingsByLesson = {};
     let imagesByLesson = {};
@@ -2718,7 +2736,7 @@ app.get('/api/student-detail/:id', authMiddleware, async (req, res) => {
 
     const instructorNames = (instructors || []).map(i => i.name).join(', ') || '—';
 
-    res.json({ student, lessons, instructorName: instructorNames, instructors: instructors || [] });
+    res.json({ student, lessons, scheduled, instructorName: instructorNames, instructors: instructors || [] });
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
   }

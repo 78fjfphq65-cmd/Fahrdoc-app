@@ -7277,6 +7277,58 @@ var App = {
             '<div class="lessons-history-title"><span class="lessons-history-icon" aria-hidden="true">\u{1F4D6}</span>Fahrstunden-Verlauf</div>' +
           '</div>';
 
+        // ── Bereits eingeplant (kuenftige Termine) ──
+        // Steht bewusst vor den absolvierten Stunden: das Buero will beim Blick
+        // auf den Schueler zuerst wissen, was noch ansteht.
+        var scheduled = data.scheduled || [];
+        if (scheduled.length > 0) {
+          var _monthsShort = ['Jan','Feb','M\u00e4r','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+          var _todayStr = formatDateLocal(new Date());
+          var _plannedMin = 0;
+          scheduled.forEach(function(s) {
+            if (s.start_time && s.end_time) {
+              var a = s.start_time.split(':'), b = s.end_time.split(':');
+              var diff = (parseInt(b[0], 10) * 60 + parseInt(b[1], 10)) - (parseInt(a[0], 10) * 60 + parseInt(a[1], 10));
+              if (diff > 0) _plannedMin += diff;
+            }
+          });
+          html += '<div class="lessons-history-planned">' +
+            '<div class="lessons-history-subtitle">Eingeplant \u00b7 ' + scheduled.length + ' ' +
+              (scheduled.length === 1 ? 'Termin' : 'Termine') +
+              (_plannedMin > 0 ? ' \u00b7 ' + _fmtMin(_plannedMin) : '') + '</div>' +
+            '<div style="display:flex;flex-direction:column;gap:6px;">';
+          scheduled.forEach(function(s) {
+            var sp = String(s.date || '').split('-');
+            var sDay = sp[2] || '';
+            var sMonth = sp[1] ? (_monthsShort[parseInt(sp[1], 10) - 1] || '') : '';
+            var zeit = (s.start_time || '').substring(0, 5);
+            if (s.end_time) zeit += '\u2013' + s.end_time.substring(0, 5);
+            // Vom Buero geplant und noch nicht bestaetigt: gleiche Logik wie im Kalender.
+            var offen = s.status === 'geplant' && s.created_by_role === 'school';
+            var istHeute = s.date === _todayStr;
+            html += '<div class="lesson-history-row lesson-history-row-planned">' +
+              '<div class="lesson-history-date">' +
+                '<div class="lesson-history-date-day">' + sDay + '</div>' +
+                '<div class="lesson-history-date-month">' + sMonth + '</div>' +
+              '</div>' +
+              '<div class="lesson-history-main">' +
+                '<div class="lesson-history-type">' +
+                  '<span class="lesson-history-type-text">' + App.escapeHtml(s.type || '\u2014') + '</span>' +
+                  (istHeute ? '<span class="badge badge-primary" style="font-size:10px;">heute</span>' : '') +
+                  (offen ? '<span class="badge badge-warning" style="font-size:10px;">unbest\u00e4tigt</span>' : '') +
+                '</div>' +
+                '<div class="lesson-history-meta">' +
+                  '<span>' + App.escapeHtml(s.instructor_name || '\u2014') + '</span>' +
+                '</div>' +
+              '</div>' +
+              '<div class="lesson-history-right">' +
+                '<div class="lesson-history-duration">' + zeit + '</div>' +
+              '</div>' +
+            '</div>';
+          });
+          html += '</div></div>';
+        }
+
         if (lessons.length === 0) {
           html += '<p style="font-size:var(--text-sm);color:var(--text-muted);text-align:center;padding:var(--space-4);">Noch keine absolvierten Fahrstunden.</p>';
         } else {
