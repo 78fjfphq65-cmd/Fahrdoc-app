@@ -1464,8 +1464,24 @@ var App = {
       }, 250);
     }, 200);
   },
-  closeModal: function(e) { if (e && e.target !== document.getElementById('modal-backdrop')) return; document.getElementById('modal-backdrop').classList.remove('active'); },
-  closeModalForce: function() { document.getElementById('modal-backdrop').classList.remove('active'); },
+  closeModal: function(e) { if (e && e.target !== document.getElementById('modal-backdrop')) return; document.getElementById('modal-backdrop').classList.remove('active'); this._flushScheduleRefresh(); },
+  closeModalForce: function() { document.getElementById('modal-backdrop').classList.remove('active'); this._flushScheduleRefresh(); },
+
+  // Termine, die bei offener Maske erstellt wurden, werden erst beim Schliessen
+  // in den Kalender uebernommen — sonst wuerde der Hintergrund bei jeder
+  // Eingabe neu laden.
+  _flushScheduleRefresh: function() {
+    if (!AppState._scheduleDirty) return;
+    AppState._scheduleDirty = false;
+    AppState.scheduleData = null;
+    if (AppState._cachedData) { AppState._cachedData._scheduleBundle = null; AppState._cachedData._dashboardBundle = null; }
+    try {
+      if (AppState.currentUser && AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
+      else this.renderSchoolScheduleTab();
+    } catch (e) {}
+  },
+
+  closeScheduleModal: function() { this.closeModalForce(); },
 
   // ──── HELPERS ────
   formatDate: function(dateStr) {
@@ -1931,15 +1947,14 @@ var App = {
       try {
         this.showLoading(true);
         var result = await ApiClient.post('/api/recurring-lessons', slotData);
-        this.closeModalForce();
         var msg = t('termineErstellt', { count: result.created || 0 });
         if (result.skipped > 0) {
           msg += ' | ' + t('termineUebersprungen', { count: result.skipped });
         }
         this.showToast(msg);
-        AppState.scheduleData = null;
-        if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
-        else this.renderSchoolScheduleTab();
+        // Maske bleibt offen, damit direkt weiter geplant werden kann.
+        AppState._scheduleDirty = true;
+        this._logCreatedSlot(slotData, result.created || 0);
       } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
       finally { this.showLoading(false); }
       return;
@@ -1948,12 +1963,57 @@ var App = {
     try {
       this.showLoading(true);
       await ApiClient.post('/api/schedule', slotData);
-      this.closeModalForce(); this.showToast(t('terminErstellt'));
-      AppState.scheduleData = null; if(AppState._cachedData) AppState._cachedData._scheduleBundle = null;
-      if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
-      else this.renderSchoolScheduleTab();
+      this.showToast(t('terminErstellt'));
+      // Bewusst NICHT schliessen: fuer denselben Schueler werden oft mehrere
+      // Termine hintereinander eingeplant. Der Kalender wird beim Schliessen
+      // aktualisiert (siehe _flushScheduleRefresh).
+      AppState._scheduleDirty = true;
+      this._logCreatedSlot(slotData, 1);
     } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
     finally { this.showLoading(false); }
+  },
+
+  // Bestaetigungsliste in der offenen Termin-Maske fortschreiben.
+  _logCreatedSlot: function(slotData, count) {
+    var box = document.getElementById('schedule-created-log');
+    if (!box) return;
+    if (!AppState._scheduleCreatedLog) AppState._scheduleCreatedLog = [];
+    var studentName = '';
+    var searchEl = document.getElementById('schedule-student-search');
+    // Klammer-Zusatz "(Klasse B)" aus dem Suchfeld weglassen — die Klasse steht
+    // im Termin selbst und macht die Zeile nur laenger.
+    if (searchEl && searchEl.value.trim()) studentName = searchEl.value.trim().replace(/\s*\([^)]*\)\s*$/, '');
+    AppState._scheduleCreatedLog.push({
+      date: slotData.date,
+      startTime: slotData.startTime,
+      endTime: slotData.endTime,
+      type: slotData.type,
+      student: studentName,
+      count: count || 1
+    });
+    var self = this;
+    var rows = AppState._scheduleCreatedLog.map(function(entry) {
+      var d = entry.date ? new Date(entry.date) : null;
+      var dayStr = (d && !isNaN(d.getTime()))
+        ? d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })
+        : (entry.date || '');
+      var zeit = (entry.startTime || '').substring(0, 5);
+      if (entry.endTime) zeit += '\u2013' + entry.endTime.substring(0, 5);
+      var suffix = entry.count > 1 ? ' (' + entry.count + '\u00d7)' : '';
+      return '<div class="schedule-created-row">' +
+        '<span class="schedule-created-check" aria-hidden="true">\u2713</span>' +
+        '<span>' + self.escapeHtml(dayStr) + ' \u00b7 ' + self.escapeHtml(zeit) + ' \u00b7 ' +
+          self.escapeHtml(tType(entry.type || '')) + suffix +
+          (entry.student ? ' \u00b7 ' + self.escapeHtml(entry.student) : '') + '</span>' +
+      '</div>';
+    }).join('');
+    box.innerHTML = '<div class="schedule-created-title">' + t('bereitsErstellt') + '</div>' + rows +
+      '<div class="schedule-created-hint">' + t('maskeBleibtOffen') + '</div>';
+    box.style.display = '';
+    // Zu den Buttons scrollen, damit "Termin erstellen" und "Schließen" nach dem
+    // Anwachsen der Liste sichtbar bleiben.
+    var row = document.getElementById('schedule-submit-row');
+    if (row && row.scrollIntoView) row.scrollIntoView({ block: 'end' });
   },
 
   updateScheduleSlot: async function(id) {
@@ -2088,6 +2148,8 @@ var App = {
   // ──── SCHEDULE MODAL ────
   openScheduleModal: function(prefillDate, prefillTime, editSlot, instructorIdOverride) {
     AppState.scheduleManualEndTime = false;
+    // Bestaetigungsliste gilt nur fuer die aktuell geoeffnete Maske.
+    AppState._scheduleCreatedLog = [];
     var isEdit = !!editSlot;
     var title = isEdit ? t('terminBearbeiten') : t('neuerTermin');
 
@@ -2297,7 +2359,13 @@ var App = {
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polygon points="5,3 19,12 5,21 5,3"/></svg> '+t('fahrstundeStarten')+'</button>';
       }
     } else {
-      html += '<button type="button" class="btn btn-primary btn-full btn-lg" onclick="App.createScheduleSlot()">'+t('terminErstellen')+'</button>';
+      // Liste der in dieser Maske schon erstellten Termine (bleibt offen fuer
+      // Mehrfach-Planung) + Buttons "Termin erstellen" und "Schliessen".
+      html += '<div id="schedule-created-log" class="schedule-created-log" style="display:none;"></div>';
+      html += '<div id="schedule-submit-row" style="display:flex;gap:var(--space-3);">' +
+        '<button type="button" class="btn btn-primary btn-lg flex-1" onclick="App.createScheduleSlot()">' + t('terminErstellen') + '</button>' +
+        '<button type="button" class="btn btn-secondary btn-lg" onclick="App.closeScheduleModal()">' + t('schliessenBtn') + '</button>' +
+      '</div>';
     }
     html += '</form>';
     this.openModal(title, html);
