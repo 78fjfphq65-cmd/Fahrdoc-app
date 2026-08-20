@@ -3,7 +3,7 @@
    Caching strategy: Network-first for API calls,
    Cache-first for static assets.
    ============================================ */
-const CACHE_NAME = 'fahrdoc-v119-training-view-scroll-padding';
+const CACHE_NAME = 'fahrdoc-v120-termin-maske-bleibt-offen';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -67,7 +67,10 @@ self.addEventListener('fetch', (event) => {
   const isCoreFile = /\.(js|css|html)$/.test(url.pathname) || url.pathname === '/' || url.pathname.endsWith('/index.html');
   if (isCoreFile) {
     event.respondWith(
-      fetch(event.request).then((response) => {
+      // 'no-cache' = immer beim Server nachfragen (mit ETag), damit nach einem
+      // Deploy nie eine alte app.js/style.css aus dem Browser-Cache kommt.
+      // Der Download passiert nur, wenn sich die Datei wirklich geaendert hat.
+      fetch(event.request, { cache: 'no-cache' }).then((response) => {
         if (response && response.ok) {
           const cloned = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
