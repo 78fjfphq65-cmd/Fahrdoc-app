@@ -1657,6 +1657,23 @@ var App = {
     var _meIsInstructor = AppState.currentUser && AppState.currentUser.role === 'instructor';
     var _myInstructorId = _meIsInstructor ? AppState.currentUser.id : null;
     var _filterInstId = filterInstructorId || (typeof AppState !== 'undefined' && AppState.scheduleSelectedInstructor) || null;
+    // Verschieben per Ziehen: nur in den bearbeitbaren Ansichten (Planung/Fahrlehrer),
+    // nicht in der Fahrzeug-Uebersicht (dort sind die Klick-Ziele "void(0)")
+    var _dragEnabled = !AppState.slotOfferMode && typeof onSlotClick === 'string' && onSlotClick.indexOf('openScheduleModal') !== -1;
+    if (_dragEnabled) this._ensureSlotDragHandlers();
+    var _myRole = AppState.currentUser ? AppState.currentUser.role : null;
+    // Wer darf einen Termin verschieben? Buero alles, Fahrlehrer nur eigene
+    // selbst geplante Termine (das erzwingt der Server ohnehin), nichts Abgeschlossenes
+    function _slotIsMovable(slot) {
+      if (!_dragEnabled) return false;
+      if (!slot.id || slot.slot_type === 'block' || slot.slot_type === 'theory' || slot.slot_type === 'offer') return false;
+      if (slot.status === 'abgeschlossen') return false;
+      if (_myRole === 'instructor') {
+        if (slot.instructor_id && String(slot.instructor_id) !== String(_myInstructorId)) return false;
+        if (slot.created_by_role === 'school') return false;
+      }
+      return true;
+    }
     function _slotInstructorName(slot) {
       if (!slot.instructor_name) return null;
       if (_meIsInstructor && slot.instructor_id && String(slot.instructor_id) === String(_myInstructorId)) return null;
@@ -1702,7 +1719,7 @@ var App = {
       var isToday = day.toDateString() === new Date().toDateString();
       var holiday = getHolidayForDate(day);
       var daySlots = slots.filter(function(s) { return s.date === dayStr; });
-      html += '<div class="week-grid-day-col' + (isToday ? ' today' : '') + (holiday ? ' holiday' : '') + '" onclick="App.onWeekGridCellClick(event, \'' + dayStr + '\', ' + JSON.stringify(onCellClick).replace(/"/g, '&quot;') + ')">';
+      html += '<div class="week-grid-day-col' + (isToday ? ' today' : '') + (holiday ? ' holiday' : '') + '" data-date="' + dayStr + '" onclick="App.onWeekGridCellClick(event, \'' + dayStr + '\', ' + JSON.stringify(onCellClick).replace(/"/g, '&quot;') + ')">';
       // Hour lines
       for (var hh = gStart; hh < gEnd; hh++) {
         html += '<div class="week-grid-hour-line" style="top:' + ((hh - gStart) * HOUR_HEIGHT) + 'px;"></div>';
@@ -1745,8 +1762,19 @@ var App = {
         } else {
           clickJs = onSlotClick.replace('{SLOT}', JSON.stringify(slot).replace(/"/g, '&quot;'));
         }
-        html += '<div class="week-grid-slot ' + typeCls + (isOffen ? ' slot-offen' : '') + (pruef ? ' slot-pruefung' : '') + (isUnconfirmed ? ' slot-unconfirmed' : '') + '" ' +
-          'style="top:' + top + 'px;height:' + height + 'px;" onclick="event.stopPropagation();' + clickJs + '">';
+        // Zeiten immer am Element hinterlegen — auch bei nicht verschiebbaren
+        // Terminen, damit die Ueberschneidungspruefung sie beruecksichtigt
+        var movable = _slotIsMovable(slot);
+        var dragAttrs = ' data-slot-kind="' + (isBlock ? 'block' : (isTheory ? 'theory' : (isOffer ? 'offer' : 'lesson'))) + '"' +
+          ' data-slot-start="' + String(slot.start_time || '').slice(0, 5) + '"' +
+          ' data-slot-end="' + String(slot.end_time || '').slice(0, 5) + '"';
+        if (movable) {
+          dragAttrs += ' data-drag="1" data-slot-id="' + slot.id + '"' +
+            ' data-slot-date="' + slot.date + '"' +
+            ' data-slot-label="' + App.escapeHtml(slot.student_name || tType(slot.type) || '') + '"';
+        }
+        html += '<div class="week-grid-slot ' + typeCls + (isOffen ? ' slot-offen' : '') + (pruef ? ' slot-pruefung' : '') + (isUnconfirmed ? ' slot-unconfirmed' : '') + (movable ? ' slot-movable' : '') + '" ' +
+          'style="top:' + top + 'px;height:' + height + 'px;"' + dragAttrs + ' onclick="event.stopPropagation();' + clickJs + '">';
         // Green checkmark for confirmed slots in admin view
         if (isAdminView && isConfirmed && !isBlock && !isTheory) {
           html += '<span class="slot-confirmed-check" title="' + t('bestaetigt') + '">\u2713</span>';
@@ -3240,6 +3268,7 @@ var App = {
         // Multi view: 2 or 3 grids side by side, full width
         // Ensure multiViewInstructors array is populated
         this._ensureMultiViewInstructors(instructors);
+      html += '<div class="drag-move-hint">\u21d5 ' + t('ziehenZumVerschieben') + '</div>';
         html += '<div class="multi-view-container multi-view-' + AppState.multiViewCount + '">';
         for (var mv = 0; mv < AppState.multiViewCount; mv++) {
           var mvInstId = AppState.multiViewInstructors[mv] || '';
@@ -3264,6 +3293,7 @@ var App = {
         }
         html += '</div>';
       } else {
+        html += '<div class="drag-move-hint">\u21d5 ' + t('ziehenZumVerschieben') + '</div>';
         html += this.renderWeekGridHtml(
           w.days, slots,
           "App.openScheduleModal('{DAY}', '09:00', null, AppState.scheduleSelectedInstructor)",
@@ -3431,6 +3461,290 @@ var App = {
     var panels = document.querySelectorAll('.multi-view-panel');
     var self = this;
     panels.forEach(function(panel) { self._initDragScrollOnPanel(panel); });
+  },
+
+  // ══════════════════════════════════════════
+  //  TERMINE PER ZIEHEN VERSCHIEBEN (Wochengitter)
+  //  Maus: ziehen ab 5 px Bewegung. Touch: lang druecken (350 ms), dann ziehen.
+  //  Raster 15 Minuten, die Dauer bleibt unveraendert. Der Zielbereich ist immer
+  //  dasselbe Gitter (also derselbe Fahrlehrer) — ein Wechsel des Fahrlehrers
+  //  laeuft weiterhin ueber die Termin-Maske.
+  // ══════════════════════════════════════════
+  _ensureSlotDragHandlers: function() {
+    if (this._slotDragInit) return;
+    this._slotDragInit = true;
+    var self = this;
+    function slotFrom(target) {
+      return target && target.closest ? target.closest('.week-grid-slot[data-drag="1"]') : null;
+    }
+    document.addEventListener('mousedown', function(e) {
+      self._suppressGridClick = false;
+      if (e.button !== 0) return;
+      var el = slotFrom(e.target);
+      if (!el) return;
+      self._slotDragPrepare(el, e.clientX, e.clientY, 'mouse');
+    }, true);
+    document.addEventListener('mousemove', function(e) {
+      if (!self._slotDrag) return;
+      self._slotDragMove(e.clientX, e.clientY);
+    }, true);
+    document.addEventListener('mouseup', function() {
+      if (self._slotDrag) self._slotDragEnd();
+    }, true);
+    document.addEventListener('touchstart', function(e) {
+      self._suppressGridClick = false;
+      if (!e.touches || e.touches.length !== 1) { self._slotDragCancel(); return; }
+      var el = slotFrom(e.target);
+      if (!el) return;
+      self._slotDragPrepare(el, e.touches[0].clientX, e.touches[0].clientY, 'touch');
+    }, { passive: true });
+    document.addEventListener('touchmove', function(e) {
+      var d = self._slotDrag;
+      if (!d) return;
+      var tt = e.touches[0];
+      if (!d.active) {
+        // Noch nicht lange genug gedrueckt: Bewegung heisst scrollen, nicht ziehen
+        if (Math.abs(tt.clientX - d.startX) > 8 || Math.abs(tt.clientY - d.startY) > 8) self._slotDragCancel();
+        return;
+      }
+      e.preventDefault();
+      self._slotDragMove(tt.clientX, tt.clientY);
+    }, { passive: false });
+    document.addEventListener('touchend', function() {
+      if (self._slotDrag) self._slotDragEnd();
+    }, { passive: true });
+    document.addEventListener('touchcancel', function() { self._slotDragCancel(); }, { passive: true });
+    // Nach einem echten Ziehen darf sich die Termin-Maske nicht oeffnen:
+    // genau der Klick, der direkt auf das Ziehen folgt, wird verworfen
+    document.addEventListener('click', function(e) {
+      if (!self._suppressGridClick) return;
+      self._suppressGridClick = false;
+      if (e.target.closest && e.target.closest('.week-grid')) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    }, true);
+  },
+
+  _slotDragPrepare: function(el, x, y, pointerKind) {
+    this._slotDragCancel();
+    var grid = el.closest('.week-grid');
+    var col = el.closest('.week-grid-day-col');
+    if (!grid || !col) return;
+    var gStart = parseInt(grid.getAttribute('data-start-hour'), 10);
+    var gEnd = parseInt(grid.getAttribute('data-end-hour'), 10);
+    if (!isFinite(gStart)) gStart = GRID_START_HOUR;
+    if (!isFinite(gEnd)) gEnd = GRID_END_HOUR;
+    var startMin = timeToMinutes(el.getAttribute('data-slot-start'));
+    var endMin = timeToMinutes(el.getAttribute('data-slot-end'));
+    var dur = endMin > startMin ? endMin - startMin : 45;
+    var rect = el.getBoundingClientRect();
+    var self = this;
+    this._slotDrag = {
+      el: el, grid: grid, col: col,
+      id: el.getAttribute('data-slot-id'),
+      label: el.getAttribute('data-slot-label') || '',
+      origDate: el.getAttribute('data-slot-date'),
+      origStartMin: startMin,
+      durMin: dur,
+      gStart: gStart, gEnd: gEnd,
+      startX: x, startY: y,
+      grabDX: x - rect.left, grabDY: y - rect.top,
+      pointerKind: pointerKind,
+      active: false,
+      targetCol: null, targetDate: null, targetStartMin: null,
+      timer: null
+    };
+    if (pointerKind === 'touch') {
+      this._slotDrag.timer = setTimeout(function() {
+        if (self._slotDrag) {
+          self._slotDragActivate();
+          try { if (navigator.vibrate) navigator.vibrate(15); } catch (e) {}
+        }
+      }, 350);
+    }
+  },
+
+  _slotDragActivate: function() {
+    var d = this._slotDrag;
+    if (!d || d.active) return;
+    d.active = true;
+    if (d.timer) { clearTimeout(d.timer); d.timer = null; }
+    var rect = d.el.getBoundingClientRect();
+    var ghost = d.el.cloneNode(true);
+    ghost.removeAttribute('onclick');
+    ghost.classList.add('slot-drag-ghost');
+    ghost.style.cssText = 'position:fixed;left:' + rect.left + 'px;top:' + rect.top + 'px;width:' +
+      rect.width + 'px;height:' + rect.height + 'px;';
+    document.body.appendChild(ghost);
+    d.ghost = ghost;
+    d.ghostTime = ghost.querySelector('.week-grid-slot-time');
+    d.origTimeText = d.ghostTime ? d.ghostTime.textContent : '';
+    d.el.classList.add('slot-dragging');
+    document.body.classList.add('slot-drag-active');
+    var preview = document.createElement('div');
+    preview.className = 'slot-drop-preview';
+    d.preview = preview;
+  },
+
+  _slotMinutesToTime: function(min) {
+    var h = Math.floor(min / 60), m = min % 60;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  },
+
+  _slotDragMove: function(x, y) {
+    var d = this._slotDrag;
+    if (!d) return;
+    if (!d.active) {
+      if (d.pointerKind !== 'mouse') return;
+      if (Math.abs(x - d.startX) < 5 && Math.abs(y - d.startY) < 5) return;
+      this._slotDragActivate();
+    }
+    var ghostTop = y - d.grabDY;
+    d.ghost.style.left = (x - d.grabDX) + 'px';
+    d.ghost.style.top = ghostTop + 'px';
+    // Spalte unter dem Zeiger bestimmen (der Geist selbst ist klickdurchlaessig)
+    var under = document.elementFromPoint(x, y);
+    var col = under && under.closest ? under.closest('.week-grid-day-col') : null;
+    if (!col || col.closest('.week-grid') !== d.grid) {
+      d.targetCol = null; d.targetDate = null; d.targetStartMin = null;
+      if (d.preview.parentNode) d.preview.parentNode.removeChild(d.preview);
+      d.ghost.classList.add('slot-drag-ghost-invalid');
+      if (d.ghostTime) d.ghostTime.textContent = d.origTimeText;
+      return;
+    }
+    d.ghost.classList.remove('slot-drag-ghost-invalid');
+    var colRect = col.getBoundingClientRect();
+    var minFromTop = (ghostTop - colRect.top) / PX_PER_MIN;
+    var newStart = Math.round((d.gStart * 60 + minFromTop) / 15) * 15;
+    if (newStart < d.gStart * 60) newStart = d.gStart * 60;
+    if (newStart + d.durMin > d.gEnd * 60) newStart = d.gEnd * 60 - d.durMin;
+    d.targetCol = col;
+    d.targetDate = col.getAttribute('data-date');
+    d.targetStartMin = newStart;
+    if (d.preview.parentNode !== col) col.appendChild(d.preview);
+    d.preview.style.top = ((newStart - d.gStart * 60) * PX_PER_MIN) + 'px';
+    d.preview.style.height = Math.max(d.durMin * PX_PER_MIN, 20) + 'px';
+    var newTimeText = this._slotMinutesToTime(newStart) + '\u2013' + this._slotMinutesToTime(newStart + d.durMin);
+    d.preview.textContent = newTimeText;
+    // Der Geist zeigt bereits die neue Uhrzeit
+    if (d.ghostTime) d.ghostTime.textContent = newTimeText;
+    // Sanftes Mitscrollen am oberen/unteren Rand
+    if (y < 90) window.scrollBy(0, -12);
+    else if (y > window.innerHeight - 90) window.scrollBy(0, 12);
+  },
+
+  _slotDragCleanup: function() {
+    var d = this._slotDrag;
+    this._slotDrag = null;
+    if (!d) return;
+    if (d.timer) clearTimeout(d.timer);
+    if (d.ghost && d.ghost.parentNode) d.ghost.parentNode.removeChild(d.ghost);
+    if (d.preview && d.preview.parentNode) d.preview.parentNode.removeChild(d.preview);
+    if (d.el) d.el.classList.remove('slot-dragging');
+    document.body.classList.remove('slot-drag-active');
+    return d;
+  },
+
+  _slotDragCancel: function() {
+    var d = this._slotDragCleanup();
+    if (d && d.active) this._suppressGridClick = true;
+  },
+
+  _slotDragEnd: function() {
+    var d = this._slotDragCleanup();
+    if (!d || !d.active) return;
+    this._suppressGridClick = true;
+    if (!d.targetDate || d.targetStartMin === null) return;
+    if (d.targetDate === d.origDate && d.targetStartMin === d.origStartMin) return;
+    var conflict = this._slotDragConflict(d);
+    if (conflict) {
+      this.showToast(t('ueberschneidungMitTermin', { zeit: conflict }));
+      return;
+    }
+    this._moveSlot(d.id, d.origDate, this._slotMinutesToTime(d.origStartMin), d.targetDate,
+      this._slotMinutesToTime(d.targetStartMin), this._slotMinutesToTime(d.targetStartMin + d.durMin), d.label, true);
+  },
+
+  // Ueberschneidung im Zielbereich vorab pruefen (der Server prueft ebenfalls,
+  // hier gibt es die Meldung nur sofort statt nach dem Netzaufruf)
+  _slotDragConflict: function(d) {
+    var newStart = d.targetStartMin, newEnd = d.targetStartMin + d.durMin;
+    var others = d.targetCol.querySelectorAll('.week-grid-slot');
+    for (var i = 0; i < others.length; i++) {
+      var o = others[i];
+      if (o === d.el) continue;
+      var kind = o.getAttribute('data-slot-kind');
+      if (kind !== 'lesson' && kind !== 'block') continue;
+      var os = timeToMinutes(o.getAttribute('data-slot-start'));
+      var oe = timeToMinutes(o.getAttribute('data-slot-end'));
+      if (!isFinite(os) || !isFinite(oe)) continue;
+      if (newStart < oe && newEnd > os) {
+        return this._slotMinutesToTime(os) + '\u2013' + this._slotMinutesToTime(oe);
+      }
+    }
+    return null;
+  },
+
+  // Termin verschieben und die Ansicht aktualisieren. Bei Fehlern bleibt der
+  // alte Stand stehen (die Ansicht wird neu geladen).
+  _moveSlot: async function(id, oldDate, oldStart, newDate, newStart, newEnd, label, offerUndo) {
+    try {
+      await ApiClient.put('/api/schedule/' + id, { date: newDate, startTime: newStart, endTime: newEnd });
+    } catch (err) {
+      this.showToast((err && err.message) ? err.message : t('verschiebenFehlgeschlagen'));
+      this._reloadScheduleAfterMove();
+      return;
+    }
+    var when = this._formatMoveTarget(newDate, newStart);
+    if (offerUndo === true) {
+      var durMin = timeToMinutes(newEnd) - timeToMinutes(newStart);
+      var oldEnd = this._slotMinutesToTime(timeToMinutes(oldStart) + durMin);
+      this._showMoveUndoBar((label ? label + ' \u00b7 ' : '') + when, id, newDate, newStart, oldDate, oldStart, oldEnd, label);
+    } else {
+      this.showToast(t(offerUndo === 'undo' ? 'verschiebenZurueckgenommen' : 'terminVerschoben', { ziel: when }));
+    }
+    this._reloadScheduleAfterMove();
+  },
+
+  _formatMoveTarget: function(dateStr, timeStr) {
+    var parts = String(dateStr).split('-');
+    var dt = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    var dayIdx = (dt.getDay() + 6) % 7; // getDayNames() beginnt bei Montag
+    return getDayNames()[dayIdx] + '., ' + parts[2] + '.' + parts[1] + '. \u00b7 ' + timeStr;
+  },
+
+  _reloadScheduleAfterMove: function() {
+    AppState.scheduleData = null;
+    if (AppState._cachedData) { AppState._cachedData._scheduleBundle = null; AppState._cachedData._dashboardBundle = null; }
+    try { this.refreshScheduleView(); } catch (e) {}
+  },
+
+  _showMoveUndoBar: function(text, id, newDate, newStart, oldDate, oldStart, oldEnd, label) {
+    var bar = document.getElementById('slot-move-undo');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'slot-move-undo';
+      bar.className = 'slot-move-undo';
+      bar.innerHTML = '<span class="slot-move-undo-text"></span>' +
+        '<button type="button" class="slot-move-undo-btn" onclick="App.undoSlotMove()"></button>';
+      document.body.appendChild(bar);
+    }
+    bar.querySelector('.slot-move-undo-text').textContent = t('terminVerschoben', { ziel: text });
+    bar.querySelector('.slot-move-undo-btn').textContent = t('rueckgaengig');
+    bar.classList.add('show');
+    AppState._lastSlotMove = { id: id, date: oldDate, startTime: oldStart, endTime: oldEnd, label: label };
+    if (this._undoBarTimer) clearTimeout(this._undoBarTimer);
+    this._undoBarTimer = setTimeout(function() { bar.classList.remove('show'); }, 9000);
+  },
+
+  undoSlotMove: async function() {
+    var m = AppState._lastSlotMove;
+    var bar = document.getElementById('slot-move-undo');
+    if (bar) bar.classList.remove('show');
+    if (!m) return;
+    AppState._lastSlotMove = null;
+    await this._moveSlot(m.id, null, null, m.date, m.startTime, m.endTime, m.label, 'undo');
   },
 
   // ══════════════════════════════════════════
@@ -6685,6 +6999,7 @@ var App = {
 
     if (viewMode === 'week') {
       // ──── WEEK GRID VIEW (absolute positioned) ────
+      html += '<div class="drag-move-hint">\u21d5 ' + t('ziehenZumVerschieben') + '</div>';
       html += this.renderWeekGridHtml(
         w.days, slots,
         "App.openScheduleModal('{DAY}', '09:00')",

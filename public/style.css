@@ -5640,3 +5640,71 @@ html[dir="rtl"] .notif-panel {
   border-left-color: #00897b;
   color: #00504a;
 }
+
+/* ── Termine per Ziehen verschieben ───────────────────────────── */
+.week-grid-slot.slot-movable { cursor: grab; }
+.week-grid-slot.slot-dragging { opacity: 0.35; }
+body.slot-drag-active { user-select: none; -webkit-user-select: none; }
+body.slot-drag-active .week-grid-slot.slot-movable { cursor: grabbing; }
+.slot-drag-ghost {
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.82;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  transform: scale(1.03);
+}
+.slot-drag-ghost-invalid { opacity: 0.5; }
+.slot-drop-preview {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  z-index: 3;
+  pointer-events: none;
+  border: 2px dashed var(--color-primary, #0f9b8e);
+  border-radius: var(--radius-sm);
+  background: oklch(from var(--color-primary, #0f9b8e) l c h / 0.12);
+  color: var(--color-primary, #0f9b8e);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 4px;
+  overflow: hidden;
+}
+.slot-move-undo {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translate(-50%, 16px);
+  z-index: 10000;
+  display: none;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: min(92vw, 460px);
+  padding: 10px 12px 10px 14px;
+  border-radius: var(--radius-md);
+  background: #28251d;
+  color: #f7f6f2;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  font-size: 13px;
+  line-height: 1.35;
+  opacity: 0;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.slot-move-undo.show { display: flex; opacity: 1; transform: translate(-50%, 0); }
+.slot-move-undo-text { flex: 1; }
+.slot-move-undo-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid rgba(247, 246, 242, 0.45);
+  color: #f7f6f2;
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.slot-move-undo-btn:hover { background: rgba(247, 246, 242, 0.14); }
+.drag-move-hint {
+  font-size: 11px;
+  color: var(--color-text-muted, #7a7974);
+  margin: 0 var(--space-4) var(--space-1);
+}
