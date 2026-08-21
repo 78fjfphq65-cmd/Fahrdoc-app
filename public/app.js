@@ -7852,9 +7852,18 @@ var App = {
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openFristverkuerzungDialog(\'' + studentId + '\',\'theorie\')">' + docIcon + ' ' + t('fristverkuerzungTheorie') + '</button>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openFristverkuerzungDialog(\'' + studentId + '\',\'praxis\')">' + docIcon + ' ' + t('fristverkuerzungPraxis') + '</button>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openEntschuldigungDialog(\'' + studentId + '\')">' + docIcon + ' ' + t('entschuldigung') + '</button>' +
-            '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB196Dialog(\'' + studentId + '\',\'vertrag\')">' + docIcon + ' ' + t('b196Vertrag') + '</button>' +
-            '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB196Dialog(\'' + studentId + '\',\'bescheinigung\')">' + docIcon + ' ' + t('b196Bescheinigung') + '</button>' +
-            '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB196Dialog(\'' + studentId + '\',\'dokumentation\')">' + docIcon + ' ' + t('b196Dokumentation') + '</button>' +
+            '<details class="doc-group">' +
+              '<summary class="doc-group-summary">' +
+                '<span style="display:flex;align-items:center;gap:var(--space-2);">' + docIcon + ' ' + t('b196Gruppe') + '</span>' +
+                '<span class="doc-group-chevron">\u25be</span>' +
+              '</summary>' +
+              '<div style="display:flex;flex-direction:column;gap:var(--space-2);padding-top:var(--space-2);">' +
+                '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB196Dialog(\'' + studentId + '\',\'vertrag\')">' + docIcon + ' ' + t('b196Vertrag') + '</button>' +
+                '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB196Dialog(\'' + studentId + '\',\'kompetenz\')">' + docIcon + ' ' + t('b196Kompetenz') + '</button>' +
+                '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB196Dialog(\'' + studentId + '\',\'bescheinigung\')">' + docIcon + ' ' + t('b196Bescheinigung') + '</button>' +
+                '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB196Dialog(\'' + studentId + '\',\'dokumentation\')">' + docIcon + ' ' + t('b196Dokumentation') + '</button>' +
+              '</div>' +
+            '</details>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openAnlage7Dialog(\'' + studentId + '\')">' + docIcon + ' ' + t('anlage7') + '</button>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB197Dialog(\'' + studentId + '\')">' + docIcon + ' ' + t('b197') + '</button>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openBF17Dialog(\'' + studentId + '\')">' + docIcon + ' ' + t('bf17Abschluss') + '</button>' +
@@ -9239,8 +9248,9 @@ var App = {
     var self = this;
     var isVertrag = art === 'vertrag';
     var isDoku = art === 'dokumentation';
-    var title = isVertrag ? t('b196Vertrag') : (isDoku ? t('b196Dokumentation') : t('b196Bescheinigung'));
-    var hinweis = isVertrag ? t('b196VertragHinweis') : (isDoku ? t('b196DokumentationHinweis') : t('b196BescheinigungHinweis'));
+    var isKomp = art === 'kompetenz';
+    var title = isVertrag ? t('b196Vertrag') : (isDoku ? t('b196Dokumentation') : (isKomp ? t('b196Kompetenz') : t('b196Bescheinigung')));
+    var hinweis = isVertrag ? t('b196VertragHinweis') : (isDoku ? t('b196DokumentationHinweis') : (isKomp ? t('b196KompetenzHinweis') : t('b196BescheinigungHinweis')));
     var today = new Date();
     var todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
     var esc = function(v) { return self.escapeHtml(String(v == null ? '' : v)); };
@@ -9290,6 +9300,23 @@ var App = {
             '<input type="date" id="b196-v-datum" class="form-input" value="' + todayStr + '"></div>' +
         '</div>' +
         '<div class="text-xs text-muted" style="margin-top:var(--space-2);padding:var(--space-2);background:#fef3c7;border-radius:var(--radius-md);">Hinweis: Alle Felder sind optional \u2013 leere Felder werden im PDF als Linie zum Ausf\u00fcllen gedruckt. Die Checkbox \u201eSchulungsfahrzeug von Fahrschule / Teilnehmer\u201c bleibt immer leer und wird von der Fahrschule manuell angekreuzt.</div>';
+    } else if (isKomp) {
+      fieldsHtml = gebFeld +
+        '<div style="display:flex;gap:var(--space-2);">' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">' + t('hersteller') + '</label>' +
+            '<input type="text" id="b196-hersteller" class="form-input" placeholder="Honda"></div>' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">' + t('typBezeichnung') + '</label>' +
+            '<input type="text" id="b196-typ" class="form-input" placeholder="CB 125 F"></div>' +
+        '</div>' +
+        '<div class="form-group"><label class="form-label">' + t('getriebeart') + '</label>' +
+          '<input type="text" id="b196-getriebeart" class="form-input" placeholder="' + t('schaltgetriebe') + '"></div>' +
+        '<div style="display:flex;gap:var(--space-2);">' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">' + t('ortAusstellung') + '</label>' +
+            '<input type="text" id="b196-k-ort" class="form-input" value="' + esc(pre.ort) + '"></div>' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">' + t('datum') + '</label>' +
+            '<input type="date" id="b196-k-datum" class="form-input" value="' + todayStr + '"></div>' +
+        '</div>' +
+        '<div class="text-xs text-muted" style="margin-top:var(--space-2);padding:var(--space-2);background:#fef3c7;border-radius:var(--radius-md);">' + t('b196KompetenzKreuzeHinweis') + '</div>';
     } else if (isDoku) {
       fieldsHtml = gebFeld +
         '<div class="form-group"><label class="form-label">' + t('ausstellungsdatumFs') + '</label>' +
@@ -9349,6 +9376,7 @@ var App = {
     var self = this;
     var isVertrag = art === 'vertrag';
     var isDoku = art === 'dokumentation';
+    var isKomp = art === 'kompetenz';
     var leerCb = document.getElementById('b196-leer');
     var leer = !!(leerCb && leerCb.checked);
     var opts = { art: art, leer: leer };
@@ -9365,6 +9393,12 @@ var App = {
         opts.zusatzentgelt = val('b196-zusatzentgelt');
         opts.vOrt = val('b196-v-ort');
         opts.vDatum = val('b196-v-datum');
+      } else if (isKomp) {
+        opts.hersteller = val('b196-hersteller');
+        opts.typ = val('b196-typ');
+        opts.getriebeart = val('b196-getriebeart');
+        opts.ort = val('b196-k-ort');
+        opts.datum = val('b196-k-datum');
       } else if (isDoku) {
         opts.fsDatum = val('b196-fs-datum');
         opts.fahrzeug = val('b196-fahrzeug');
@@ -9395,6 +9429,7 @@ var App = {
         return;
       }
       if (isVertrag) self.renderB196VertragPdf(data, opts);
+      else if (isKomp) self.renderB196KompetenzPdf(data, opts);
       else if (isDoku) self.renderB196DokumentationPdf(data, opts);
       else self.renderB196TeilnahmebescheinigungPdf(data, opts);
     } catch (err) {
@@ -9410,6 +9445,195 @@ var App = {
     var m = s.match(/^(.*?),\s*(\d{4,5}\s+.*)$/);
     if (m) return { street: m[1].trim(), city: m[2].trim() };
     return { street: s.trim(), city: '' };
+  },
+
+  // Feststellung der Fahrkompetenz gemaess Anlage 7b FeV (zu § 6b Absatz 3 und 4)
+  renderB196KompetenzPdf: function(data, opts) {
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    var pw = 210, ph = 297;
+    var ml = 16, mr = 16, mt = 16;
+    var cw = pw - ml - mr;
+    var self = this;
+    var leer = !!opts.leer;
+
+    doc.setProperties({ title: 'Feststellung der Fahrkompetenz (B196)', author: 'FahrDoc' });
+
+    var fmtDate = function(d) {
+      if (!d) return '';
+      var p = String(d).split('-');
+      return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : d;
+    };
+    var pick = function(key, fallback) {
+      return (opts[key] !== undefined && opts[key] !== null) ? opts[key] : (fallback || '');
+    };
+    var drawLine = function(x1, y1, x2, y2, wd) {
+      doc.setDrawColor(0); doc.setLineWidth(wd || 0.3); doc.line(x1, y1, x2, y2);
+    };
+
+    var nameParts = (leer ? '' : (data.student.name || '')).split(/\s+/).filter(Boolean);
+    var nachname = nameParts.length > 1 ? nameParts[nameParts.length - 1] : (nameParts[0] || '');
+    var vorname  = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
+    var geb = leer ? '' : fmtDate(pick('geburtsdatum', data.student.geburtsdatum));
+
+    var y = mt;
+
+    // ── Kopf ──
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
+    doc.text('Feststellung der Fahrkompetenz', pw / 2, y, { align: 'center' });
+    y += 5;
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(9);
+    doc.text('gem\u00e4\u00df Anlage 7b FeV', pw / 2, y, { align: 'center' });
+    y += 4;
+    doc.text('(zu \u00a7 6b Absatz 3 und 4)', pw / 2, y, { align: 'center' });
+    y += 7.5;
+
+    // Name / Vorname / Geb.Datum
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    doc.text('Name:', ml, y);
+    doc.setFont('helvetica', 'bold');
+    if (nachname) doc.text(nachname, ml + 13, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Vorname:', ml + cw * 0.36, y);
+    doc.setFont('helvetica', 'bold');
+    if (vorname) doc.text(vorname, ml + cw * 0.36 + 18, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Geb.Datum:', ml + cw * 0.72, y);
+    doc.setFont('helvetica', 'bold');
+    if (geb) doc.text(geb, ml + cw * 0.72 + 22, y);
+    doc.setFont('helvetica', 'normal');
+    drawLine(ml, y + 2, ml + cw, y + 2);
+    y += 8;
+
+    // Schulungsfahrzeug
+    doc.setFontSize(10);
+    doc.text('Schulung wurde auf Leichtkraftrad', ml, y);
+    var vxStart = ml + doc.getTextWidth('Schulung wurde auf Leichtkraftrad') + 3;
+    var durchTxt = 'durchgef\u00fchrt.';
+    var vxEnd = ml + cw - doc.getTextWidth(durchTxt) - 3;
+    doc.text(durchTxt, ml + cw - doc.getTextWidth(durchTxt), y);
+    drawLine(vxStart, y + 1.2, vxEnd, y + 1.2);
+    var vSpan = vxEnd - vxStart;
+    var hersteller = leer ? '' : (opts.hersteller || '');
+    var typ = leer ? '' : (opts.typ || '');
+    var getriebe = leer ? '' : (opts.getriebeart || '');
+    doc.setFontSize(9);
+    if (hersteller) doc.text(hersteller, vxStart + 2, y - 0.5);
+    if (typ) doc.text(typ, vxStart + vSpan * 0.42, y - 0.5);
+    if (getriebe) doc.text(getriebe, vxStart + vSpan * 0.72, y - 0.5);
+    doc.setFontSize(7); doc.setTextColor(90);
+    doc.text('(Hersteller,', vxStart + 2, y + 4.4);
+    doc.text('Typ,', vxStart + vSpan * 0.42, y + 4.4);
+    doc.text('Getriebeart)', vxStart + vSpan * 0.72, y + 4.4);
+    doc.setTextColor(0);
+    y += 8.5;
+
+    // ── Tabelle ──
+    var colBez = cw - 24 - 24 - 34;   // Bezeichnung
+    var colNein = 24, colJa = 24, colBem = 34;
+    var xNein = ml + colBez, xJa = xNein + colNein, xBem = xJa + colJa;
+    var rowH = 6.2, groupH = 6.6;
+
+    // Kopfzeile (zweistufig)
+    var hdr1 = 7.2, hdr2 = 5.6;
+    doc.setDrawColor(0); doc.setLineWidth(0.3);
+    doc.setFillColor(238, 238, 238);
+    doc.rect(ml, y, colBez, hdr1 + hdr2, 'FD');
+    doc.rect(xNein, y, colNein + colJa + colBem, hdr1, 'FD');
+    doc.rect(xNein, y + hdr1, colNein, hdr2, 'FD');
+    doc.rect(xJa, y + hdr1, colJa, hdr2, 'FD');
+    doc.rect(xBem, y + hdr1, colBem, hdr2, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.6); doc.setTextColor(0);
+    doc.text('Kompetenzbereiche zur Eintragung der', ml + 2, y + 4.6);
+    doc.text('Schl\u00fcsselzahl 196', ml + 2, y + 9.6);
+    doc.text('Die Ausf\u00fchrung war erfolgreich', xNein + (colNein + colJa + colBem) / 2, y + 4.8, { align: 'center' });
+    doc.setFontSize(8.2);
+    doc.text('Nein', xNein + colNein / 2, y + hdr1 + 3.9, { align: 'center' });
+    doc.text('Ja', xJa + colJa / 2, y + hdr1 + 3.9, { align: 'center' });
+    doc.text('Bemerkungen', xBem + colBem / 2, y + hdr1 + 3.9, { align: 'center' });
+    y += hdr1 + hdr2;
+
+    var groupRow = function(label) {
+      doc.setFillColor(238, 238, 238);
+      doc.rect(ml, y, cw, groupH, 'FD');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+      doc.text(label, ml + 2, y + 4.6);
+      y += groupH;
+    };
+    var itemRow = function(label) {
+      doc.setDrawColor(0); doc.setLineWidth(0.3);
+      doc.rect(ml, y, colBez, rowH);
+      doc.rect(xNein, y, colNein, rowH);
+      doc.rect(xJa, y, colJa, rowH);
+      doc.rect(xBem, y, colBem, rowH);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+      doc.text(label, ml + 2, y + 4.2);
+      y += rowH;
+    };
+
+    groupRow('Grundfahraufgaben');
+    [
+      '17.2.1 Fahren eines Slaloms mit Schrittgeschwindigkeit',
+      '17.2.2 Abbremsen mit h\u00f6chstm\u00f6glicher Verz\u00f6gerung',
+      '17.2.3 Ausweichen ohne Abbremsen',
+      '17.2.4 Ausweichen nach Abbremsen',
+      '17.2.5 Slalom',
+      '17.2.6 Langer Slalom',
+      '17.2.7 Fahren mit Schrittgeschwindigkeit geradeaus',
+      '17.2.8 Stop-and-go',
+      '17.2.9 Kreisfahrt'
+    ].forEach(itemRow);
+
+    y += 2.2;
+    groupRow('Fahren innerhalb von Ortschaften');
+    [
+      'Verkehrsbeobachtung',
+      'Benutzung des Blinkers',
+      'Einordnen und Abbiegen',
+      'Fahrstreifenwechsel',
+      '\u00dcberholen',
+      'Richtiges Fahren von Kurven',
+      'Abstand',
+      'Anfahren in einer Steigung',
+      'Bremsbereitschaft',
+      'Geschwindigkeitsanpassung'
+    ].forEach(itemRow);
+
+    y += 2.2;
+    groupRow('Landstra\u00dfe und Autobahn');
+    [
+      'Einfahren, Ausfahren',
+      'Fahrstreifenbenutzung',
+      'Abstand',
+      'Fahren mit h\u00f6heren Geschwindigkeiten',
+      'Geschwindigkeitsanpassung',
+      'Verkehrsbeobachtung'
+    ].forEach(itemRow);
+
+    // ── Unterschriften ──
+    y = Math.max(y + 14, ph - 34);
+    var w1 = 44, w2 = 60, w3 = 60;
+    var x1 = ml, x2 = ml + cw * 0.32, x3 = ml + cw - w3;
+    var ortDatum = leer ? '' : [ (opts.ort || ''), fmtDate(opts.datum || '') ].filter(Boolean).join(', ');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+    if (ortDatum) doc.text(ortDatum, x1 + 1, y - 1);
+    drawLine(x1, y, x1 + w1, y);
+    drawLine(x2, y, x2 + w2, y);
+    drawLine(x3, y, x3 + w3, y);
+    doc.setFontSize(7.6); doc.setTextColor(70);
+    doc.text('Ort, Datum', x1, y + 3.6);
+    doc.text('Unterschrift des Teilnehmers', x2, y + 3.6);
+    doc.text('Unterschrift des Fahrlehrers', x3, y + 3.6);
+    doc.setTextColor(0);
+
+    // Fusszeile
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(120);
+    doc.text('Feststellung der Fahrkompetenz nach Anlage 7b (zu \u00a7 6b Absatz 3 und 4) FeV \u00b7 Grundfahraufgaben nach Anlage 3 Nr. 17.2 FahrschAusbO', pw / 2, ph - 8, { align: 'center' });
+    doc.setTextColor(0);
+
+    var nameForFile = leer ? 'Blanko' : ((data.student.name || 'Sch\u00fcler').replace(/\s+/g, '_'));
+    doc.save('B196_Fahrkompetenz_' + nameForFile + '.pdf');
+    this.showToast(t('pdfErstellt'));
   },
 
   renderB196VertragPdf: function(data, opts) {

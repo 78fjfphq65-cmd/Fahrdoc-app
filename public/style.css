@@ -5708,3 +5708,33 @@ body.slot-drag-active .week-grid-slot.slot-movable { cursor: grabbing; }
   color: var(--color-text-muted, #7a7974);
   margin: 0 var(--space-4) var(--space-1);
 }
+
+/* ── Ausklappbare Dokumentgruppe (z. B. B196) ── */
+.doc-group {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface-2);
+}
+.doc-group-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 10px var(--space-3);
+  font-size: var(--text-sm, 14px);
+  font-weight: 600;
+  color: var(--color-text);
+  user-select: none;
+}
+.doc-group-summary::-webkit-details-marker { display: none; }
+.doc-group-summary:hover { background: var(--color-surface-offset); border-radius: var(--radius-md, 8px); }
+.doc-group-chevron {
+  font-size: 12px;
+  color: var(--color-text-muted, #7a7974);
+  transition: transform .18s ease;
+}
+.doc-group[open] > .doc-group-summary .doc-group-chevron { transform: rotate(180deg); }
+.doc-group[open] > .doc-group-summary { border-bottom: 1px solid var(--color-border); border-radius: var(--radius-md,8px) var(--radius-md,8px) 0 0; }
+.doc-group > div { padding: 0 var(--space-3) var(--space-3); }
