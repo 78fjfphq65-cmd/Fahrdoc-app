@@ -9273,13 +9273,23 @@ var App = {
       fieldsHtml = gebFeld +
         '<div class="form-group"><label class="form-label">' + t('geburtsort') + '</label>' +
           '<input type="text" id="b196-geburtsort" class="form-input" placeholder="Berlin" value="' + esc(pre.geburtsort) + '"></div>' +
+        '<div class="form-group"><label class="form-label">' + t('strasseHausnummer') + '</label>' +
+          '<input type="text" id="b196-strasse" class="form-input" value="' + esc(pre.strasse) + '"></div>' +
+        '<div class="form-group"><label class="form-label">' + t('plzOrt') + '</label>' +
+          '<input type="text" id="b196-plzort" class="form-input" value="' + esc(pre.plzOrt) + '"></div>' +
         '<div class="form-group"><label class="form-label">' + t('klasseBSeit') + '</label>' +
           '<input type="date" id="b196-klasseb-seit" class="form-input"></div>' +
         '<div class="form-group"><label class="form-label">' + t('pauschalentgelt') + '</label>' +
           '<input type="number" id="b196-pauschalentgelt" class="form-input" placeholder="599" min="0" step="0.01"></div>' +
         '<div class="form-group"><label class="form-label">' + t('zusatzEntgelt') + '</label>' +
           '<input type="number" id="b196-zusatzentgelt" class="form-input" placeholder="55" min="0" step="0.01"></div>' +
-        '<div class="text-xs text-muted" style="margin-top:var(--space-2);padding:var(--space-2);background:#fef3c7;border-radius:var(--radius-md);">Hinweis: Die Checkbox \u201eSchulungsfahrzeug von Fahrschule / Teilnehmer\u201c bleibt im PDF leer und wird von der Fahrschule manuell angekreuzt.</div>';
+        '<div style="display:flex;gap:var(--space-2);">' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">' + t('ortAusstellung') + '</label>' +
+            '<input type="text" id="b196-v-ort" class="form-input" value="' + esc(pre.ort) + '"></div>' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">' + t('datum') + '</label>' +
+            '<input type="date" id="b196-v-datum" class="form-input" value="' + todayStr + '"></div>' +
+        '</div>' +
+        '<div class="text-xs text-muted" style="margin-top:var(--space-2);padding:var(--space-2);background:#fef3c7;border-radius:var(--radius-md);">Hinweis: Alle Felder sind optional \u2013 leere Felder werden im PDF als Linie zum Ausf\u00fcllen gedruckt. Die Checkbox \u201eSchulungsfahrzeug von Fahrschule / Teilnehmer\u201c bleibt immer leer und wird von der Fahrschule manuell angekreuzt.</div>';
     } else if (isDoku) {
       fieldsHtml = gebFeld +
         '<div class="form-group"><label class="form-label">' + t('ausstellungsdatumFs') + '</label>' +
@@ -9348,9 +9358,13 @@ var App = {
       opts.geburtsdatum = val('b196-geb');
       if (isVertrag) {
         opts.geburtsort = val('b196-geburtsort');
+        opts.strasse = val('b196-strasse');
+        opts.plzOrt = val('b196-plzort');
         opts.klasseBSeit = val('b196-klasseb-seit');
         opts.pauschalentgelt = val('b196-pauschalentgelt');
         opts.zusatzentgelt = val('b196-zusatzentgelt');
+        opts.vOrt = val('b196-v-ort');
+        opts.vDatum = val('b196-v-datum');
       } else if (isDoku) {
         opts.fsDatum = val('b196-fs-datum');
         opts.fahrzeug = val('b196-fahrzeug');
@@ -9402,202 +9416,286 @@ var App = {
     var jsPDF = window.jspdf.jsPDF;
     var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     var pw = 210, ph = 297;
-    var ml = 18, mr = 18, mt = 14;
+    var ml = 18, mr = 18, mt = 16;
     var cw = pw - ml - mr;
     var self = this;
+    var leer = !!opts.leer;
+
+    doc.setProperties({ title: 'Vereinbarung Fahrerschulung B196', author: 'FahrDoc' });
 
     var fmtDate = function(d) {
       if (!d) return '';
       var p = String(d).split('-');
       return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : d;
     };
-    var drawLine = function(x1, y1, x2, y2) { doc.setDrawColor(0); doc.setLineWidth(0.3); doc.line(x1, y1, x2, y2); };
-    var drawField = function(label, value, x, y, w) {
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-      doc.text(value || '', x, y);
-      drawLine(x, y + 1, x + w, y + 1);
-      doc.setFontSize(7); doc.setTextColor(90);
-      doc.text(label, x, y + 4);
-      doc.setTextColor(0);
+    var money = function(v) {
+      if (v === '' || v === null || v === undefined) return '';
+      var n = Number(v);
+      if (isNaN(n)) return String(v);
+      return n.toFixed(2).replace('.', ',') + ' \u20ac';
     };
-    var checkbox = function(x, y, checked) {
+    var drawLine = function(x1, y1, x2, y2, wd) {
+      doc.setDrawColor(0); doc.setLineWidth(wd || 0.3); doc.line(x1, y1, x2, y2);
+    };
+    // Abschnittstitel mit Trennlinie (wie in der Papiervorlage)
+    var section = function(label, y, size) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(size || 10.5);
+      doc.text(label, ml, y);
+      drawLine(ml, y + 1.6, ml + cw, y + 1.6, 0.4);
+      return y + 6.2;
+    };
+    // Fliesstext, gibt neues y zurueck
+    var para = function(text, y, size, lh) {
+      var s = size || 8.6, h = lh || 3.7;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(s);
+      var lines = doc.splitTextToSize(text, cw);
+      doc.text(lines, ml, y);
+      return y + lines.length * h + 2.4;
+    };
+    // Rahmenzelle mit kleinem Label oben links und Wert darunter
+    var cell = function(label, value, x, y, w, h) {
       doc.setDrawColor(0); doc.setLineWidth(0.3);
-      doc.rect(x, y - 3, 3.2, 3.2);
-      if (checked) {
-        doc.setLineWidth(0.5);
-        doc.line(x + 0.4, y - 1.4, x + 1.4, y - 0.4);
-        doc.line(x + 1.4, y - 0.4, x + 2.8, y - 2.7);
-      }
+      doc.rect(x, y, w, h);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.4); doc.setTextColor(80);
+      doc.text(label, x + 1.4, y + 3);
+      doc.setTextColor(0); doc.setFontSize(10);
+      var v = String(value == null ? '' : value);
+      if (v) doc.text(doc.splitTextToSize(v, w - 3)[0], x + 1.8, y + h - 2.2);
+    };
+    var checkbox = function(x, y) {
+      doc.setDrawColor(0); doc.setLineWidth(0.3);
+      doc.rect(x, y - 3.1, 3.3, 3.3);
     };
 
-    var studentAddr = self._splitAddress(opts.leer ? '' : (data.student.anschrift || ''));
-    var schoolAddr = self._splitAddress(opts.leer ? '' : (data.school.address || ''));
+    var studentAddr = self._splitAddress(leer ? '' : (data.student.anschrift || ''));
+    // Wenn der Dialog ein Feld liefert, gilt genau dieser Wert - auch wenn er absichtlich leer ist
+    var pick = function(key, fallback) {
+      return (opts[key] !== undefined && opts[key] !== null) ? opts[key] : (fallback || '');
+    };
+    var stStreet = leer ? '' : pick('strasse', studentAddr.street);
+    var stCity   = leer ? '' : pick('plzOrt', studentAddr.city);
+    // Fahrschuldaten werden auch im Blanko-Druck vorgedruckt
+    var schoolAddr = self._splitAddress(data.school.address || '');
+    var schStreet = (data.school.street || schoolAddr.street) || '';
+    var schCity   = [data.school.postal_code, data.school.city].filter(Boolean).join(' ') || schoolAddr.city || '';
+
+    // Name: 'Vorname Nachname' -> 'Nachname, Vorname'
+    var nameParts = (leer ? '' : (data.student.name || '')).split(/\s+/).filter(Boolean);
+    var nachname = nameParts.length > 1 ? nameParts[nameParts.length - 1] : (nameParts[0] || '');
+    var vorname  = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
+    var nameVorname = leer ? '' : [nachname, vorname].filter(Boolean).join(', ');
+
+    var geb = leer ? '' : fmtDate(pick('geburtsdatum', data.student.geburtsdatum));
+    var gebOrt = leer ? '' : pick('geburtsort', data.student.geburtsort);
+    var gebZeile = [geb, gebOrt ? 'in ' + gebOrt : ''].filter(Boolean).join(' ');
 
     var y = mt;
-    // Titel
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-    doc.text('Vereinbarung \u00fcber die Fahrerschulung', pw / 2, y, { align: 'center' });
-    y += 5;
-    doc.setFontSize(10);
-    doc.text('zum Erwerb der Schl\u00fcsselzahl 196 (Anlage 7b FeV)', pw / 2, y, { align: 'center' });
-    y += 7;
 
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-    var introText = 'Berechtigung zum F\u00fchren von Leichtkraftr\u00e4dern der Fahrerlaubnisklasse A1 im Inland, sofern der Inhaber der Fahrerlaubnis der Klasse B diese ununterbrochen seit mindestens 5 Jahren besitzt und das 25. Lebensjahr vollendet hat.';
-    var introLines = doc.splitTextToSize(introText, cw);
-    doc.text(introLines, ml, y);
-    y += introLines.length * 3.4 + 4;
+    // ── Titel ──
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13.5);
+    var titel = doc.splitTextToSize('Vereinbarung \u00fcber die Fahrerschulung zum Erwerb der Schl\u00fcsselzahl 196 zur Fahrerlaubnis der Klasse B', cw);
+    doc.text(titel, ml, y);
+    y += titel.length * 5.8 + 1.5;
 
-    // Vertragsparteien
-    // Convention: data.student.name ist 'Vorname Nachname'.
-    // Anlage 7b FeV trennt Name (Nachname) und Vorname in separate Felder.
-    var _vNameParts = (opts.leer ? '' : (data.student.name || '')).split(/\s+/).filter(Boolean);
-    var _vNachname = _vNameParts.length > 1 ? _vNameParts[_vNameParts.length - 1] : (_vNameParts[0] || '');
-    var _vVorname  = _vNameParts.length > 1 ? _vNameParts.slice(0, -1).join(' ') : '';
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('Zwischen Frau/Herr (Teilnehmer/in)', ml, y); y += 5;
-    drawField('Name', _vNachname, ml, y, cw * 0.5);
-    drawField('Vorname', _vVorname, ml + cw * 0.5, y, cw * 0.5); y += 9;
-    drawField('geboren am', opts.leer ? '' : fmtDate(opts.geburtsdatum || data.student.geburtsdatum || ''), ml, y, cw * 0.45);
-    drawField('geboren in', opts.leer ? '' : (opts.geburtsort || data.student.geburtsort || ''), ml + cw * 0.5, y, cw * 0.5); y += 9;
-    drawField('Stra\u00dfe, Hausnummer', studentAddr.street, ml, y, cw); y += 9;
-    drawField('PLZ, Ort', studentAddr.city, ml, y, cw); y += 10;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.2);
+    var klammer = doc.splitTextToSize('(Berechtigung zum F\u00fchren von Leichtkraftr\u00e4dern der Fahrerlaubnisklasse A1 im Inland, sofern der Inhaber/die Inhaberin der Fahrerlaubnis der Klasse B diese ununterbrochen seit mindestens 5 Jahren besitzt und das 25. Lebensjahr vollendet hat)', cw);
+    doc.text(klammer, ml, y);
+    y += klammer.length * 3.5 + 3.2;
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('und der Fahrschule', ml, y); y += 5;
-    drawField('Unternehmensbezeichnung', opts.leer ? '' : (data.school.name || ''), ml, y, cw); y += 9;
-    drawField('Inhaber (Vorname, Name)', opts.leer ? '' : (data.school.admin_name || ''), ml, y, cw); y += 9;
-    drawField('Stra\u00dfe, Hausnummer', schoolAddr.street, ml, y, cw); y += 9;
-    drawField('PLZ, Ort', schoolAddr.city, ml, y, cw); y += 9;
+    // ── Vertragsparteien ──
+    doc.setFontSize(8.6);
+    doc.text('Zwischen Frau/Herr', ml, y); y += 2.2;
 
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    doc.text('wird folgende Vereinbarung geschlossen:', ml, y); y += 6;
+    var colL = cw * 0.55, colR = cw - colL, rh = 10.5;
+    cell('Name, Vorname', nameVorname, ml, y, colL, rh);
+    cell('geboren am / in', gebZeile, ml + colL, y, colR, rh);
+    cell('Stra\u00dfe, Hausnummer', stStreet, ml, y + rh, colL, rh);
+    cell('PLZ Ort', stCity, ml + colL, y + rh, colR, rh);
+    y += rh * 2 + 3.6;
 
-    var klBseit = opts.leer ? '' : fmtDate(opts.klasseBSeit || '');
-    var inhaberText = 'Der/Die Teilnehmer/in will die Fahrerlaubnis Klasse B auf die Berechtigung nach der Schl\u00fcsselzahl 196 erweitern lassen. Er/Sie ist seit ' + (klBseit || '_______________') + ' im Besitz der Fahrerlaubnis Klasse B. Der/Die Teilnehmer/in beauftragt die Fahrschule, die vorgeschriebene Fahrerschulung nach Anlage 7b zur Fahrerlaubnis-Verordnung (FeV) durchzuf\u00fchren.';
-    var inhaberLines = doc.splitTextToSize(inhaberText, cw);
-    doc.text(inhaberLines, ml, y);
-    y += inhaberLines.length * 4 + 4;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.6);
+    doc.text('(nachfolgend "Teilnehmer/in" genannt)', ml, y); y += 3.8;
+    doc.text('und der Fahrschule', ml, y); y += 2.2;
 
-    // § Dauer und Gliederung
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('Dauer und Gliederung der Schulung', ml, y); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    var dauerText = 'Die Schulung dauert mindestens 9 Unterrichtseinheiten zu jeweils 90 Minuten: Teil 1 — Theoretische Schulung mind. 4\u00d790 Minuten, Teil 2 — Praktische Schulung mind. 5\u00d790 Minuten. Teil 1 erfolgt m\u00f6glichst vor der praktischen Schulung und darf in Gruppen unterrichtet werden. Teil 2 ist immer als Einzelunterricht durchzuf\u00fchren. Das als Schulungsfahrzeug verwendete Leichtkraftrad der Klasse A1 muss den Vorgaben der FeV Anlage 7 Nr. 2.2.3 entsprechen und wird';
-    var dauerLines = doc.splitTextToSize(dauerText, cw);
-    doc.text(dauerLines, ml, y);
-    y += dauerLines.length * 3.8 + 3;
+    cell('Unternehmensbezeichnung', data.school.name || '', ml, y, colL, rh);
+    cell('Inhaber (Vorname, Name)', data.school.admin_name || '', ml + colL, y, colR, rh);
+    cell('Stra\u00dfe, Hausnummer', schStreet, ml, y + rh, colL, rh);
+    cell('PLZ Ort', schCity, ml + colL, y + rh, colR, rh);
+    y += rh * 2 + 3.6;
 
-    // Schulungsfahrzeug-Checkboxen bleiben IMMER leer — die Fahrschule kreuzt manuell an.
-    checkbox(ml + 4, y, false);
-    doc.text('von der Fahrschule bereitgestellt', ml + 9, y); y += 5;
-    checkbox(ml + 4, y, false);
-    doc.text('vom/von der Teilnehmer/in zur Verf\u00fcgung gestellt', ml + 9, y); y += 7;
+    doc.setFontSize(8.6);
+    doc.text('(nachfolgend "Fahrschule" genannt)', ml, y); y += 3.8;
+    doc.text('wird folgende Vereinbarung geschlossen:', ml, y); y += 5.4;
 
-    // Theorie/Praxis Inhaltsbeschreibung
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-    doc.text('Theoretische Schulung', ml, y); y += 4;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-    var thText = 'Mindestens 4 Unterrichtseinheiten zu je 90 Minuten im Unterrichtsraum der Fahrschule. Inhalte gem. Anlage 2.1 Fahrsch\u00fcler-Ausbildungsordnung.';
-    var thLines = doc.splitTextToSize(thText, cw);
-    doc.text(thLines, ml, y);
-    y += thLines.length * 3.4 + 3;
+    // ── Einleitung mit Datum der Klasse B ──
+    y = para('Der/Die Teilnehmer/in will die Fahrerlaubnis Klasse B auf die Berechtigung nach der Schl\u00fcsselzahl 196 erweitern lassen.', y);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.6);
+    doc.text('Er/Sie ist seit', ml, y);
+    var seitX = ml + doc.getTextWidth('Er/Sie ist seit') + 2;
+    var seitW = 34;
+    var klBseit = leer ? '' : fmtDate(opts.klasseBSeit || '');
+    if (klBseit) doc.text(klBseit, seitX + 2, y - 0.4);
+    drawLine(seitX, y + 0.9, seitX + seitW, y + 0.9);
+    doc.text('im Besitz der Fahrerlaubnis Klasse B.', seitX + seitW + 2.5, y);
+    y += 5.4;
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-    doc.text('Praktische Schulung', ml, y); y += 4;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-    var prText = 'Einzelschulung, mind. 5 Unterrichtseinheiten zu je 90 Minuten. Inhalte gem. Anlage 3 Nr. 17.2 und Anlage 4 Nr. 1 und 2 Fahrsch\u00fcler-Ausbildungsordnung.';
-    var prLines = doc.splitTextToSize(prText, cw);
-    doc.text(prLines, ml, y);
-    y += prLines.length * 3.4 + 3;
+    y = para('Der/Die Teilnehmer/in beauftragt die Fahrschule, die vorgeschriebene Fahrerschulung nach Anlage 7b zur Fahrerlaubnis-Verordnung (FeV) durchzuf\u00fchren.', y);
+    y += 1.6;
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-    doc.text('Abschluss der Schulung', ml, y); y += 4;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-    var absText = 'Die Fahrschule darf die Schulung erst dann abschlie\u00dfen und die Bescheinigung erst dann ausstellen, wenn der Teilnehmer w\u00e4hrend der fahrpraktischen \u00dcbungen seine F\u00e4higkeiten zum F\u00fchren von Kraftr\u00e4dern der Klasse A1 erfolgreich unter Beweis gestellt hat. Reichen die 5 Doppelstunden nicht aus, m\u00fcssen weitere \u00dcbungseinheiten durchgef\u00fchrt werden.';
-    var absLines = doc.splitTextToSize(absText, cw);
-    doc.text(absLines, ml, y);
-    y += absLines.length * 3.4 + 5;
+    // ── Dauer und Gliederung ──
+    y = section('Dauer und Gliederung der Schulung', y);
+    y = para('Die Schulung dauert mindestens 9 Unterrichtseinheiten zu jeweils 90 Minuten und besteht aus zwei Teilen:', y);
+    y += 0.8;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.6);
+    doc.text('Teil 1', ml, y); doc.text('Theoretische Schulung', ml + 14, y);
+    doc.setFont('helvetica', 'normal'); doc.text('Dauer mindestens 4 x 90 Minuten', ml + 78, y);
+    y += 4.6;
+    doc.setFont('helvetica', 'bold');
+    doc.text('Teil 2', ml, y); doc.text('Praktische Schulung', ml + 14, y);
+    doc.setFont('helvetica', 'normal'); doc.text('Dauer mindestens 5 x 90 Minuten', ml + 78, y);
+    y += 5.6;
 
-    // ── SEITE 2 ──
+    y = para('Teil 1 erfolgt m\u00f6glichst vor der praktischen Schulung und darf in Gruppen unterrichtet werden. Teil 2 ist immer als Einzelunterricht durchzuf\u00fchren.', y);
+    y = para('Das als Schulungsfahrzeug verwendete Leichtkraftrad der Klasse A1 muss den Vorgaben der FeV Anlage 7 Nr. 2.2.3 entsprechen und wird', y);
+    y += 0.6;
+
+    // Checkboxen bleiben immer leer - die Fahrschule kreuzt manuell an
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.6);
+    checkbox(ml + 2, y);
+    doc.text('von der Fahrschule* bereitgestellt', ml + 7, y);
+    checkbox(ml + cw * 0.48, y);
+    doc.text('vom/von der Teilnehmer/in* zur Verf\u00fcgung gestellt.', ml + cw * 0.48 + 5, y);
+    y += 6.4;
+
+    // ── Theoretische Schulung ──
+    y = section('Theoretische Schulung', y, 9.5);
+    y = para('Die theoretische Schulung umfasst mindestens 4 Unterrichtseinheiten zu jeweils 90 Minuten und findet im Unterrichtsraum der Fahrschule statt. Sie muss mindestens die Inhalte der Anlage 2.1 der Fahrsch\u00fcler-Ausbildungsordnung umfassen.', y);
+    y += 1.2;
+
+    y = section('Praktische Schulung', y, 9.5);
+    y = para('Dieser Teil der Schulung erfolgt als Einzelschulung und umfasst mindestens 5 Unterrichtseinheiten zu jeweils 90 Minuten. Sie muss mindestens die Sachgebiete nach Anlage 3 Nr. 17.2 und Anlage 4 Nr. 1 und 2 der Fahrsch\u00fcler-Ausbildungsordnung umfassen.', y);
+    y += 1.2;
+
+    y = section('Abschluss der Schulung', y, 9.5);
+    y = para('Die Fahrschule darf die Schulung erst dann abschlie\u00dfen und die Bescheinigung \u00fcber die erfolgreiche Teilnahme an der Fahrerschulung erst dann ausstellen, wenn der Teilnehmer w\u00e4hrend der fahrpraktischen \u00dcbungen seine F\u00e4higkeiten zum F\u00fchren von Kraftr\u00e4dern der Klasse A1 erfolgreich unter Beweis gestellt hat.', y);
+    y = para('Kommt der Fahrlehrer zu dem Ergebnis, dass die Teilnahme an der praktischen Schulung nach dem Absolvieren des gesetzlich vorgeschriebenen Mindestumfangs von 5 Doppelstunden \u00e0 90 Minuten noch nicht erfolgreich abgeschlossen werden kann, muss die Fahrschule die Ausgabe der Teilnahmebescheinigung verweigern. In diesem Fall m\u00fcssen zun\u00e4chst weitere \u00dcbungseinheiten durchgef\u00fchrt werden.', y);
+
+    // Fussnote Seite 1
+    drawLine(ml, ph - 24, ml + 42, ph - 24);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(80);
+    doc.text('*Zutreffendes bitte ankreuzen', ml, ph - 20.5);
+    doc.setTextColor(0);
+
+    // ══ SEITE 2 ══
     doc.addPage();
     y = mt;
 
-    // § Entgelte
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text('Entgelte', ml, y); y += 6;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    doc.text('F\u00fcr die Schulung werden inklusive der gesetzlichen Umsatzsteuer folgende Entgelte berechnet:', ml, y);
-    y += 6;
+    y = section('Entgelte', y, 11);
+    y = para('F\u00fcr die Schulung werden inklusive der gesetzlichen Umsatzsteuer folgende Entgelte berechnet:', y, 8.8);
+    y += 1.4;
 
-    var pauschal = opts.leer ? '' : (opts.pauschalentgelt ? Number(opts.pauschalentgelt).toFixed(2).replace('.', ',') + ' \u20ac' : '');
-    var zusatz = opts.leer ? '' : (opts.zusatzentgelt ? Number(opts.zusatzentgelt).toFixed(2).replace('.', ',') + ' \u20ac' : '');
-    doc.setFontSize(9);
-    doc.text('1. Pauschalentgelt f\u00fcr den Mindestumfang (4\u00d790 min Theorie + 5\u00d790 min Praxis):', ml, y);
-    drawField('', pauschal, ml + cw - 50, y - 1, 50); y += 9;
-    doc.text('2. Entgelt f\u00fcr zus\u00e4tzliche Fahrstunde 45 min, falls Mindestumfang nicht ausreicht:', ml, y);
-    drawField('', zusatz, ml + cw - 50, y - 1, 50); y += 8;
+    var betragW = 34;
+    var betragX = ml + cw - betragW;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.8);
+    doc.text('1.', ml, y);
+    doc.text('Pauschalentgelt f\u00fcr den Mindestumfang der Fahrerschulung', ml + 5, y);
+    var pausch = leer ? '' : money(opts.pauschalentgelt);
+    if (pausch) doc.text(pausch, betragX + betragW, y - 0.4, { align: 'right' });
+    drawLine(betragX, y + 0.9, betragX + betragW, y + 0.9);
+    y += 4.2;
+    doc.setFontSize(8.4);
+    doc.text('gem\u00e4\u00df Anlage 7b FeV', ml + 5, y); y += 3.8;
+    doc.text('4 x 90 Minuten theoretische Schulung', ml + 5, y); y += 3.8;
+    doc.text('5 x 90 Minuten praktische Schulung', ml + 5, y); y += 6.4;
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('F\u00e4lligkeit der Zahlungen', ml, y); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    var faellig = 'Das Pauschalentgelt (Nr. 1) ist vor Beginn der Schulung f\u00e4llig. Das Entgelt f\u00fcr zus\u00e4tzlich erforderliche Fahrstunden (Nr. 2) ist vor deren Beginn f\u00e4llig.';
-    var faelligLines = doc.splitTextToSize(faellig, cw);
-    doc.text(faelligLines, ml, y);
-    y += faelligLines.length * 4 + 4;
+    doc.setFontSize(8.8);
+    doc.text('2.', ml, y);
+    doc.text('Entgelt f\u00fcr jede weitere \u00dcbungseinheit (45 Minuten), sofern der', ml + 5, y);
+    var zus = leer ? '' : money(opts.zusatzentgelt);
+    if (zus) doc.text(zus, betragX + betragW, y - 0.4, { align: 'right' });
+    drawLine(betragX, y + 0.9, betragX + betragW, y + 0.9);
+    y += 4.2;
+    doc.setFontSize(8.4);
+    doc.text('Mindestumfang nach Nr. 1 nicht ausreicht', ml + 5, y);
+    y += 7.5;
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('Dauer der Vereinbarung', ml, y); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    var dauerV = 'Die Vereinbarung endet mit Aush\u00e4ndigung der Teilnahmebescheinigung, sp\u00e4testens aber sechs Monate nach Abschluss dieser Vereinbarung.';
-    var dauerVL = doc.splitTextToSize(dauerV, cw);
-    doc.text(dauerVL, ml, y);
-    y += dauerVL.length * 4 + 4;
+    y = section('F\u00e4lligkeit der Zahlungen', y);
+    y = para('Das Pauschalentgelt (Nr. 1) ist vor Beginn der Schulung f\u00e4llig.', y);
+    y = para('Das Entgelt f\u00fcr zus\u00e4tzlich erforderliche Fahrstunden (Nr. 2) ist vor deren Beginn f\u00e4llig.', y);
+    y += 1.4;
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('Vertragsk\u00fcndigung', ml, y); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    var kuend = 'Eine K\u00fcndigung der Vereinbarung bedarf der Textform. Der/Die Teilnehmer/in ist jederzeit auch ohne Angabe von Gr\u00fcnden zur K\u00fcndigung berechtigt. Die Fahrschule darf die Vereinbarung nur aus wichtigem Grund k\u00fcndigen, insbesondere wenn der/die Teilnehmer/in wiederholt oder gr\u00f6blich gegen Weisungen oder Anordnungen des Fahrlehrers verst\u00f6\u00dft oder unentschuldigt an vereinbarten Terminen nicht erscheint.';
-    var kuendL = doc.splitTextToSize(kuend, cw);
-    doc.text(kuendL, ml, y);
-    y += kuendL.length * 4 + 4;
+    // Inline-Absaetze mit fetter Bezeichnung
+    var inlinePara = function(label, text, yy) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.6);
+      var lw = doc.getTextWidth(label) + 1.8;
+      doc.text(label, ml, yy);
+      doc.setFont('helvetica', 'normal');
+      var first = doc.splitTextToSize(text, cw - lw);
+      doc.text(first[0], ml + lw, yy);
+      var restText = text.substring(first[0].length).replace(/^\s+/, '');
+      yy += 3.7;
+      if (restText) {
+        var rest = doc.splitTextToSize(restText, cw);
+        doc.text(rest, ml, yy);
+        yy += rest.length * 3.7;
+      }
+      return yy + 2.4;
+    };
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('Entgelte bei Vertragsk\u00fcndigung', ml, y); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    var kuendEnt = 'K\u00fcndigt die Fahrschule aus wichtigem Grund oder der/die Fahrsch\u00fcler/in ohne durch vertragswidriges Verhalten der Fahrschule veranlasst zu sein, stehen der Fahrschule folgende Anteile des Entgelts nach Nr. 1 zu: a) ein Drittel — K\u00fcndigung nach Vertragsabschluss, aber vor Beginn der Schulung; b) zwei Drittel — K\u00fcndigung nach Beginn der theoretischen Schulung; c) der volle Betrag — K\u00fcndigung nach Beginn des praktischen Teils. Dem/der Teilnehmer/in bleibt der Nachweis vorbehalten, dass ein Entgelt oder Schaden in der jeweiligen H\u00f6he nicht angefallen ist.';
-    var kuendEntL = doc.splitTextToSize(kuendEnt, cw);
-    doc.text(kuendEntL, ml, y);
-    y += kuendEntL.length * 4 + 4;
+    y = inlinePara('Dauer der Vereinbarung:', 'Die Vereinbarung endet mit Aush\u00e4ndigung der Teilnahmebescheinigung, sp\u00e4testens aber sechs Monate nach Abschluss dieser Vereinbarung.', y);
+    y = inlinePara('Vertragsk\u00fcndigung:', 'Eine K\u00fcndigung der Vereinbarung bedarf der Textform. Der/Die Teilnehmer/in ist jederzeit auch ohne Angabe von Gr\u00fcnden zur K\u00fcndigung der Vereinbarung berechtigt. Die Fahrschule darf die Vereinbarung nur aus wichtigem Grund k\u00fcndigen. Ein wichtiger Grund liegt insbesondere vor, wenn der/die Teilnehmer/in wiederholt oder gr\u00f6blich gegen Weisungen oder Anordnungen des Fahrlehrers verst\u00f6\u00dft oder wenn der/die Teilnehmer/in unentschuldigt an den vereinbarten Terminen f\u00fcr die theoretischen oder praktischen Unterrichtseinheiten nicht erscheint bzw. nicht teilnimmt.', y);
+    y += 1.4;
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('Teilnahmebescheinigung', ml, y); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    var tnText = 'Nach Abschluss der Schulung h\u00e4ndigt die Fahrschule dem/der Bewerber/in die nach Nr. 5 und Nr. 6 der Anlage 7b zur FeV vorgeschriebene Teilnahmebescheinigung aus. Die Fahrschule ist zur Herausgabe der Teilnahmebescheinigung erst verpflichtet, wenn der/die Teilnehmer/in alle Entgelte bezahlt hat.';
-    var tnTextL = doc.splitTextToSize(tnText, cw);
-    doc.text(tnTextL, ml, y);
-    y += tnTextL.length * 4 + 10;
+    y = section('Entgelte bei Vertragsk\u00fcndigung', y);
+    y = para('K\u00fcndigt die Fahrschule aus wichtigem Grund oder der/die Fahrsch\u00fcler/in, ohne durch ein vertragswidriges Verhalten der Fahrschule veranlasst zu sein, stehen der Fahrschule folgende Anteile des Entgelts nach Nr. 1 zu:', y);
+    y += 0.6;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.6);
+    doc.text('a) ein Drittel, wenn die K\u00fcndigung nach Vertragsabschluss, aber vor Beginn der Schulung erfolgt,', ml + 3, y); y += 4.2;
+    doc.text('b) zwei Drittel, wenn die K\u00fcndigung nach Beginn der theoretischen Schulung erfolgt,', ml + 3, y); y += 4.2;
+    doc.text('c) der volle Betrag, wenn die K\u00fcndigung nach dem Beginn des praktischen Teils erfolgt.', ml + 3, y); y += 5.4;
+    y = para('Dem/der Teilnehmer/in bleibt der Nachweis vorbehalten, dass ein Entgelt oder ein Schaden in der jeweiligen H\u00f6he nicht angefallen ist. K\u00fcndigt die Fahrschule ohne wichtigen Grund oder der/die Fahrsch\u00fcler/in, weil er/sie durch ein vertragswidriges Verhalten der Fahrschule veranlasst wurde, steht der Fahrschule das Entgelt nach Nummer 1 nicht zu. Eine Vorauszahlung ist dann zur\u00fcckzuerstatten.', y);
+    y += 1.4;
 
-    // Unterschriften
-    var sigW = (cw - 8) / 2;
+    y = section('Teilnahmebescheinigung', y);
+    y = para('Nach Abschluss der Schulung h\u00e4ndigt die Fahrschule dem/der Bewerber/in die nach Nr. 5 und Nr. 6 der Anlage 7b zur FeV vorgeschriebene Teilnahmebescheinigung aus. Die Fahrschule ist zur Herausgabe der Teilnahmebescheinigung erst verpflichtet, wenn der/die Teilnehmer/in alle der Fahrschule zustehenden Entgelte bezahlt hat.', y);
+
+    // ── Unterschriften ──
+    y = Math.max(y + 16, ph - 78);
+    var sigW = (cw - 12) / 2;
+    var sigR = ml + sigW + 12;
+    var ortDatum = leer ? '' : [ (opts.vOrt || ''), fmtDate(opts.vDatum || '') ].filter(Boolean).join(', ');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+    if (ortDatum) {
+      doc.text(ortDatum, ml + 1, y - 1);
+      doc.text(ortDatum, sigR + 1, y - 1);
+    }
     drawLine(ml, y, ml + sigW, y);
-    drawLine(ml + sigW + 8, y, ml + cw, y);
-    doc.setFontSize(8);
-    doc.text('Ort, Datum, Unterschrift Teilnehmer/in', ml, y + 4);
-    doc.text('Ort, Datum, Stempel und Unterschrift Fahrschule', ml + sigW + 8, y + 4);
+    drawLine(sigR, y, sigR + sigW, y);
+    doc.setFontSize(7.6); doc.setTextColor(70);
+    doc.text('Ort, Datum', ml, y + 3.6);
+    doc.text('Ort, Datum', sigR, y + 3.6);
+    doc.setTextColor(0);
 
-    // Footer auf jeder Seite
+    y += 22;
+    drawLine(ml, y, ml + sigW, y);
+    drawLine(sigR, y, sigR + sigW, y);
+    doc.setFontSize(7.6); doc.setTextColor(70);
+    doc.text('Unterschrift Teilnehmer/Teilnehmerin', ml, y + 3.6);
+    doc.text('Stempel und Unterschrift der Fahrschule', sigR, y + 3.6);
+    doc.setTextColor(0);
+
+    // Fusszeile auf jeder Seite
     var pageCount = doc.internal.getNumberOfPages();
     for (var p = 1; p <= pageCount; p++) {
       doc.setPage(p);
       doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(120);
-      doc.text('Muster — ohne rechtliche Gew\u00e4hrleistung · Anlage 7b FeV', pw / 2, ph - 8, { align: 'center' });
+      doc.text('Vereinbarung \u00fcber die Fahrerschulung nach Anlage 7b (zu \u00a7 6b Absatz 3 und 4) FeV', pw / 2, ph - 8, { align: 'center' });
       doc.text('Seite ' + p + ' von ' + pageCount, pw - mr, ph - 8, { align: 'right' });
       doc.setTextColor(0);
     }
 
-    var nameForFile = opts.leer ? 'Blanko' : (data.student.name || 'Sch\u00fcler').replace(/\s+/g, '_');
-    doc.save('B196_Vertrag_' + nameForFile + '.pdf');
+    var nameForFile = leer ? 'Blanko' : ((data.student.name || 'Sch\u00fcler').replace(/\s+/g, '_'));
+    doc.save('B196_Vereinbarung_' + nameForFile + '.pdf');
     this.showToast(t('pdfErstellt'));
   },
 
