@@ -5576,7 +5576,14 @@ app.get('/api/ausbildungsnachweis/:studentId', authMiddleware, async (req, res) 
       school: {
         name: school ? school.name : '',
         address: school ? (school.address || '') : '',
-        admin_name: school ? (school.admin_name || '') : ''
+        admin_name: school ? (school.admin_name || '') : '',
+        phone: school ? (school.phone || '') : '',
+        email: school ? (school.email || '') : '',
+        street: school ? (school.address_line1 || '') : '',
+        postal_code: school ? (school.postal_code || '') : '',
+        city: school ? (school.city || '') : '',
+        bank_info: school ? (school.bank_info || '') : '',
+        tax_id: school ? (school.tax_id || '') : ''
       },
       instructors: (instructors || []).map(function(i, idx) {
         return { id: i.id, name: i.name, nr: idx + 1 };

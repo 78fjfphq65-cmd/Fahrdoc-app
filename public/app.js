@@ -9371,7 +9371,8 @@ var App = {
     try {
       var data;
       if (leer) {
-        data = { student: { name:'', email:'', license_class:'', geburtsdatum:'', geburtsort:'', anschrift:'' }, school: { name:'', address:'', admin_name:'' } };
+        var sch = (self._b196Data && self._b196Data.school) ? self._b196Data.school : { name:'', address:'', admin_name:'' };
+        data = { student: { name:'', email:'', license_class:'', geburtsdatum:'', geburtsort:'', anschrift:'' }, school: sch };
       } else {
         data = self._b196Data || await ApiClient.get('/api/ausbildungsnachweis/' + studentId);
       }
@@ -9605,7 +9606,7 @@ var App = {
     var jsPDF = window.jspdf.jsPDF;
     var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     var pw = 210, ph = 297;
-    var ml = 20, mr = 20, mt = 16;
+    var ml = 20, mr = 20, mt = 18;
     var cw = pw - ml - mr;
     var self = this;
     var leer = !!opts.leer;
@@ -9618,95 +9619,165 @@ var App = {
       return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : d;
     };
     var drawLine = function(x1, y1, x2, y2) { doc.setDrawColor(0); doc.setLineWidth(0.3); doc.line(x1, y1, x2, y2); };
-    var drawField = function(label, value, x, y, w) {
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-      doc.text(value || '', x + 1, y);
-      drawLine(x, y + 1.2, x + w, y + 1.2);
-      doc.setFontSize(7); doc.setTextColor(90);
-      doc.text(label, x, y + 4.6);
-      doc.setTextColor(0);
+    // Beschriftung links, Wert auf der Linie rechts daneben
+    var inlineField = function(label, value, x, y, w, labelSize) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(labelSize || 9.5);
+      var lw = 0;
+      if (label) { doc.text(label, x, y); lw = doc.getTextWidth(label + ' '); }
+      var fx = x + lw;
+      doc.setFontSize(10.5);
+      doc.text(value || '', fx + 1.5, y - 0.5);
+      drawLine(fx, y + 1.2, x + w, y + 1.2);
+      return x + w;
     };
 
     var school = data.school || {};
+    var schoolAddr = self._splitAddress(school.address || '');
+    var schoolStreet = school.street || schoolAddr.street || '';
+    var schoolCityLine = (school.postal_code || school.city)
+      ? ((school.postal_code || '') + ' ' + (school.city || '')).trim()
+      : (schoolAddr.city || '');
     var y = mt;
 
-    // Fahrschul-Kopf
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text(leer ? '' : (school.name || ''), ml, y);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90);
-    doc.text(leer ? '' : (school.address || ''), ml, y + 4.5);
-    doc.setTextColor(0);
+    // ── Briefkopf der Fahrschule (zentriert) ──
+    if (school.name) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+      doc.text(school.name, pw / 2, y, { align: 'center' });
+      y += 5.5;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+      if (school.admin_name) { doc.text('Inh.: ' + school.admin_name, pw / 2, y, { align: 'center' }); y += 4; }
+      if (schoolStreet) { doc.text(schoolStreet, pw / 2, y, { align: 'center' }); y += 4; }
+      if (schoolCityLine) { doc.text(schoolCityLine, pw / 2, y, { align: 'center' }); y += 4; }
+      if (school.phone) { doc.text('Telefon ' + school.phone, pw / 2, y, { align: 'center' }); y += 4; }
+      y += 6;
+
+      // Absenderzeile
+      var absender = [school.name, schoolStreet, schoolCityLine].filter(Boolean).join(' * ');
+      doc.setFontSize(7.5); doc.setTextColor(70);
+      doc.text(absender, ml, y);
+      doc.setTextColor(0);
+      drawLine(ml, y + 1.4, ml + cw * 0.62, y + 1.4);
+      y += 12;
+    } else {
+      y += 6;
+    }
+
+    // ── Titel (links) + Ort/Datum (rechts) ──
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12.5);
+    doc.text('Teilnahmebescheinigung', ml, y);
+    doc.text('zur Vorlage bei der Fahrerlaubnisbeh\u00f6rde', ml, y + 5.5);
     y += 14;
 
-    // Titel
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(13.5);
-    var titleLines = doc.splitTextToSize('Teilnahmebescheinigung zur Vorlage bei der Fahrerlaubnisbeh\u00f6rde', cw);
-    doc.text(titleLines, pw / 2, y, { align: 'center' });
-    y += titleLines.length * 6 + 1;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
-    var subLines = doc.splitTextToSize('Best\u00e4tigung \u00fcber die erfolgreiche Teilnahme an einer Fahrerschulung nach Anlage 7b Nr. 6 (zu \u00a7 6b Absatz 3 und 4) FeV \u2013 Schl\u00fcsselzahl 196', cw);
-    doc.text(subLines, pw / 2, y, { align: 'center' });
-    y += subLines.length * 4.6 + 9;
+    var ortDatum = leer ? '' : [ (opts.ort || ''), fmtDate(opts.ausgehaendigt || '') ].filter(Boolean).join(', ');
+    if (ortDatum) {
+      doc.text(ortDatum, pw - mr, y, { align: 'right' });
+    } else {
+      // Blanko: Linie für Ort und Datum
+      drawLine(pw - mr - cw * 0.38, y + 1.2, pw - mr, y + 1.2);
+      doc.setFontSize(7.5); doc.setTextColor(90);
+      doc.text('Ort, Datum', pw - mr - cw * 0.38, y + 4.6);
+      doc.setTextColor(0); doc.setFontSize(9.5);
+    }
+    y += 12;
 
-    // Teilnehmerdaten
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('Frau/Herr', ml, y);
-    y += 6;
-
-    // Konvention: data.student.name ist 'Vorname Nachname'
+    // ── Teilnehmerdaten ──
+    // Konvention: data.student.name ist 'Vorname Nachname' → im Muster 'Nachname, Vorname'
     var nameParts = (leer ? '' : (data.student.name || '')).split(/\s+/).filter(Boolean);
     var nachname = nameParts.length > 1 ? nameParts[nameParts.length - 1] : (nameParts[0] || '');
     var vorname = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
+    var nameZeile = nachname ? (vorname ? nachname + ', ' + vorname : nachname) : '';
     var addr = self._splitAddress(leer ? '' : (data.student.anschrift || ''));
 
-    drawField('Name', nachname, ml, y, cw * 0.48);
-    drawField('Vorname', vorname, ml + cw * 0.52, y, cw * 0.48); y += 11;
-    drawField('geboren am', leer ? '' : fmtDate(opts.geburtsdatum || data.student.geburtsdatum || ''), ml, y, cw * 0.48);
-    drawField('geboren in', leer ? '' : (opts.geburtsort || data.student.geburtsort || ''), ml + cw * 0.52, y, cw * 0.48); y += 11;
-    drawField('Stra\u00dfe, Hausnummer', leer ? '' : (opts.strasse || addr.street || ''), ml, y, cw); y += 11;
-    drawField('PLZ, Ort', leer ? '' : (opts.plzOrt || addr.city || ''), ml, y, cw); y += 13;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(70);
+    doc.text('Name, Vorname', ml, y);
+    doc.setTextColor(0);
+    y += 5;
+    doc.setFontSize(10.5);
+    doc.text(nameZeile, ml + 1, y - 0.5);
+    drawLine(ml, y + 1.2, ml + cw, y + 1.2);
+    y += 10;
 
-    // Kernsatz mit Zeitraum
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
-    var x = ml;
-    doc.text('hat vom', x, y); x += doc.getTextWidth('hat vom ') + 1;
-    var dw = 30;
-    doc.text(leer ? '' : fmtDate(opts.von || ''), x + dw / 2, y - 0.6, { align: 'center' });
-    drawLine(x, y + 1.2, x + dw, y + 1.2); x += dw + 3;
-    doc.text('bis', x, y); x += doc.getTextWidth('bis ') + 1;
-    doc.text(leer ? '' : fmtDate(opts.bis || ''), x + dw / 2, y - 0.6, { align: 'center' });
-    drawLine(x, y + 1.2, x + dw, y + 1.2);
-    y += 7;
+    // geboren am ___ in ___
+    inlineField('geboren am', leer ? '' : fmtDate(opts.geburtsdatum || data.student.geburtsdatum || ''), ml, y, cw * 0.44);
+    inlineField('in', leer ? '' : (opts.geburtsort || data.student.geburtsort || ''), ml + cw * 0.48, y, cw * 0.52);
+    y += 10;
+
+    // Anschrift (Ergänzung: im Muster nicht enthalten, für die Behörde hilfreich)
+    var strasse = leer ? '' : (opts.strasse || addr.street || '');
+    var plzOrt = leer ? '' : (opts.plzOrt || addr.city || '');
+    inlineField('Anschrift', strasse, ml, y, cw * 0.5);
+    inlineField('', plzOrt, ml + cw * 0.54, y, cw * 0.46);
+    y += 12;
+
+    // hat vom ___ bis ___
+    inlineField('hat vom', leer ? '' : fmtDate(opts.von || ''), ml, y, cw * 0.44);
+    inlineField('bis', leer ? '' : fmtDate(opts.bis || ''), ml + cw * 0.48, y, cw * 0.52);
+    y += 10;
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
     var satzLines = doc.splitTextToSize('erfolgreich an einer Fahrerschulung (Anlage 7b zu \u00a7 6b Absatz 3 und 4 FeV) teilgenommen.', cw);
     doc.text(satzLines, ml, y);
-    y += satzLines.length * 5 + 10;
+    y += satzLines.length * 4.6 + 11;
 
-    drawField('F\u00fchrerscheinnummer', leer ? '' : (opts.fsNummer || ''), ml, y, cw * 0.62); y += 13;
-    drawField('Ort', leer ? '' : (opts.ort || ''), ml, y, cw * 0.48);
-    drawField('ausgeh\u00e4ndigt am', leer ? '' : fmtDate(opts.ausgehaendigt || ''), ml + cw * 0.52, y, cw * 0.48);
-    y += 26;
+    inlineField('F\u00fchrerscheinnummer:', leer ? '' : (opts.fsNummer || ''), ml, y, cw * 0.72);
+    y += 11;
+    inlineField('Ort', leer ? '' : (opts.ort || ''), ml, y, cw * 0.5);
+    y += 11;
+    var endX = inlineField('Ausgeh\u00e4ndigt am', leer ? '' : fmtDate(opts.ausgehaendigt || ''), ml, y, cw * 0.62);
+    doc.setFontSize(9); doc.setTextColor(70);
+    doc.text('(Datum)', endX + 4, y);
+    doc.setTextColor(0);
+    y += 20;
 
-    // Unterschriften
+    // ── Fahrschulblock über der Unterschrift ──
     var colW = cw * 0.46;
     var col2 = ml + cw - colW;
+    if (school.name) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+      doc.text(school.name, ml + colW / 2, y, { align: 'center' });
+      y += 5;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+      if (school.admin_name) { doc.text('Inh.: ' + school.admin_name, ml + colW / 2, y, { align: 'center' }); y += 3.8; }
+      if (schoolStreet) { doc.text(schoolStreet, ml + colW / 2, y, { align: 'center' }); y += 3.8; }
+      if (schoolCityLine) { doc.text(schoolCityLine, ml + colW / 2, y, { align: 'center' }); y += 3.8; }
+      if (school.phone) { doc.text('Telefon ' + school.phone, ml + colW / 2, y, { align: 'center' }); y += 3.8; }
+      y += 4;
+    } else {
+      y += 16;
+    }
+
+    // ── Unterschriften ──
     drawLine(ml, y, ml + colW, y);
     drawLine(col2, y, col2 + colW, y);
-    doc.setFontSize(7.5); doc.setTextColor(70);
-    var sig1 = doc.splitTextToSize('(Stempel und Unterschrift der Fahrschulinhaberin/des Fahrschulinhabers oder der verantwortlichen Leiterin/des verantwortlichen Leiters)', colW);
-    var sig2 = doc.splitTextToSize('(Unterschrift der Fahrerlaubnisinhaberin/des Fahrerlaubnisinhabers)', colW);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(60);
+    var sig1 = doc.splitTextToSize('Stempel und Unterschrift der Fahrschulinhaberin/des Fahrschulinhabers oder der verantwortlichen Leitung', colW);
+    var sig2 = doc.splitTextToSize('Unterschrift der Fahrerlaubnisinhaberin/des Fahrerlaubnisinhabers', colW);
     doc.text(sig1, ml, y + 4);
     doc.text(sig2, col2, y + 4);
     doc.setTextColor(0);
-    y += Math.max(sig1.length, sig2.length) * 3.6 + 14;
+    y += Math.max(sig1.length, sig2.length) * 3.6 + 12;
 
-    // Hinweis
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(90);
+    // ── Hinweis ──
+    doc.setFontSize(7.5); doc.setTextColor(110);
     var hintLines = doc.splitTextToSize('Die Fahrerschulung umfasst nach Anlage 7b FeV insgesamt neun Unterrichtseinheiten von je 90 Minuten (vier Einheiten Theorie und f\u00fcnf Einheiten praktische Fahr\u00fcbungen). Diese Bescheinigung ist der Fahrerlaubnisbeh\u00f6rde zur Eintragung der Schl\u00fcsselzahl 196 vorzulegen.', cw);
     doc.text(hintLines, ml, y);
     doc.setTextColor(0);
 
-    // Fußzeile
-    doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(120);
+    // ── Fußzeile: Bankverbindung / Steuernummer ──
+    var footY = ph - 16;
+    var bank = (school.bank_info || '').replace(/\s*\n\s*/g, '   \u00b7   ').trim();
+    var footParts = [];
+    if (bank) footParts.push(bank);
+    if (school.tax_id) footParts.push('St.-Nr.: ' + school.tax_id);
+    if (footParts.length) {
+      drawLine(ml, footY - 4, ml + cw, footY - 4);
+      doc.setFontSize(7.5); doc.setTextColor(70);
+      var footLines = doc.splitTextToSize(footParts.join('   \u00b7   '), cw);
+      doc.text(footLines, ml, footY);
+      doc.setTextColor(0);
+    }
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(130);
     doc.text('Teilnahmebescheinigung nach Anlage 7b Nr. 6 (zu \u00a7 6b Absatz 3 und 4) FeV', pw / 2, ph - 8, { align: 'center' });
     doc.setTextColor(0);
 
