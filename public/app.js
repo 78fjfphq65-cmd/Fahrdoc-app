@@ -7854,6 +7854,7 @@ var App = {
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openEntschuldigungDialog(\'' + studentId + '\')">' + docIcon + ' ' + t('entschuldigung') + '</button>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB196Dialog(\'' + studentId + '\',\'vertrag\')">' + docIcon + ' ' + t('b196Vertrag') + '</button>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB196Dialog(\'' + studentId + '\',\'bescheinigung\')">' + docIcon + ' ' + t('b196Bescheinigung') + '</button>' +
+            '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB196Dialog(\'' + studentId + '\',\'dokumentation\')">' + docIcon + ' ' + t('b196Dokumentation') + '</button>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openAnlage7Dialog(\'' + studentId + '\')">' + docIcon + ' ' + t('anlage7') + '</button>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openB197Dialog(\'' + studentId + '\')">' + docIcon + ' ' + t('b197') + '</button>' +
             '<button class="btn btn-secondary btn-full" style="gap:var(--space-2);display:flex;align-items:center;justify-content:center;" onclick="App.openBF17Dialog(\'' + studentId + '\')">' + docIcon + ' ' + t('bf17Abschluss') + '</button>' +
@@ -9234,19 +9235,44 @@ var App = {
   // ══════════════════════════════════════════
   //  B196 — Vereinbarung (521a) + Teilnahmebescheinigung (521 / Anlage 7b FeV)
   // ══════════════════════════════════════════
-  openB196Dialog: function(studentId, art) {
+  openB196Dialog: async function(studentId, art) {
     var self = this;
     var isVertrag = art === 'vertrag';
-    var title = isVertrag ? t('b196Vertrag') : t('b196Bescheinigung');
-    var hinweis = isVertrag ? t('b196VertragHinweis') : t('b196BescheinigungHinweis');
+    var isDoku = art === 'dokumentation';
+    var title = isVertrag ? t('b196Vertrag') : (isDoku ? t('b196Dokumentation') : t('b196Bescheinigung'));
+    var hinweis = isVertrag ? t('b196VertragHinweis') : (isDoku ? t('b196DokumentationHinweis') : t('b196BescheinigungHinweis'));
     var today = new Date();
     var todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+    var esc = function(v) { return self.escapeHtml(String(v == null ? '' : v)); };
+
+    // Schülerdaten vorab laden, damit Geburtsdatum & Anschrift vorbelegt sind
+    var pre = { geburtsdatum:'', geburtsort:'', strasse:'', plzOrt:'', ort:'', von:'', bis:'' };
+    self._b196Data = null;
+    try {
+      var pdata = await ApiClient.get('/api/ausbildungsnachweis/' + studentId);
+      self._b196Data = pdata;
+      var st = (pdata && pdata.student) || {};
+      pre.geburtsdatum = st.geburtsdatum || '';
+      pre.geburtsort = st.geburtsort || '';
+      var sAddr = self._splitAddress(st.anschrift || '');
+      pre.strasse = sAddr.street || '';
+      pre.plzOrt = sAddr.city || '';
+      var schoolCity = self._splitAddress((((pdata && pdata.school) || {}).address) || '').city || '';
+      pre.ort = schoolCity.replace(/^\d{4,5}\s+/, '');
+      var b196Dates = ((pdata && pdata.practicalLessons) || []).filter(function(l) {
+        return l && l.license_class && /196/.test(String(l.license_class));
+      }).map(function(l) { return l.date; }).filter(Boolean).sort();
+      if (b196Dates.length) { pre.von = b196Dates[0]; pre.bis = b196Dates[b196Dates.length - 1]; }
+    } catch (e) { /* Vorbelegung optional */ }
+
+    var gebFeld = '<div class="form-group"><label class="form-label">' + t('geburtsdatum') + '</label>' +
+      '<input type="date" id="b196-geb" class="form-input" value="' + esc(pre.geburtsdatum) + '"></div>';
 
     var fieldsHtml = '';
     if (isVertrag) {
-      fieldsHtml =
+      fieldsHtml = gebFeld +
         '<div class="form-group"><label class="form-label">' + t('geburtsort') + '</label>' +
-          '<input type="text" id="b196-geburtsort" class="form-input" placeholder="Berlin"></div>' +
+          '<input type="text" id="b196-geburtsort" class="form-input" placeholder="Berlin" value="' + esc(pre.geburtsort) + '"></div>' +
         '<div class="form-group"><label class="form-label">' + t('klasseBSeit') + '</label>' +
           '<input type="date" id="b196-klasseb-seit" class="form-input"></div>' +
         '<div class="form-group"><label class="form-label">' + t('pauschalentgelt') + '</label>' +
@@ -9254,14 +9280,36 @@ var App = {
         '<div class="form-group"><label class="form-label">' + t('zusatzEntgelt') + '</label>' +
           '<input type="number" id="b196-zusatzentgelt" class="form-input" placeholder="55" min="0" step="0.01"></div>' +
         '<div class="text-xs text-muted" style="margin-top:var(--space-2);padding:var(--space-2);background:#fef3c7;border-radius:var(--radius-md);">Hinweis: Die Checkbox \u201eSchulungsfahrzeug von Fahrschule / Teilnehmer\u201c bleibt im PDF leer und wird von der Fahrschule manuell angekreuzt.</div>';
-    } else {
-      fieldsHtml =
+    } else if (isDoku) {
+      fieldsHtml = gebFeld +
         '<div class="form-group"><label class="form-label">' + t('ausstellungsdatumFs') + '</label>' +
           '<input type="date" id="b196-fs-datum" class="form-input"></div>' +
         '<div class="form-group"><label class="form-label">' + t('schulungsfahrzeug') + '</label>' +
           '<input type="text" id="b196-fahrzeug" class="form-input" placeholder="' + t('schulungsfahrzeugPlaceholder') + '"></div>' +
         '<div class="form-group"><label class="form-label">' + t('bemerkungen') + '</label>' +
           '<input type="text" id="b196-bemerkungen" class="form-input"></div>';
+    } else {
+      fieldsHtml = gebFeld +
+        '<div class="form-group"><label class="form-label">' + t('geburtsort') + '</label>' +
+          '<input type="text" id="b196-geburtsort" class="form-input" placeholder="Berlin" value="' + esc(pre.geburtsort) + '"></div>' +
+        '<div class="form-group"><label class="form-label">' + t('strasseHausnummer') + '</label>' +
+          '<input type="text" id="b196-strasse" class="form-input" value="' + esc(pre.strasse) + '"></div>' +
+        '<div class="form-group"><label class="form-label">' + t('plzOrt') + '</label>' +
+          '<input type="text" id="b196-plzort" class="form-input" value="' + esc(pre.plzOrt) + '"></div>' +
+        '<div style="display:flex;gap:var(--space-2);">' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">' + t('schulungVon') + '</label>' +
+            '<input type="date" id="b196-von" class="form-input" value="' + esc(pre.von) + '"></div>' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">' + t('schulungBis') + '</label>' +
+            '<input type="date" id="b196-bis" class="form-input" value="' + esc(pre.bis) + '"></div>' +
+        '</div>' +
+        '<div class="form-group"><label class="form-label">' + t('fuehrerscheinnummer') + '</label>' +
+          '<input type="text" id="b196-fsnummer" class="form-input"></div>' +
+        '<div style="display:flex;gap:var(--space-2);">' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">' + t('ortAusstellung') + '</label>' +
+            '<input type="text" id="b196-ort" class="form-input" value="' + esc(pre.ort) + '"></div>' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">' + t('ausgehaendigtAm') + '</label>' +
+            '<input type="date" id="b196-ausgehaendigt" class="form-input" value="' + todayStr + '"></div>' +
+        '</div>';
     }
 
     var html = '<div style="padding:var(--space-2);max-width:560px;">' +
@@ -9290,34 +9338,50 @@ var App = {
   generateB196: async function(studentId, art) {
     var self = this;
     var isVertrag = art === 'vertrag';
+    var isDoku = art === 'dokumentation';
     var leerCb = document.getElementById('b196-leer');
     var leer = !!(leerCb && leerCb.checked);
     var opts = { art: art, leer: leer };
+    var val = function(id) { var el = document.getElementById(id); return el ? (el.value || '') : ''; };
 
     if (!leer) {
+      opts.geburtsdatum = val('b196-geb');
       if (isVertrag) {
-        opts.geburtsort = (document.getElementById('b196-geburtsort') || {}).value || '';
-        opts.klasseBSeit = (document.getElementById('b196-klasseb-seit') || {}).value || '';
-        opts.pauschalentgelt = (document.getElementById('b196-pauschalentgelt') || {}).value || '';
-        opts.zusatzentgelt = (document.getElementById('b196-zusatzentgelt') || {}).value || '';
+        opts.geburtsort = val('b196-geburtsort');
+        opts.klasseBSeit = val('b196-klasseb-seit');
+        opts.pauschalentgelt = val('b196-pauschalentgelt');
+        opts.zusatzentgelt = val('b196-zusatzentgelt');
+      } else if (isDoku) {
+        opts.fsDatum = val('b196-fs-datum');
+        opts.fahrzeug = val('b196-fahrzeug');
+        opts.bemerkungen = val('b196-bemerkungen');
       } else {
-        opts.fsDatum = (document.getElementById('b196-fs-datum') || {}).value || '';
-        opts.fahrzeug = (document.getElementById('b196-fahrzeug') || {}).value || '';
-        opts.bemerkungen = (document.getElementById('b196-bemerkungen') || {}).value || '';
+        opts.geburtsort = val('b196-geburtsort');
+        opts.strasse = val('b196-strasse');
+        opts.plzOrt = val('b196-plzort');
+        opts.von = val('b196-von');
+        opts.bis = val('b196-bis');
+        opts.fsNummer = val('b196-fsnummer');
+        opts.ort = val('b196-ort');
+        opts.ausgehaendigt = val('b196-ausgehaendigt');
       }
     }
     self.closeModalForce();
     self.showToast(t('pdfWirdErstellt'));
     try {
-      var data = leer
-        ? { student: { name:'', email:'', license_class:'', geburtsdatum:'', anschrift:'' }, school: { name:'', address:'', admin_name:'' } }
-        : await ApiClient.get('/api/ausbildungsnachweis/' + studentId);
+      var data;
+      if (leer) {
+        data = { student: { name:'', email:'', license_class:'', geburtsdatum:'', geburtsort:'', anschrift:'' }, school: { name:'', address:'', admin_name:'' } };
+      } else {
+        data = self._b196Data || await ApiClient.get('/api/ausbildungsnachweis/' + studentId);
+      }
       if (!window.jspdf || !window.jspdf.jsPDF) {
         self.showToast('PDF-Bibliothek wird geladen, bitte nochmal versuchen...');
         return;
       }
       if (isVertrag) self.renderB196VertragPdf(data, opts);
-      else self.renderB196BescheinigungPdf(data, opts);
+      else if (isDoku) self.renderB196DokumentationPdf(data, opts);
+      else self.renderB196TeilnahmebescheinigungPdf(data, opts);
     } catch (err) {
       self.showToast(t('fehler') + ': ' + (err.message || err));
     }
@@ -9393,8 +9457,8 @@ var App = {
     doc.text('Zwischen Frau/Herr (Teilnehmer/in)', ml, y); y += 5;
     drawField('Name', _vNachname, ml, y, cw * 0.5);
     drawField('Vorname', _vVorname, ml + cw * 0.5, y, cw * 0.5); y += 9;
-    drawField('geboren am', opts.leer ? '' : fmtDate(data.student.geburtsdatum || ''), ml, y, cw * 0.45);
-    drawField('geboren in', opts.leer ? '' : (opts.geburtsort || ''), ml + cw * 0.5, y, cw * 0.5); y += 9;
+    drawField('geboren am', opts.leer ? '' : fmtDate(opts.geburtsdatum || data.student.geburtsdatum || ''), ml, y, cw * 0.45);
+    drawField('geboren in', opts.leer ? '' : (opts.geburtsort || data.student.geburtsort || ''), ml + cw * 0.5, y, cw * 0.5); y += 9;
     drawField('Stra\u00dfe, Hausnummer', studentAddr.street, ml, y, cw); y += 9;
     drawField('PLZ, Ort', studentAddr.city, ml, y, cw); y += 10;
 
@@ -9536,7 +9600,122 @@ var App = {
     this.showToast(t('pdfErstellt'));
   },
 
-  renderB196BescheinigungPdf: function(data, opts) {
+  // Teilnahmebescheinigung nach Anlage 7b Nr. 6 (zu § 6b Abs. 3 und 4) FeV
+  renderB196TeilnahmebescheinigungPdf: function(data, opts) {
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    var pw = 210, ph = 297;
+    var ml = 20, mr = 20, mt = 16;
+    var cw = pw - ml - mr;
+    var self = this;
+    var leer = !!opts.leer;
+
+    doc.setProperties({ title: 'B196 Teilnahmebescheinigung', author: 'FahrDoc' });
+
+    var fmtDate = function(d) {
+      if (!d) return '';
+      var p = String(d).split('-');
+      return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : d;
+    };
+    var drawLine = function(x1, y1, x2, y2) { doc.setDrawColor(0); doc.setLineWidth(0.3); doc.line(x1, y1, x2, y2); };
+    var drawField = function(label, value, x, y, w) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+      doc.text(value || '', x + 1, y);
+      drawLine(x, y + 1.2, x + w, y + 1.2);
+      doc.setFontSize(7); doc.setTextColor(90);
+      doc.text(label, x, y + 4.6);
+      doc.setTextColor(0);
+    };
+
+    var school = data.school || {};
+    var y = mt;
+
+    // Fahrschul-Kopf
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(leer ? '' : (school.name || ''), ml, y);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90);
+    doc.text(leer ? '' : (school.address || ''), ml, y + 4.5);
+    doc.setTextColor(0);
+    y += 14;
+
+    // Titel
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13.5);
+    var titleLines = doc.splitTextToSize('Teilnahmebescheinigung zur Vorlage bei der Fahrerlaubnisbeh\u00f6rde', cw);
+    doc.text(titleLines, pw / 2, y, { align: 'center' });
+    y += titleLines.length * 6 + 1;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+    var subLines = doc.splitTextToSize('Best\u00e4tigung \u00fcber die erfolgreiche Teilnahme an einer Fahrerschulung nach Anlage 7b Nr. 6 (zu \u00a7 6b Absatz 3 und 4) FeV \u2013 Schl\u00fcsselzahl 196', cw);
+    doc.text(subLines, pw / 2, y, { align: 'center' });
+    y += subLines.length * 4.6 + 9;
+
+    // Teilnehmerdaten
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+    doc.text('Frau/Herr', ml, y);
+    y += 6;
+
+    // Konvention: data.student.name ist 'Vorname Nachname'
+    var nameParts = (leer ? '' : (data.student.name || '')).split(/\s+/).filter(Boolean);
+    var nachname = nameParts.length > 1 ? nameParts[nameParts.length - 1] : (nameParts[0] || '');
+    var vorname = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
+    var addr = self._splitAddress(leer ? '' : (data.student.anschrift || ''));
+
+    drawField('Name', nachname, ml, y, cw * 0.48);
+    drawField('Vorname', vorname, ml + cw * 0.52, y, cw * 0.48); y += 11;
+    drawField('geboren am', leer ? '' : fmtDate(opts.geburtsdatum || data.student.geburtsdatum || ''), ml, y, cw * 0.48);
+    drawField('geboren in', leer ? '' : (opts.geburtsort || data.student.geburtsort || ''), ml + cw * 0.52, y, cw * 0.48); y += 11;
+    drawField('Stra\u00dfe, Hausnummer', leer ? '' : (opts.strasse || addr.street || ''), ml, y, cw); y += 11;
+    drawField('PLZ, Ort', leer ? '' : (opts.plzOrt || addr.city || ''), ml, y, cw); y += 13;
+
+    // Kernsatz mit Zeitraum
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
+    var x = ml;
+    doc.text('hat vom', x, y); x += doc.getTextWidth('hat vom ') + 1;
+    var dw = 30;
+    doc.text(leer ? '' : fmtDate(opts.von || ''), x + dw / 2, y - 0.6, { align: 'center' });
+    drawLine(x, y + 1.2, x + dw, y + 1.2); x += dw + 3;
+    doc.text('bis', x, y); x += doc.getTextWidth('bis ') + 1;
+    doc.text(leer ? '' : fmtDate(opts.bis || ''), x + dw / 2, y - 0.6, { align: 'center' });
+    drawLine(x, y + 1.2, x + dw, y + 1.2);
+    y += 7;
+    var satzLines = doc.splitTextToSize('erfolgreich an einer Fahrerschulung (Anlage 7b zu \u00a7 6b Absatz 3 und 4 FeV) teilgenommen.', cw);
+    doc.text(satzLines, ml, y);
+    y += satzLines.length * 5 + 10;
+
+    drawField('F\u00fchrerscheinnummer', leer ? '' : (opts.fsNummer || ''), ml, y, cw * 0.62); y += 13;
+    drawField('Ort', leer ? '' : (opts.ort || ''), ml, y, cw * 0.48);
+    drawField('ausgeh\u00e4ndigt am', leer ? '' : fmtDate(opts.ausgehaendigt || ''), ml + cw * 0.52, y, cw * 0.48);
+    y += 26;
+
+    // Unterschriften
+    var colW = cw * 0.46;
+    var col2 = ml + cw - colW;
+    drawLine(ml, y, ml + colW, y);
+    drawLine(col2, y, col2 + colW, y);
+    doc.setFontSize(7.5); doc.setTextColor(70);
+    var sig1 = doc.splitTextToSize('(Stempel und Unterschrift der Fahrschulinhaberin/des Fahrschulinhabers oder der verantwortlichen Leiterin/des verantwortlichen Leiters)', colW);
+    var sig2 = doc.splitTextToSize('(Unterschrift der Fahrerlaubnisinhaberin/des Fahrerlaubnisinhabers)', colW);
+    doc.text(sig1, ml, y + 4);
+    doc.text(sig2, col2, y + 4);
+    doc.setTextColor(0);
+    y += Math.max(sig1.length, sig2.length) * 3.6 + 14;
+
+    // Hinweis
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(90);
+    var hintLines = doc.splitTextToSize('Die Fahrerschulung umfasst nach Anlage 7b FeV insgesamt neun Unterrichtseinheiten von je 90 Minuten (vier Einheiten Theorie und f\u00fcnf Einheiten praktische Fahr\u00fcbungen). Diese Bescheinigung ist der Fahrerlaubnisbeh\u00f6rde zur Eintragung der Schl\u00fcsselzahl 196 vorzulegen.', cw);
+    doc.text(hintLines, ml, y);
+    doc.setTextColor(0);
+
+    // Fußzeile
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(120);
+    doc.text('Teilnahmebescheinigung nach Anlage 7b Nr. 6 (zu \u00a7 6b Absatz 3 und 4) FeV', pw / 2, ph - 8, { align: 'center' });
+    doc.setTextColor(0);
+
+    var nameForFile = leer ? 'Blanko' : (data.student.name || 'Sch\u00fcler').replace(/\s+/g, '_');
+    doc.save('B196_Teilnahmebescheinigung_' + nameForFile + '.pdf');
+    this.showToast(t('pdfErstellt'));
+  },
+
+  renderB196DokumentationPdf: function(data, opts) {
     var jsPDF = window.jspdf.jsPDF;
     var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     var pw = 210, ph = 297;
@@ -9589,7 +9768,7 @@ var App = {
     doc.text('Schulungsfahrzeug', ml + sp, y + 3);
     doc.text('Bemerkungen', ml + 2 * sp, y + 3);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-    doc.text(opts.leer ? '' : fmtDate(data.student.geburtsdatum || ''), ml + 1, y + 8);
+    doc.text(opts.leer ? '' : fmtDate(opts.geburtsdatum || data.student.geburtsdatum || ''), ml + 1, y + 8);
     doc.text(opts.leer ? '' : (opts.fahrzeug || ''), ml + sp + 1, y + 8);
     doc.text(opts.leer ? '' : (opts.bemerkungen || ''), ml + 2 * sp + 1, y + 8);
     drawLine(ml, y + 10, ml + cw, y + 10);
@@ -9702,7 +9881,7 @@ var App = {
     doc.setTextColor(0);
 
     var nameForFile = opts.leer ? 'Blanko' : (data.student.name || 'Sch\u00fcler').replace(/\s+/g, '_');
-    doc.save('B196_Bescheinigung_' + nameForFile + '.pdf');
+    doc.save('B196_Dokumentation_' + nameForFile + '.pdf');
     this.showToast(t('pdfErstellt'));
   },
 

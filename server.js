@@ -5569,7 +5569,8 @@ app.get('/api/ausbildungsnachweis/:studentId', authMiddleware, async (req, res) 
         name: student.name,
         email: student.email,
         license_class: student.license_class || 'B',
-        geburtsdatum: student.geburtsdatum || '',
+        geburtsdatum: student.birthdate || student.geburtsdatum || '',
+        geburtsort: student.birthplace || '',
         anschrift: student.address || ''
       },
       school: {
