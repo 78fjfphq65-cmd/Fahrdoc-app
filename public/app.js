@@ -1416,6 +1416,20 @@ var App = {
 
   // Namen und E-Mails kommen aus Nutzereingaben und landen per innerHTML im DOM.
   // Ohne Maskierung wuerde ein Name wie O"Brien das Markup zerlegen.
+  // Namen alphabetisch (deutsche Sortierung: Umlaute wie a/o/u, Gross-/Kleinschreibung egal)
+  sortByName: function(list) {
+    var arr = (list || []).slice();
+    arr.sort(function(a, b) {
+      var an = (a && a.name ? String(a.name) : '').trim();
+      var bn = (b && b.name ? String(b.name) : '').trim();
+      if (!an && !bn) return 0;
+      if (!an) return 1;
+      if (!bn) return -1;
+      return an.localeCompare(bn, 'de', { sensitivity: 'base', numeric: true });
+    });
+    return arr;
+  },
+
   escapeHtml: function(str) {
     if (str === null || str === undefined) return '';
     return String(str)
@@ -3093,7 +3107,7 @@ var App = {
         html += '<div class="code-row"><div><span class="code-value">' + c.code + '</span></div>' +
           '<span class="badge ' + (c.status === 'offen' ? 'badge-success' : 'badge-neutral') + '">' + tStatus(c.status) + (c.used_by ? ' \u00b7 ' + c.used_by : '') + '</span></div>';
       });
-      var students = studData.students || [];
+      var students = App.sortByName(studData.students || []);
       html += '<div class="section-header mt-4"><span class="section-title">' + t('fahrschueler') + ' (' + students.length + ')</span></div>';
       students.forEach(function(st) {
         html += '<div class="card card-interactive mb-3" onclick="App.viewStudentDetail(\'' + st.id + '\')"><div style="display:flex;align-items:center;gap:var(--space-3);">' +
@@ -7087,6 +7101,7 @@ var App = {
   },
 
   _renderStudentsList: function(students) {
+    students = App.sortByName(students || []);
     var main = document.getElementById('instructor-main');
     var isSolo = App.isSolo();
     var addBtn = isSolo ? '<button class="btn btn-primary btn-sm" onclick="App.openSoloAddStudent()">+ Schüler</button>' : '';
