@@ -7316,6 +7316,15 @@ var App = {
       // === Sektion: Vorhandene Fuehrerscheine ===
       '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--border-light);">Bereits vorhandene F\u00fchrerscheine</div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:8px;">' + licenseCheckboxes + '</div>' +
+      // === Sektion: Angaben zum Fuehrerschein (fuer Bescheinigungen/Behoerden) ===
+      '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--border-light);">Angaben zum F\u00fchrerschein</div>' +
+      '<div class="text-xs text-muted" style="margin-top:-4px;">Werden f\u00fcr Bescheinigungen an die Beh\u00f6rden (z.\u202fB. B196) automatisch \u00fcbernommen.</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">' +
+        '<div class="form-group"><label class="form-label">F\u00fchrerscheinnummer</label><input class="form-input" id="stf-licnumber" type="text" placeholder="z.\u202fB. C010AT6ZL54" value="' + (s.license_number || '').replace(/"/g,'&quot;') + '"></div>' +
+        '<div class="form-group"><label class="form-label">Ausgestellt am</label><input class="form-input" id="stf-licissued" type="date" value="' + (s.license_issued_at ? String(s.license_issued_at).slice(0,10) : '') + '"></div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">Ausstellende Beh\u00f6rde (Fahrerlaubnisbeh\u00f6rde)</label><input class="form-input" id="stf-licauthority" type="text" placeholder="z.\u202fB. LABO Berlin" value="' + (s.license_issuing_authority || '').replace(/"/g,'&quot;') + '"></div>' +
+      '<div class="form-group"><label class="form-label">Klasse B erteilt am (Besitz seit)</label><input class="form-input" id="stf-licbsince" type="date" value="' + (s.license_b_since ? String(s.license_b_since).slice(0,10) : '') + '"></div>' +
       // === Sektion: Ausweis ===
       '<div style="font-size:var(--text-xs);text-transform:uppercase;color:var(--text-muted);letter-spacing:.5px;margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--border-light);">Ausweisdokument</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">' +
@@ -7427,6 +7436,10 @@ var App = {
       instructor_id: v('stf-instructor') || null,
       sendInvite: c('stf-sendInvite'),
       existing_licenses: existingLicenses,
+      license_number: v('stf-licnumber').trim(),
+      license_issued_at: v('stf-licissued') || null,
+      license_issuing_authority: v('stf-licauthority').trim(),
+      license_b_since: v('stf-licbsince') || null,
       id_document_type: v('stf-iddoc-type') || null,
       id_document_number: v('stf-iddoc-number').trim(),
       id_document_issued_by: v('stf-iddoc-issuedby').trim(),
@@ -7589,6 +7602,22 @@ var App = {
           html += '<div class="card mb-4">' +
             '<div class="section-title" style="margin-bottom:var(--space-2);">Bereits vorhandene F\u00fchrerscheine</div>' +
             '<div style="display:flex;flex-wrap:wrap;gap:6px;">' + chipsHtml + '</div>' +
+          '</div>';
+        }
+
+        // ── Karte: Angaben zum Führerschein ──
+        if (st.license_number || st.license_issued_at || st.license_issuing_authority || st.license_b_since) {
+          var fmtD = function(d) {
+            if (!d) return '';
+            var p = String(d).slice(0,10).split('-');
+            return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : String(d);
+          };
+          html += '<div class="card mb-4">' +
+            '<div class="section-title" style="margin-bottom:var(--space-2);">Angaben zum F\u00fchrerschein</div>' +
+            rowHtml('F\u00fchrerscheinnummer', st.license_number) +
+            rowHtml('Ausgestellt am', fmtD(st.license_issued_at)) +
+            rowHtml('Ausstellende Beh\u00f6rde', st.license_issuing_authority) +
+            rowHtml('Klasse B erteilt am', fmtD(st.license_b_since)) +
           '</div>';
         }
 
@@ -9271,7 +9300,8 @@ var App = {
     var esc = function(v) { return self.escapeHtml(String(v == null ? '' : v)); };
 
     // Schülerdaten vorab laden, damit Geburtsdatum & Anschrift vorbelegt sind
-    var pre = { geburtsdatum:'', geburtsort:'', strasse:'', plzOrt:'', ort:'', von:'', bis:'' };
+    var pre = { geburtsdatum:'', geburtsort:'', strasse:'', plzOrt:'', ort:'', von:'', bis:'',
+                fsnummer:'', fsAusgestellt:'', fsBehoerde:'', klasseBSeit:'' };
     self._b196Data = null;
     try {
       var pdata = await ApiClient.get('/api/ausbildungsnachweis/' + studentId);
@@ -9279,6 +9309,10 @@ var App = {
       var st = (pdata && pdata.student) || {};
       pre.geburtsdatum = st.geburtsdatum || '';
       pre.geburtsort = st.geburtsort || '';
+      pre.fsnummer = st.fuehrerscheinnummer || '';
+      pre.fsAusgestellt = (st.fsAusgestelltAm || '').slice(0, 10);
+      pre.fsBehoerde = st.fsBehoerde || '';
+      pre.klasseBSeit = (st.klasseBSeit || '').slice(0, 10);
       var sAddr = self._splitAddress(st.anschrift || '');
       pre.strasse = sAddr.street || '';
       pre.plzOrt = sAddr.city || '';
@@ -9303,7 +9337,7 @@ var App = {
         '<div class="form-group"><label class="form-label">' + t('plzOrt') + '</label>' +
           '<input type="text" id="b196-plzort" class="form-input" value="' + esc(pre.plzOrt) + '"></div>' +
         '<div class="form-group"><label class="form-label">' + t('klasseBSeit') + '</label>' +
-          '<input type="date" id="b196-klasseb-seit" class="form-input"></div>' +
+          '<input type="date" id="b196-klasseb-seit" class="form-input" value="' + esc(pre.klasseBSeit) + '"></div>' +
         '<div class="form-group"><label class="form-label">' + t('pauschalentgelt') + '</label>' +
           '<input type="number" id="b196-pauschalentgelt" class="form-input" placeholder="599" min="0" step="0.01"></div>' +
         '<div class="form-group"><label class="form-label">' + t('zusatzEntgelt') + '</label>' +
@@ -9335,7 +9369,7 @@ var App = {
     } else if (isDoku) {
       fieldsHtml = gebFeld +
         '<div class="form-group"><label class="form-label">' + t('ausstellungsdatumFs') + '</label>' +
-          '<input type="date" id="b196-fs-datum" class="form-input"></div>' +
+          '<input type="date" id="b196-fs-datum" class="form-input" value="' + esc(pre.fsAusgestellt) + '"></div>' +
         '<div class="form-group"><label class="form-label">' + t('schulungsfahrzeug') + '</label>' +
           '<input type="text" id="b196-fahrzeug" class="form-input" placeholder="' + t('schulungsfahrzeugPlaceholder') + '"></div>' +
         '<div class="form-group"><label class="form-label">' + t('bemerkungen') + '</label>' +
@@ -9355,7 +9389,7 @@ var App = {
             '<input type="date" id="b196-bis" class="form-input" value="' + esc(pre.bis) + '"></div>' +
         '</div>' +
         '<div class="form-group"><label class="form-label">' + t('fuehrerscheinnummer') + '</label>' +
-          '<input type="text" id="b196-fsnummer" class="form-input"></div>' +
+          '<input type="text" id="b196-fsnummer" class="form-input" value="' + esc(pre.fsnummer) + '"></div>' +
         '<div style="display:flex;gap:var(--space-2);">' +
           '<div class="form-group" style="flex:1;"><label class="form-label">' + t('ortAusstellung') + '</label>' +
             '<input type="text" id="b196-ort" class="form-input" value="' + esc(pre.ort) + '"></div>' +

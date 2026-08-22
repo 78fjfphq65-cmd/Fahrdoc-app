@@ -1396,6 +1396,10 @@ function _normalizeStudentPayload(body) {
     requires_glasses: !!body.requires_glasses,
     notes: orNull(body.notes),
     existing_licenses: existingLicenses,
+    license_number: orNull(body.license_number),
+    license_issued_at: orNull(body.license_issued_at),
+    license_issuing_authority: orNull(body.license_issuing_authority),
+    license_b_since: orNull(body.license_b_since),
     id_document_type: orNull(body.id_document_type),
     id_document_number: orNull(body.id_document_number),
     id_document_issued_by: orNull(body.id_document_issued_by),
@@ -5571,7 +5575,11 @@ app.get('/api/ausbildungsnachweis/:studentId', authMiddleware, async (req, res) 
         license_class: student.license_class || 'B',
         geburtsdatum: student.birthdate || student.geburtsdatum || '',
         geburtsort: student.birthplace || '',
-        anschrift: student.address || ''
+        anschrift: student.address || '',
+        fuehrerscheinnummer: student.license_number || '',
+        fsAusgestelltAm: student.license_issued_at || '',
+        fsBehoerde: student.license_issuing_authority || '',
+        klasseBSeit: student.license_b_since || ''
       },
       school: {
         name: school ? school.name : '',
