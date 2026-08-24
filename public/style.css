@@ -3794,6 +3794,8 @@ html[dir="rtl"] .notif-panel {
 .recurring-toggle label{font-size:var(--text-sm);font-weight:500;cursor:pointer;color:var(--color-text)}
 .recurring-options{display:none;background:var(--bg-secondary);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;border:1px solid var(--color-border)}
 .recurring-options.visible{display:block}
+/* Hinweis unter der Fahrzeugauswahl, wenn das gewaehlte Fahrzeug belegt ist */
+.schedule-vehicle-warn{margin-top:6px;font-size:var(--text-xs);font-weight:600;color:var(--color-warning);line-height:1.4}
 .recurring-conflicts{margin-top:10px;max-height:180px;overflow-y:auto;font-size:var(--text-sm)}
 .recurring-conflict-item{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--color-border)}
 .recurring-conflict-item:last-child{border-bottom:none}

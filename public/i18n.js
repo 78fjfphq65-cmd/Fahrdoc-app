@@ -458,6 +458,7 @@ var TRANSLATIONS = {
   keineKonflikte: { de:'Keine Konflikte', en:'No conflicts', tr:'Çakışma yok', ar:'لا تعارضات', es:'Sin conflictos', fr:'Aucun conflit' },
   konfliktFahrlehrer: { de:'Fahrlehrer belegt', en:'Instructor busy', tr:'Eğitmen meşgul', ar:'المدرب مشغول', es:'Instructor ocupado', fr:'Moniteur occupé' },
   konfliktFahrzeug: { de:'Fahrzeug belegt', en:'Vehicle busy', tr:'Araç meşgul', ar:'المركبة مشغولة', es:'Vehículo ocupado', fr:'Véhicule occupé' },
+  belegtVon: { de:'belegt von', en:'booked by', tr:'kullanan', ar:'محجوزة من قبل', es:'ocupado por', fr:'occupé par', pt:'ocupado por' },
   konfliktePruefen: { de:'Konflikte prüfen...', en:'Checking conflicts...', tr:'Çakışmalar kontrol ediliyor...', ar:'جارٍ التحقق من التعارضات...', es:'Comprobando conflictos...', fr:'Vérification des conflits...' },
   wiederkehrendeTermineErstellt: { de:'Wiederkehrende Termine erstellt', en:'Recurring appointments created', tr:'Tekrarlayan randevular oluşturuldu', ar:'تم إنشاء المواعيد المتكررة', es:'Citas recurrentes creadas', fr:'Rendez-vous récurrents créés' },
   termine: { de:'Termine', en:'appointments', tr:'randevu', ar:'مواعيد', es:'citas', fr:'rendez-vous', pt:'compromissos' },

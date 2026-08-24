@@ -4742,7 +4742,7 @@ function getISOWeek(d) {
 
 app.get('/api/vehicles/availability', authMiddleware, async (req, res) => {
   try {
-    const { date, startTime, endTime } = req.query;
+    const { date, startTime, endTime, excludeId } = req.query;
     if (!date || !startTime || !endTime) return res.status(400).json({ error: 'date, startTime und endTime erforderlich' });
 
     let schoolId;
@@ -4762,12 +4762,16 @@ app.get('/api/vehicles/availability', authMiddleware, async (req, res) => {
         v.conflictReason = v.status === 'Werkstatt' ? 'In Werkstatt' : 'Außer Betrieb';
         continue;
       }
-      const { data: conflicts } = await supabase.from('scheduled_lessons')
+      // excludeId: beim Bearbeiten den eigenen Termin ausnehmen, sonst gilt das
+      // Fahrzeug durch seinen eigenen Termin als belegt.
+      let cq = supabase.from('scheduled_lessons')
         .select('id, instructor_id, instructors(name)')
         .eq('vehicle_id', v.id)
         .eq('date', date)
         .lt('start_time', endTime)
         .gt('end_time', startTime);
+      if (excludeId) cq = cq.neq('id', excludeId);
+      const { data: conflicts } = await cq;
 
       if (conflicts && conflicts.length > 0) {
         v.available = false;

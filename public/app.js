@@ -2366,11 +2366,34 @@ var App = {
     AppState.scheduleManualEndTime = false;
     this.onScheduleTypeChange();
     this.updateDurationDisplay();
+    this.refreshScheduleVehicles();
   },
 
   onScheduleEndManual: function() {
     AppState.scheduleManualEndTime = true;
     this.updateDurationDisplay();
+    this.refreshScheduleVehicles();
+  },
+
+  onScheduleDateChange: function() {
+    this.refreshScheduleVehicles();
+  },
+
+  // Die Belegung der Fahrzeuge haengt an Datum und Uhrzeit. Wird eines davon im
+  // offenen Termin-Dialog geaendert, muss die Fahrzeugliste neu geladen werden —
+  // sonst zeigt sie weiter die Belegung der Zeit, mit der der Dialog geoeffnet wurde.
+  refreshScheduleVehicles: function() {
+    var self = this;
+    if (this._vehicleRefreshTimer) clearTimeout(this._vehicleRefreshTimer);
+    this._vehicleRefreshTimer = setTimeout(function() {
+      var dateEl = document.getElementById('schedule-date');
+      var startEl = document.getElementById('schedule-start-time');
+      var endEl = document.getElementById('schedule-end-time');
+      var sel = document.getElementById('schedule-vehicle');
+      if (!sel || !dateEl || !startEl || !endEl) return;
+      if (!dateEl.value || !startEl.value || !endEl.value) return;
+      self.loadScheduleVehicles(dateEl.value, startEl.value, endEl.value, sel.value || '');
+    }, 200);
   },
 
   // Fruehe Stunden (00:00-07:00) ein-/ausklappen. Termine vor 07:00 werden
@@ -2493,7 +2516,7 @@ var App = {
     if (isInstructorReadonly) {
       html += roField(fmtDateDE(date));
     } else {
-      html += '<input class="form-input" type="date" id="schedule-date" value="' + date + '">';
+      html += '<input class="form-input" type="date" id="schedule-date" value="' + date + '" onchange="App.onScheduleDateChange()">';
     }
     html += '</div>';
 
@@ -2541,7 +2564,8 @@ var App = {
       }
       html += roField(roVehicle);
     } else {
-      html += '<select class="form-select" id="schedule-vehicle"><option value="">— Kein Fahrzeug —</option></select>';
+      html += '<select class="form-select" id="schedule-vehicle" onchange="App._updateVehicleWarn()"><option value="">— Kein Fahrzeug —</option></select>';
+      html += '<div id="schedule-vehicle-warn" class="schedule-vehicle-warn" style="display:none;"></div>';
     }
     html += '</div>';
 
@@ -2658,6 +2682,7 @@ var App = {
 
     // Load students - for schedule modals load ALL school students
     this.loadScheduleStudents(studentId, isEdit ? editSlot.instructor_id : instructorIdOverride);
+    AppState.scheduleExcludeSlotId = isEdit ? (editSlot.id || null) : null;
     this.loadScheduleVehicles(date, startTime, endTime, vehicleId);
     this.loadScheduleBranches(branchId);
     this.loadScheduleSecretaries(secretaryId);
@@ -2708,15 +2733,18 @@ var App = {
     try {
       var sel = document.getElementById('schedule-vehicle');
       if (!sel) return;
-      var data = await ApiClient.get('/api/vehicles/availability?date=' + date + '&startTime=' + startTime + '&endTime=' + endTime);
+      // Beim Bearbeiten den eigenen Termin ausnehmen, sonst blockiert er sich selbst.
+      var excl = AppState.scheduleExcludeSlotId ? ('&excludeId=' + encodeURIComponent(AppState.scheduleExcludeSlotId)) : '';
+      var data = await ApiClient.get('/api/vehicles/availability?date=' + date + '&startTime=' + startTime + '&endTime=' + endTime + excl);
       var vehicles = data.vehicles || [];
+      AppState.scheduleVehicleAvailability = vehicles;
       var optionsHtml = '<option value="">— Kein Fahrzeug —</option>';
       vehicles.forEach(function(v) {
         var disabled = !v.available;
         var label = v.brand + ' · ' + v.license_plate + ' (' + v.transmission + ')';
         if (disabled) {
           if (v.conflictReason) label += ' — ' + v.conflictReason;
-          else if (v.conflictInstructor) label += ' — belegt von ' + v.conflictInstructor;
+          else if (v.conflictInstructor) label += ' — ' + t('belegtVon') + ' ' + v.conflictInstructor;
         }
         optionsHtml += '<option value="' + v.id + '"' +
           (v.id === preSelectId ? ' selected' : '') +
@@ -2724,7 +2752,26 @@ var App = {
           '>' + label + '</option>';
       });
       sel.innerHTML = optionsHtml;
+      this._updateVehicleWarn();
     } catch (err) { console.warn('Vehicle load error:', err); }
+  },
+
+  // Hinweis, wenn das aktuell gewaehlte Fahrzeug zur eingestellten Zeit belegt ist.
+  _updateVehicleWarn: function() {
+    var warn = document.getElementById('schedule-vehicle-warn');
+    var sel = document.getElementById('schedule-vehicle');
+    if (!warn || !sel) return;
+    var list = AppState.scheduleVehicleAvailability || [];
+    var v = null;
+    for (var i = 0; i < list.length; i++) { if (list[i].id === sel.value) { v = list[i]; break; } }
+    if (v && v.available === false) {
+      var why = v.conflictReason || (v.conflictInstructor ? (t('belegtVon') + ' ' + v.conflictInstructor) : t('konfliktFahrzeug'));
+      warn.textContent = '\u26A0 ' + why;
+      warn.style.display = '';
+    } else {
+      warn.style.display = 'none';
+      warn.textContent = '';
+    }
   },
 
   loadScheduleStudents: async function(preSelectId, instructorId) {
