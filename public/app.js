@@ -1653,9 +1653,12 @@ var App = {
     return '<div class="schedule-week-nav">' +
       '<button class="btn btn-ghost btn-sm" onclick="App.shiftWeek(-1)" aria-label="' + this.escapeHtml(t('vorherigeWoche') || '') + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polyline points="15,18 9,12 15,6"/></svg></button>' +
       '<div class="schedule-week-center">' +
-        '<button type="button" class="schedule-week-label schedule-week-label-btn" aria-haspopup="true" title="' +
-          this.escapeHtml(t('monatWaehlen')) + '" onclick="App.toggleMonthPicker()">' +
-          this.escapeHtml(this.weekLabel()) + ' <span class="schedule-week-caret" aria-hidden="true">\u25be</span></button>' +
+        '<button type="button" class="schedule-week-label schedule-week-label-btn" aria-haspopup="true" aria-expanded="false" title="' +
+          this.escapeHtml(t('monatWaehlen')) + '" aria-label="' + this.escapeHtml(this.weekLabel() + ' \u2014 ' + t('monatWaehlen')) +
+          '" onclick="App.toggleMonthPicker()">' +
+          '<svg class="schedule-week-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
+          '<span class="schedule-week-label-text">' + this.escapeHtml(this.weekLabel()) + '</span>' +
+          '<svg class="schedule-week-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6,9 12,15 18,9"/></svg></button>' +
         '<div id="month-picker" class="month-picker hidden"></div>' +
       '</div>' +
       '<button class="btn btn-ghost btn-sm" onclick="App.shiftWeek(1)" aria-label="' + this.escapeHtml(t('naechsteWoche') || '') + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polyline points="9,18 15,12 9,6"/></svg></button>' +
@@ -1667,15 +1670,19 @@ var App = {
     if (!box) return;
     if (!box.classList.contains('hidden')) { this.closeMonthPicker(); return; }
     this.initWeek();
-    AppState._monthPickerYear = new Date(AppState.scheduleWeekStart).getFullYear();
+    AppState._monthPickerYear = this._weekMonthAnchor(this.getWeekDates(AppState.scheduleWeekStart).monday).getFullYear();
     this.renderMonthPicker();
     box.classList.remove('hidden');
+    var btn = document.querySelector('.schedule-week-label-btn');
+    if (btn) btn.setAttribute('aria-expanded', 'true');
     document.addEventListener('click', App._monthPickerOutside, true);
   },
 
   closeMonthPicker: function() {
     var box = document.getElementById('month-picker');
     if (box) box.classList.add('hidden');
+    var btn = document.querySelector('.schedule-week-label-btn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
     document.removeEventListener('click', App._monthPickerOutside, true);
   },
 
@@ -1696,7 +1703,7 @@ var App = {
     var box = document.getElementById('month-picker');
     if (!box) return;
     this.initWeek();
-    var cur = new Date(AppState.scheduleWeekStart);
+    var cur = this._weekMonthAnchor(this.getWeekDates(AppState.scheduleWeekStart).monday);
     var year = AppState._monthPickerYear || cur.getFullYear();
     var today = new Date();
     var months = getMonthNames();
@@ -1717,18 +1724,35 @@ var App = {
 
   shiftPickerYear: function(dir) {
     this.initWeek();
-    AppState._monthPickerYear = (AppState._monthPickerYear || new Date(AppState.scheduleWeekStart).getFullYear()) + dir;
+    AppState._monthPickerYear = (AppState._monthPickerYear || this._weekMonthAnchor(this.getWeekDates(AppState.scheduleWeekStart).monday).getFullYear()) + dir;
     this.renderMonthPicker();
   },
 
-  // Direkt in einen Monat springen: gezeigt wird die Woche, in der der Monat
-  // beginnt (beim laufenden Monat die aktuelle Woche).
+  // Der Monat einer Woche ist der Monat ihres Donnerstags (wie bei den
+  // Kalenderwochen). So gehoert die Woche 28. Sep.–3. Okt. zum Oktober.
+  _weekMonthAnchor: function(monday) {
+    var d = new Date(monday);
+    d.setDate(d.getDate() + 3);
+    return d;
+  },
+
+  // Direkt in einen Monat springen: gezeigt wird die erste Woche, die zu
+  // diesem Monat gehoert (beim laufenden Monat die aktuelle Woche).
   jumpToMonth: function(year, month) {
     var today = new Date();
-    var target = (today.getFullYear() === year && today.getMonth() === month)
-      ? today : new Date(year, month, 1);
     this.closeMonthPicker();
-    this._gotoWeekOf(target);
+    if (today.getFullYear() === year && today.getMonth() === month) {
+      this._gotoWeekOf(today);
+      return;
+    }
+    var monday = this.getWeekDates(new Date(year, month, 1)).monday;
+    var anchor = this._weekMonthAnchor(monday);
+    // Faellt der Donnerstag noch in den Vormonat, ist es die Woche danach
+    if (anchor.getFullYear() !== year || anchor.getMonth() !== month) {
+      monday = new Date(monday);
+      monday.setDate(monday.getDate() + 7);
+    }
+    this._gotoWeekOf(monday);
   },
 
   jumpToToday: function() {

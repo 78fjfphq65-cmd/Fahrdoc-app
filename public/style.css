@@ -5752,23 +5752,53 @@ body.slot-drag-active .week-grid-slot.slot-movable { cursor: grabbing; }
 .schedule-week-label-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: 4px 8px;
+  gap: 7px;
+  max-width: 100%;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 6px 12px;
   color: inherit;
   cursor: pointer;
   font: inherit;
   font-family: var(--font-display);
   font-size: var(--text-sm);
   font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
 .schedule-week-label-btn:hover {
-  border-color: var(--color-border);
-  background: var(--color-surface-offset);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.10);
 }
-.schedule-week-caret { font-size: 10px; opacity: 0.6; }
+.schedule-week-label-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.schedule-week-label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.schedule-week-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: var(--color-primary);
+}
+.schedule-week-caret {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  opacity: 0.75;
+  transition: transform 0.15s;
+}
+.schedule-week-label-btn[aria-expanded="true"] .schedule-week-caret { transform: rotate(180deg); }
+@media (max-width: 420px) {
+  .schedule-week-label-btn { padding: 6px 10px; gap: 5px; }
+  .schedule-week-icon { display: none; }
+}
 
 .month-picker {
   position: absolute;
