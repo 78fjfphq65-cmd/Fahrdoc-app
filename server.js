@@ -2959,13 +2959,18 @@ app.get('/api/schedule', authMiddleware, async (req, res) => {
     // Load branches + secretaries lookup maps for this school (parallel)
     const branchMap = {};
     const secretaryMap = {};
+    let defaultLessonMinutes = null;
     try {
-      const [brsRes, secsRes] = await Promise.all([
+      const [brsRes, secsRes, schoolRes] = await Promise.all([
         supabase.from('school_branches').select('id, name, address').eq('school_id', schoolId),
-        supabase.from('school_secretaries').select('id, name').eq('school_id', schoolId)
+        supabase.from('school_secretaries').select('id, name').eq('school_id', schoolId),
+        supabase.from('schools').select('default_lesson_minutes').eq('id', schoolId).maybeSingle()
       ]);
       (brsRes.data || []).forEach(b => { branchMap[b.id] = b; });
       (secsRes.data || []).forEach(s => { secretaryMap[s.id] = s; });
+      if (schoolRes && schoolRes.data && schoolRes.data.default_lesson_minutes) {
+        defaultLessonMinutes = schoolRes.data.default_lesson_minutes;
+      }
     } catch (e) {
       // Tables may not exist in older deployments — ignore
     }
@@ -3061,7 +3066,7 @@ app.get('/api/schedule', authMiddleware, async (req, res) => {
       console.error('[Schedule] offer merge error:', offerErr.message);
     }
 
-    res.json({ slots: slots || [], instructors });
+    res.json({ slots: slots || [], instructors, defaultLessonMinutes: defaultLessonMinutes });
   } catch (err) {
     res.status(500).json({ error: 'Serverfehler' });
   }
@@ -3073,6 +3078,9 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
 
     const { instructorId, studentId, date, startTime, endTime, type, licenseClass, notes, vehicleId, branchId, secretaryId } = req.body;
     if (!date || !startTime || !endTime) return res.status(400).json({ error: 'Datum, Start- und Endzeit erforderlich' });
+    // Zwei Termine zur selben Zeit sind erlaubt, wenn das Buero das bewusst
+    // bestaetigt hat (Doppelbelegung, z. B. zwei Schueler in einem Fahrzeug).
+    const allowOverlap = req.body.allowOverlap === true || req.body.allowOverlap === 'true';
 
     let targetInstructorId = instructorId;
     let schoolId;
@@ -3091,17 +3099,22 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
     }
 
     // Check overlap (instructor)
-    const { data: overlaps } = await supabase.from('scheduled_lessons')
-      .select('id')
-      .eq('instructor_id', targetInstructorId)
-      .eq('date', date)
-      .lt('start_time', endTime)
-      .gt('end_time', startTime);
+    if (!allowOverlap) {
+      const { data: overlaps } = await supabase.from('scheduled_lessons')
+        .select('id, start_time, end_time')
+        .eq('instructor_id', targetInstructorId)
+        .eq('date', date)
+        .lt('start_time', endTime)
+        .gt('end_time', startTime);
 
-    if (overlaps && overlaps.length > 0) return res.status(409).json({ error: 'Zeitüberschneidung mit bestehendem Termin' });
+      if (overlaps && overlaps.length > 0) {
+        const ot = (overlaps[0].start_time || '').slice(0,5) + '–' + (overlaps[0].end_time || '').slice(0,5);
+        return res.status(409).json({ error: 'Zeitüberschneidung mit bestehendem Termin (' + ot + ')', overlap: true });
+      }
+    }
 
     // Check overlap (vehicle) - prevent double-booking of same car at same time
-    if (vehicleId) {
+    if (vehicleId && !allowOverlap) {
       const { data: vehOverlaps } = await supabase.from('scheduled_lessons')
         .select('id, instructor_id, start_time, end_time')
         .eq('vehicle_id', vehicleId)
@@ -3116,7 +3129,7 @@ app.post('/api/schedule', authMiddleware, async (req, res) => {
           if (ci && ci.name) conflictName = ci.name;
         }
         const ct = (vehOverlaps[0].start_time || '').slice(0,5) + '–' + (vehOverlaps[0].end_time || '').slice(0,5);
-        return res.status(409).json({ error: 'Fahrzeug ist zu dieser Zeit bereits bei ' + conflictName + ' eingeplant (' + ct + ')' });
+        return res.status(409).json({ error: 'Fahrzeug ist zu dieser Zeit bereits bei ' + conflictName + ' eingeplant (' + ct + ')', overlap: true });
       }
     }
 
@@ -3217,20 +3230,24 @@ app.put('/api/schedule/:id', authMiddleware, async (req, res) => {
       secretaryId = undefined;
     }
 
-    // Check overlap if time changed
-    if ((date && date !== slot.date) || (startTime && startTime !== slot.start_time) || (endTime && endTime !== slot.end_time)) {
+    // Check overlap if time changed (uebersprungen bei bewusster Doppelbelegung)
+    const allowOverlapUpd = req.body.allowOverlap === true || req.body.allowOverlap === 'true';
+    if (!allowOverlapUpd && ((date && date !== slot.date) || (startTime && startTime !== slot.start_time) || (endTime && endTime !== slot.end_time))) {
       const newDate = date || slot.date;
       const newStart = startTime || slot.start_time;
       const newEnd = endTime || slot.end_time;
 
       const { data: overlaps } = await supabase.from('scheduled_lessons')
-        .select('id')
+        .select('id, start_time, end_time')
         .eq('instructor_id', slot.instructor_id)
         .eq('date', newDate)
         .neq('id', req.params.id)
         .lt('start_time', newEnd)
         .gt('end_time', newStart);
-      if (overlaps && overlaps.length > 0) return res.status(409).json({ error: 'Zeitüberschneidung mit bestehendem Termin' });
+      if (overlaps && overlaps.length > 0) {
+        const ot = (overlaps[0].start_time || '').slice(0,5) + '–' + (overlaps[0].end_time || '').slice(0,5);
+        return res.status(409).json({ error: 'Zeitüberschneidung mit bestehendem Termin (' + ot + ')', overlap: true });
+      }
 
       // Vehicle overlap check on update
       const checkVehicleId = (vehicleId !== undefined) ? vehicleId : slot.vehicle_id;
@@ -3250,7 +3267,7 @@ app.put('/api/schedule/:id', authMiddleware, async (req, res) => {
             if (ci && ci.name) conflictName = ci.name;
           }
           const ct = (vehOverlaps[0].start_time || '').slice(0,5) + '–' + (vehOverlaps[0].end_time || '').slice(0,5);
-          return res.status(409).json({ error: 'Fahrzeug ist zu dieser Zeit bereits bei ' + conflictName + ' eingeplant (' + ct + ')' });
+          return res.status(409).json({ error: 'Fahrzeug ist zu dieser Zeit bereits bei ' + conflictName + ' eingeplant (' + ct + ')', overlap: true });
         }
       }
 
@@ -6500,7 +6517,7 @@ app.get('/api/school/settings', authMiddleware, async (req, res) => {
     if (req.user.role !== 'school') return res.status(403).json({ error: 'Nur Fahrschule' });
     const schoolId = schoolIdOf(req.user);
     const { data, error } = await supabase.from('schools')
-      .select('id, name, email, admin_name, tax_mode, tax_rate_percent, address_line1, address_line2, postal_code, city, phone, tax_id, bank_info')
+      .select('id, name, email, admin_name, tax_mode, tax_rate_percent, address_line1, address_line2, postal_code, city, phone, tax_id, bank_info, default_lesson_minutes')
       .eq('id', schoolId).maybeSingle();
     if (error) throw error;
     res.json(data || {});
@@ -6530,6 +6547,17 @@ app.put('/api/school/settings', authMiddleware, async (req, res) => {
     if (b.phone         !== undefined) updates.phone         = b.phone || null;
     if (b.tax_id        !== undefined) updates.tax_id        = b.tax_id || null;
     if (b.bank_info     !== undefined) updates.bank_info     = b.bank_info || null;
+    if (b.default_lesson_minutes !== undefined) {
+      if (b.default_lesson_minutes === null || b.default_lesson_minutes === '') {
+        updates.default_lesson_minutes = null;
+      } else {
+        const dlm = parseInt(b.default_lesson_minutes, 10);
+        if (!isFinite(dlm) || dlm < 15 || dlm > 300) {
+          return res.status(400).json({ error: 'Standarddauer muss zwischen 15 und 300 Minuten liegen' });
+        }
+        updates.default_lesson_minutes = dlm;
+      }
+    }
     if (Object.keys(updates).length === 0) return res.json({ success: true, updated: 0 });
     const { data, error } = await supabase.from('schools').update(updates).eq('id', schoolId).select().single();
     if (error) throw error;

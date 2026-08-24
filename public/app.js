@@ -502,6 +502,7 @@ var App = {
   init: function() {
     ApiClient.init();
     this.applyTheme();
+    this._restoreDefaultLessonMinutes();
     // pageshow: BFCache-Restore (Browser-Back von Stripe) — hängende Buttons reset + Cache invalidieren
     window.addEventListener('pageshow', function(e) {
       if (e.persisted) {
@@ -1616,7 +1617,131 @@ var App = {
     var oneJan = new Date(mon.getFullYear(), 0, 1);
     var weekNum = Math.ceil(((mon - oneJan) / 86400000 + oneJan.getDay() + 1) / 7);
     var months = getMonthNames();
+    // Woche ueber einen Monats-/Jahreswechsel: beide Monate nennen
+    if (mon.getMonth() !== sat.getMonth()) {
+      var left = mon.getDate() + '. ' + months[mon.getMonth()] + (mon.getFullYear() !== sat.getFullYear() ? ' ' + mon.getFullYear() : '');
+      return 'KW ' + weekNum + ' · ' + left + '–' + sat.getDate() + '. ' + months[sat.getMonth()] + ' ' + sat.getFullYear();
+    }
     return 'KW ' + weekNum + ' · ' + mon.getDate() + '.–' + sat.getDate() + '. ' + months[mon.getMonth()] + ' ' + mon.getFullYear();
+  },
+
+  // Standarddauer einer Uebungsfahrt: die Fahrschule kann sie in den
+  // Einstellungen abweichend von 90 Minuten festlegen (z. B. 80 Minuten).
+  _applyDefaultLessonMinutes: function(data) {
+    if (!data || !Object.prototype.hasOwnProperty.call(data, 'defaultLessonMinutes')) return;
+    var min = parseInt(data.defaultLessonMinutes, 10);
+    try {
+      if (min && isFinite(min) && min >= 15 && min <= 300) {
+        SCHEDULE_PRESETS['Übungsfahrt'] = min;
+        window['local' + 'Storage'].setItem('fd_default_lesson_min', String(min));
+      } else {
+        SCHEDULE_PRESETS['Übungsfahrt'] = 90;
+        window['local' + 'Storage'].removeItem('fd_default_lesson_min');
+      }
+    } catch (e) {}
+  },
+
+  _restoreDefaultLessonMinutes: function() {
+    try {
+      var v = parseInt(window['local' + 'Storage'].getItem('fd_default_lesson_min'), 10);
+      if (v && isFinite(v) && v >= 15 && v <= 300) SCHEDULE_PRESETS['Übungsfahrt'] = v;
+    } catch (e) {}
+  },
+
+  // Wochennavigation samt Monats-/Jahresauswahl (Buero + Fahrlehrer)
+  weekNavHtml: function() {
+    return '<div class="schedule-week-nav">' +
+      '<button class="btn btn-ghost btn-sm" onclick="App.shiftWeek(-1)" aria-label="' + this.escapeHtml(t('vorherigeWoche') || '') + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polyline points="15,18 9,12 15,6"/></svg></button>' +
+      '<div class="schedule-week-center">' +
+        '<button type="button" class="schedule-week-label schedule-week-label-btn" aria-haspopup="true" title="' +
+          this.escapeHtml(t('monatWaehlen')) + '" onclick="App.toggleMonthPicker()">' +
+          this.escapeHtml(this.weekLabel()) + ' <span class="schedule-week-caret" aria-hidden="true">\u25be</span></button>' +
+        '<div id="month-picker" class="month-picker hidden"></div>' +
+      '</div>' +
+      '<button class="btn btn-ghost btn-sm" onclick="App.shiftWeek(1)" aria-label="' + this.escapeHtml(t('naechsteWoche') || '') + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polyline points="9,18 15,12 9,6"/></svg></button>' +
+    '</div>';
+  },
+
+  toggleMonthPicker: function() {
+    var box = document.getElementById('month-picker');
+    if (!box) return;
+    if (!box.classList.contains('hidden')) { this.closeMonthPicker(); return; }
+    this.initWeek();
+    AppState._monthPickerYear = new Date(AppState.scheduleWeekStart).getFullYear();
+    this.renderMonthPicker();
+    box.classList.remove('hidden');
+    document.addEventListener('click', App._monthPickerOutside, true);
+  },
+
+  closeMonthPicker: function() {
+    var box = document.getElementById('month-picker');
+    if (box) box.classList.add('hidden');
+    document.removeEventListener('click', App._monthPickerOutside, true);
+  },
+
+  _monthPickerOutside: function(ev) {
+    var box = document.getElementById('month-picker');
+    if (!box || box.classList.contains('hidden')) {
+      document.removeEventListener('click', App._monthPickerOutside, true);
+      return;
+    }
+    var tgt = ev.target;
+    if (box.contains(tgt)) return;
+    // Der Schalter selbst klappt die Auswahl schon selbst zu
+    if (tgt && tgt.closest && tgt.closest('.schedule-week-label-btn')) return;
+    App.closeMonthPicker();
+  },
+
+  renderMonthPicker: function() {
+    var box = document.getElementById('month-picker');
+    if (!box) return;
+    this.initWeek();
+    var cur = new Date(AppState.scheduleWeekStart);
+    var year = AppState._monthPickerYear || cur.getFullYear();
+    var today = new Date();
+    var months = getMonthNames();
+    var h = '<div class="month-picker-head">' +
+      '<button type="button" class="month-picker-nav" onclick="App.shiftPickerYear(-1)" aria-label="' + (year - 1) + '">\u2039</button>' +
+      '<span class="month-picker-year">' + year + '</span>' +
+      '<button type="button" class="month-picker-nav" onclick="App.shiftPickerYear(1)" aria-label="' + (year + 1) + '">\u203a</button>' +
+      '</div><div class="month-picker-grid">';
+    for (var m = 0; m < 12; m++) {
+      var isCurrent = (cur.getFullYear() === year && cur.getMonth() === m);
+      var isNow = (today.getFullYear() === year && today.getMonth() === m);
+      h += '<button type="button" class="month-picker-month' + (isCurrent ? ' active' : '') + (isNow ? ' is-now' : '') +
+        '" onclick="App.jumpToMonth(' + year + ',' + m + ')">' + this.escapeHtml(months[m]) + '</button>';
+    }
+    h += '</div><button type="button" class="month-picker-today" onclick="App.jumpToToday()">' + this.escapeHtml(t('heuteAnzeigen')) + '</button>';
+    box.innerHTML = h;
+  },
+
+  shiftPickerYear: function(dir) {
+    this.initWeek();
+    AppState._monthPickerYear = (AppState._monthPickerYear || new Date(AppState.scheduleWeekStart).getFullYear()) + dir;
+    this.renderMonthPicker();
+  },
+
+  // Direkt in einen Monat springen: gezeigt wird die Woche, in der der Monat
+  // beginnt (beim laufenden Monat die aktuelle Woche).
+  jumpToMonth: function(year, month) {
+    var today = new Date();
+    var target = (today.getFullYear() === year && today.getMonth() === month)
+      ? today : new Date(year, month, 1);
+    this.closeMonthPicker();
+    this._gotoWeekOf(target);
+  },
+
+  jumpToToday: function() {
+    this.closeMonthPicker();
+    this._gotoWeekOf(new Date());
+  },
+
+  _gotoWeekOf: function(dateObj) {
+    AppState.scheduleWeekStart = this.getWeekDates(dateObj).monday;
+    AppState.scheduleData = null;
+    if (AppState._cachedData) AppState._cachedData._scheduleBundle = null;
+    if (AppState.currentUser && AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
+    else this.renderSchoolScheduleTab();
   },
 
   // Sunset time calculator for Berlin (52.52°N, 13.40°E)
@@ -1651,6 +1776,47 @@ var App = {
     var mins = Math.round((sunsetLocal - hours) * 60);
     if (mins >= 60) { mins -= 60; hours += 1; }
     return { hours: hours, minutes: mins, formatted: String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') };
+  },
+
+  // Gleichzeitige Termine nebeneinander anordnen: fuer jeden Termin wird eine
+  // Spur (lane) innerhalb seiner Ueberschneidungs-Gruppe bestimmt. Rueckgabe ist
+  // ein Objekt {index: {lane, lanes}} passend zur uebergebenen Reihenfolge.
+  _layoutOverlappingSlots: function(daySlots) {
+    var res = {};
+    if (!daySlots || daySlots.length === 0) return res;
+    var items = [];
+    daySlots.forEach(function(sl, idx) {
+      var st = timeToMinutes(sl.start_time);
+      var en = slotEndMinutes(sl);
+      if (!isFinite(st)) st = 0;
+      if (!isFinite(en) || en <= st) en = st + 15;
+      items.push({ idx: idx, s: st, e: en, lane: 0 });
+    });
+    items.sort(function(a, b) { return (a.s - b.s) || (a.e - b.e) || (a.idx - b.idx); });
+    var cluster = [], clusterEnd = -1;
+    function flush() {
+      if (cluster.length === 0) { clusterEnd = -1; return; }
+      var laneEnds = [];
+      cluster.forEach(function(it) {
+        var placed = -1;
+        for (var l = 0; l < laneEnds.length; l++) {
+          if (it.s >= laneEnds[l]) { placed = l; break; }
+        }
+        if (placed === -1) { laneEnds.push(it.e); placed = laneEnds.length - 1; }
+        else { laneEnds[placed] = it.e; }
+        it.lane = placed;
+      });
+      var count = laneEnds.length;
+      cluster.forEach(function(it) { res[it.idx] = { lane: it.lane, lanes: count }; });
+      cluster = []; clusterEnd = -1;
+    }
+    items.forEach(function(it) {
+      if (cluster.length > 0 && it.s >= clusterEnd) flush();
+      cluster.push(it);
+      if (it.e > clusterEnd) clusterEnd = it.e;
+    });
+    flush();
+    return res;
   },
 
   // Shared week grid renderer (admin + instructor)
@@ -1748,7 +1914,15 @@ var App = {
         html += '<div class="sunset-line" style="top:' + sunsetTopPx + 'px;"><span class="sunset-label">\u2600\ufe0f\u2193 ' + sunset.formatted + '</span></div>';
       }
       // Slots
-      daySlots.forEach(function(slot) {
+      var _lanes = App._layoutOverlappingSlots(daySlots);
+      daySlots.forEach(function(slot, _slotIdx) {
+        var _lay = _lanes[_slotIdx] || { lane: 0, lanes: 1 };
+        // Bei Doppelbelegung teilen sich die Termine die Spaltenbreite
+        var laneStyle = '';
+        if (_lay.lanes > 1) {
+          var wPct = 100 / _lay.lanes;
+          laneStyle = 'left:calc(' + (_lay.lane * wPct) + '% + 2px);width:calc(' + wPct + '% - 4px);right:auto;';
+        }
         var top = slotTopPx(slot.start_time, gStart);
         var height = Math.max((slotEndMinutes(slot) - timeToMinutes(slot.start_time)) * PX_PER_MIN, 20);
         var isBlock = slot.slot_type === 'block';
@@ -1787,8 +1961,8 @@ var App = {
             ' data-slot-date="' + slot.date + '"' +
             ' data-slot-label="' + App.escapeHtml(slot.student_name || tType(slot.type) || '') + '"';
         }
-        html += '<div class="week-grid-slot ' + typeCls + (isOffen ? ' slot-offen' : '') + (pruef ? ' slot-pruefung' : '') + (isUnconfirmed ? ' slot-unconfirmed' : '') + (movable ? ' slot-movable' : '') + '" ' +
-          'style="top:' + top + 'px;height:' + height + 'px;"' + dragAttrs + ' onclick="event.stopPropagation();' + clickJs + '">';
+        html += '<div class="week-grid-slot ' + typeCls + (isOffen ? ' slot-offen' : '') + (pruef ? ' slot-pruefung' : '') + (isUnconfirmed ? ' slot-unconfirmed' : '') + (movable ? ' slot-movable' : '') + (_lay.lanes > 1 ? ' week-grid-slot-shared' : '') + '" ' +
+          'style="top:' + top + 'px;height:' + height + 'px;' + laneStyle + '"' + dragAttrs + ' onclick="event.stopPropagation();' + clickJs + '">';
         // Green checkmark for confirmed slots in admin view
         if (isAdminView && isConfirmed && !isBlock && !isTheory) {
           html += '<span class="slot-confirmed-check" title="' + t('bestaetigt') + '">\u2713</span>';
@@ -2008,7 +2182,8 @@ var App = {
 
     try {
       this.showLoading(true);
-      await ApiClient.post('/api/schedule', slotData);
+      var _created = await this._saveScheduleWithOverlapConfirm('post', '/api/schedule', slotData);
+      if (!_created) return;
       this.showToast(t('terminErstellt'));
       // Bewusst NICHT schliessen: fuer denselben Schueler werden oft mehrere
       // Termine hintereinander eingeplant. Der Kalender wird beim Schliessen
@@ -2017,6 +2192,32 @@ var App = {
       this._logCreatedSlot(slotData, 1);
     } catch(err) { this.showToast(t('fehler') + ': ' + err.message); }
     finally { this.showLoading(false); }
+  },
+
+  // Zwei Termine zur selben Zeit sind erlaubt — der Server fragt aber vorher
+  // nach. Bei einer Ueberschneidungs-Meldung wird nachgefragt und der Aufruf
+  // mit allowOverlap wiederholt. Rueckgabe: true = gespeichert.
+  _isOverlapError: function(msg) {
+    return /berschneidung|bereits bei/i.test(String(msg || ''));
+  },
+
+  _saveScheduleWithOverlapConfirm: async function(method, url, payload) {
+    var send = function(body) {
+      return (method === 'put') ? ApiClient.put(url, body) : ApiClient.post(url, body);
+    };
+    try {
+      await send(payload);
+      return true;
+    } catch (err) {
+      var msg = (err && err.message) ? err.message : '';
+      if (!this._isOverlapError(msg)) throw err;
+      if (!window.confirm(t('doppelbelegungBestaetigen', { grund: msg }))) return false;
+      var retry = {};
+      for (var k in payload) { if (Object.prototype.hasOwnProperty.call(payload, k)) retry[k] = payload[k]; }
+      retry.allowOverlap = true;
+      await send(retry);
+      return true;
+    }
   },
 
   // Bestaetigungsliste in der offenen Termin-Maske fortschreiben.
@@ -2086,7 +2287,8 @@ var App = {
     if (secretarySel && !secretarySel.disabled) slotData.secretaryId = secretarySel.value ? secretarySel.value : null;
     try {
       this.showLoading(true);
-      await ApiClient.put('/api/schedule/' + id, slotData);
+      var _upd = await this._saveScheduleWithOverlapConfirm('put', '/api/schedule/' + id, slotData);
+      if (!_upd) return;
       this.closeModalForce(); this.showToast(t('terminAktualisiert'));
       AppState.scheduleData = null; if(AppState._cachedData) AppState._cachedData._scheduleBundle = null;
       if (AppState.currentUser.role === 'instructor') this.renderInstructorDashboardTab();
@@ -3201,6 +3403,7 @@ var App = {
         theorySchedule = results[1] || [];
       }
       AppState.scheduleData = data;
+      this._applyDefaultLessonMinutes(data);
       var instructors = data.instructors || [];
       if (!instFilter && instructors.length > 0) {
         // Auto-select first instructor without a second network round-trip:
@@ -3210,7 +3413,7 @@ var App = {
         var filtered = (data.slots || []).filter(function(s) {
           return !s.instructor_id || s.instructor_id === instFilter;
         });
-        data = { slots: filtered, instructors: instructors };
+        data = { slots: filtered, instructors: instructors, defaultLessonMinutes: data.defaultLessonMinutes };
         AppState.scheduleData = data;
         cacheKey = wsStr + '|' + instFilter;
       }
@@ -3243,10 +3446,7 @@ var App = {
         '</div></div>';
 
       // Week nav
-      html += '<div class="schedule-week-nav">' +
-        '<button class="btn btn-ghost btn-sm" onclick="App.shiftWeek(-1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polyline points="15,18 9,12 15,6"/></svg></button>' +
-        '<span class="schedule-week-label">' + this.weekLabel() + '</span>' +
-        '<button class="btn btn-ghost btn-sm" onclick="App.shiftWeek(1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polyline points="9,18 15,12 9,6"/></svg></button></div>';
+      html += this.weekNavHtml();
 
       // Slot offer mode hint
       if (AppState.slotOfferMode) {
@@ -3672,12 +3872,14 @@ var App = {
     if (!d.targetDate || d.targetStartMin === null) return;
     if (d.targetDate === d.origDate && d.targetStartMin === d.origStartMin) return;
     var conflict = this._slotDragConflict(d);
+    var allowOverlap = false;
     if (conflict) {
-      this.showToast(t('ueberschneidungMitTermin', { zeit: conflict }));
-      return;
+      // Doppelbelegung ist erlaubt, aber nur nach ausdruecklicher Bestaetigung
+      if (!window.confirm(t('doppelbelegungBestaetigen', { grund: t('ueberschneidungMitTermin', { zeit: conflict }) }))) return;
+      allowOverlap = true;
     }
     this._moveSlot(d.id, d.origDate, this._slotMinutesToTime(d.origStartMin), d.targetDate,
-      this._slotMinutesToTime(d.targetStartMin), this._slotMinutesToTime(d.targetStartMin + d.durMin), d.label, true);
+      this._slotMinutesToTime(d.targetStartMin), this._slotMinutesToTime(d.targetStartMin + d.durMin), d.label, true, allowOverlap);
   },
 
   // Ueberschneidung im Zielbereich vorab pruefen (der Server prueft ebenfalls,
@@ -3702,9 +3904,11 @@ var App = {
 
   // Termin verschieben und die Ansicht aktualisieren. Bei Fehlern bleibt der
   // alte Stand stehen (die Ansicht wird neu geladen).
-  _moveSlot: async function(id, oldDate, oldStart, newDate, newStart, newEnd, label, offerUndo) {
+  _moveSlot: async function(id, oldDate, oldStart, newDate, newStart, newEnd, label, offerUndo, allowOverlap) {
     try {
-      await ApiClient.put('/api/schedule/' + id, { date: newDate, startTime: newStart, endTime: newEnd });
+      var body = { date: newDate, startTime: newStart, endTime: newEnd };
+      if (allowOverlap) body.allowOverlap = true;
+      await ApiClient.put('/api/schedule/' + id, body);
     } catch (err) {
       this.showToast((err && err.message) ? err.message : t('verschiebenFehlgeschlagen'));
       this._reloadScheduleAfterMove();
@@ -3758,7 +3962,7 @@ var App = {
     if (bar) bar.classList.remove('show');
     if (!m) return;
     AppState._lastSlotMove = null;
-    await this._moveSlot(m.id, null, null, m.date, m.startTime, m.endTime, m.label, 'undo');
+    await this._moveSlot(m.id, null, null, m.date, m.startTime, m.endTime, m.label, 'undo', true);
   },
 
   // ══════════════════════════════════════════
@@ -5410,6 +5614,7 @@ var App = {
       '</div>' +
       '<div id="profile-abo-section"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>' +
       '<div id="profile-accounting-mode-section"></div>' +
+      '<div id="profile-scheduling-settings-section"></div>' +
       '<div id="profile-billing-settings-section"></div>' +
       '<div id="profile-pricing-categories-section"></div>' +
       '<div id="profile-branches-section"></div>' +
@@ -5769,6 +5974,7 @@ var App = {
     try {
       var s = await ApiClient.get('/api/school/settings');
       this._renderBillingSettings(s || {});
+      this._renderSchedulingSettings(s || {});
     } catch (err) {
       container.innerHTML = '<div class="card mb-4"><p class="text-sm text-muted">Buchhaltungs-Einstellungen: ' + (err.message || err) + '</p></div>';
     }
@@ -5811,6 +6017,51 @@ var App = {
       '</div>' +
     '</div>';
     container.innerHTML = html;
+  },
+
+  // Terminplanung: Standarddauer einer Uebungsfahrt (Vorbelegung der Endzeit)
+  _renderSchedulingSettings: function(s) {
+    var container = document.getElementById('profile-scheduling-settings-section');
+    if (!container) return;
+    var u = AppState.currentUser;
+    if (!u || u.role !== 'school') { container.innerHTML = ''; return; }
+    var val = (s && s.default_lesson_minutes != null) ? s.default_lesson_minutes : '';
+    container.innerHTML = '<div class="card mb-4">' +
+      '<div class="section-title" style="margin:0 0 var(--space-3);">\u23f1\ufe0f ' + this.escapeHtml(t('terminplanungEinstellungen')) + '</div>' +
+      '<div class="form-group" style="max-width:320px;">' +
+        '<label class="form-label" for="ss-default-min">' + this.escapeHtml(t('standarddauerUebungsfahrt')) + '</label>' +
+        '<input type="number" min="15" max="300" step="5" class="form-input" id="ss-default-min" value="' + this.escapeHtml(String(val)) + '" placeholder="90">' +
+      '</div>' +
+      '<div style="font-size:var(--text-sm);color:var(--text-muted);">' + this.escapeHtml(t('standarddauerHinweis')) + '</div>' +
+      '<div style="display:flex;justify-content:flex-end;margin-top:var(--space-3);">' +
+        '<button class="btn btn-primary" id="ss-save-btn" onclick="App._saveSchedulingSettings()">' + this.escapeHtml(t('speichern')) + '</button>' +
+      '</div>' +
+    '</div>';
+  },
+
+  _saveSchedulingSettings: async function() {
+    var btn = document.getElementById('ss-save-btn');
+    var el = document.getElementById('ss-default-min');
+    var raw = el ? String(el.value || '').trim() : '';
+    if (raw !== '') {
+      var num = parseInt(raw, 10);
+      if (!isFinite(num) || num < 15 || num > 300) {
+        this.showToast(t('fehler') + ': 15 – 300 Minuten');
+        return;
+      }
+    }
+    if (btn) { btn.disabled = true; btn.textContent = '\u2026'; }
+    try {
+      await ApiClient.put('/api/school/settings', { default_lesson_minutes: raw === '' ? null : parseInt(raw, 10) });
+      this._applyDefaultLessonMinutes({ defaultLessonMinutes: raw === '' ? null : parseInt(raw, 10) });
+      AppState.scheduleData = null;
+      if (AppState._cachedData) AppState._cachedData._scheduleBundle = null;
+      this.showToast(t('gespeichert'));
+    } catch (err) {
+      this.showToast(t('fehler') + ': ' + (err.message || err));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = t('speichern'); }
+    }
   },
 
   _toggleTaxRateField: function() {
@@ -6516,6 +6767,7 @@ var App = {
         theorySchedule: theorySchedule
       };
       AppState.scheduleData = schedData;
+      this._applyDefaultLessonMinutes(schedData);
     }
 
     this.loadNotifications();
@@ -6942,6 +7194,7 @@ var App = {
           AppState._cachedData._scheduleBundle[cacheKey] = {
             ts: Date.now(), scheduleData: r[0], theorySchedule: r[1] || []
           };
+          App._applyDefaultLessonMinutes(r[0]);
           // Nur neu rendern wenn User noch auf dem Tab ist
           if (AppState.currentInstructorTab === 'dashboard') App.renderInstructorDashboardTab();
         }
@@ -6958,6 +7211,7 @@ var App = {
         AppState._cachedData._scheduleBundle[cacheKey] = {
           ts: Date.now(), scheduleData: data, theorySchedule: theoryScheduleInst
         };
+        this._applyDefaultLessonMinutes(data);
       } catch(e) {
         main.innerHTML = '<div class="page-padding"><p class="text-sm text-muted">' + t('fehler') + ': ' + e.message + '</p></div>';
         return;
@@ -6998,10 +7252,7 @@ var App = {
       '<div class="welcome-msg"><h2>' + t('hallo') + ', ' + inst.name + '</h2><p>' + t('deineWochenplanung') + '</p></div>';
 
     // Week navigation
-    html += '<div class="schedule-week-nav">' +
-      '<button class="btn btn-ghost btn-sm" onclick="App.shiftWeek(-1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polyline points="15,18 9,12 15,6"/></svg></button>' +
-      '<span class="schedule-week-label">' + this.weekLabel() + '</span>' +
-      '<button class="btn btn-ghost btn-sm" onclick="App.shiftWeek(1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polyline points="9,18 15,12 9,6"/></svg></button></div>';
+    html += this.weekNavHtml();
 
     // View mode toggle (Fix 2)
     html += '<div class="view-toggle-row">' +
