@@ -1836,6 +1836,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Notiz im Termin: mehrzeilig, Rest wird abgeschnitten (voller Text per Klick) */
+.week-grid-slot-notes {
+  margin-top: 2px;
+  opacity: 0.8;
+  font-style: italic;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
 
 /* ---- Type-based colors ---- */
 /* Übungsfahrt — Green */
@@ -5891,6 +5902,7 @@ body.slot-drag-active .week-grid-slot.slot-movable { cursor: grabbing; }
 .week-grid-slot-shared .week-grid-slot-time,
 .week-grid-slot-shared .week-grid-slot-name,
 .week-grid-slot-shared .week-grid-slot-type,
-.week-grid-slot-shared .week-grid-slot-instructor {
+.week-grid-slot-shared .week-grid-slot-instructor,
+.week-grid-slot-shared .week-grid-slot-notes {
   font-size: 9px;
 }

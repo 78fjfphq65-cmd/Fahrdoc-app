@@ -496,6 +496,12 @@ var LESSON_TYPES = [
   'Prüfungsvorbereitung'
 ];
 
+// Notiz eines Termins ohne interne Marker (z. B. [recurring:...]) fuer die Anzeige.
+function visibleSlotNotes(notes) {
+  if (!notes) return '';
+  return String(notes).replace(/\[(recurring|group|reason):[^\]]*\]/g, '').replace(/\s+/g, ' ').trim();
+}
+
 // ============================================
 // MAIN APP OBJECT
 // ============================================
@@ -2043,6 +2049,19 @@ var App = {
           if (slot.branch_name) {
             html += '<div class="week-grid-slot-branch" style="font-size:10px;opacity:0.85;">\ud83d\udccd ' + slot.branch_name + '</div>';
           }
+          // Notiz, soweit sie in den Termin passt. Die Zeilenzahl richtet sich nach
+          // der Resthoehe, damit keine Zeile angeschnitten wird. Der vollstaendige
+          // Text steht im Termin selbst (Klick).
+          var _note = visibleSlotNotes(slot.notes);
+          if (_note) {
+            var _usedPx = 6 + 14 + 14 + 14 + (_instName_n ? 14 : 0) + (slot.branch_name ? 14 : 0);
+            var _noteLines = Math.floor((height - _usedPx) / 13);
+            if (_noteLines >= 1) {
+              if (_noteLines > 6) _noteLines = 6;
+              html += '<div class="week-grid-slot-notes" style="-webkit-line-clamp:' + _noteLines + ';" title="' + App.escapeHtml(_note) + '">' +
+                App.escapeHtml(_note) + '</div>';
+            }
+          }
         } else {
           html += '<div class="week-grid-slot-time">' + slot.start_time + ' ' + (_slotInstructorName(slot) || slot.student_name || slot.type) + '</div>';
         }
@@ -2293,7 +2312,9 @@ var App = {
   updateScheduleSlot: async function(id) {
     // Notizen darf der Fahrlehrer immer ändern. Felder die disabled sind, NICHT mitsenden,
     // damit das Backend (PUT /api/schedule) sie nicht überschreibt.
-    var slotData = { notes: document.getElementById('schedule-notes').value };
+    var _noteVal = document.getElementById('schedule-notes').value;
+    if (AppState.scheduleNotesMarkers) _noteVal = (_noteVal ? _noteVal + ' ' : '') + AppState.scheduleNotesMarkers;
+    var slotData = { notes: _noteVal };
     var dateEl = document.getElementById('schedule-date');
     if (dateEl && !dateEl.disabled) slotData.date = dateEl.value;
     var startEl = document.getElementById('schedule-start-time');
@@ -2459,7 +2480,14 @@ var App = {
     var endTime = isEdit ? editSlot.end_time : '';
     var type = isEdit ? editSlot.type : 'Übungsfahrt';
     var cls = isEdit ? editSlot.license_class : 'B';
-    var notes = isEdit ? (editSlot.notes || '') : '';
+    // Interne Marker wie [recurring:...] gehoeren nicht ins Notizfeld. Sie werden
+    // gemerkt und beim Speichern wieder angehaengt, damit die Serie erhalten bleibt.
+    var notes = isEdit ? App.escapeHtml(visibleSlotNotes(editSlot.notes)) : '';
+    AppState.scheduleNotesMarkers = '';
+    if (isEdit && editSlot.notes) {
+      var _mk = String(editSlot.notes).match(/\[(recurring|group|reason):[^\]]*\]/g);
+      if (_mk) AppState.scheduleNotesMarkers = _mk.join('');
+    }
     var studentId = isEdit ? (editSlot.student_id || '') : '';
 
     if (!isEdit && !endTime) {
