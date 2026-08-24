@@ -4569,6 +4569,7 @@ var App = {
       }
 
       // Load students for attendance
+      html += '<div id="theory-attendance-filter"></div>';
       html += '<div class="theory-attendance-list" id="theory-attendance-list"><div class="loading-spinner" style="margin:var(--space-4) auto;"></div></div>';
 
       html += '</div>';
@@ -4584,6 +4585,44 @@ var App = {
     } catch (err) { this.showToast(t('fehler') + ': ' + err.message); } finally { this._loadingTheoryDetail = false; }
   },
 
+  // ── Namens-Hilfen fuer alphabetische Listen (Sortierung nach Nachname) ──
+  _nameParticles: ['von', 'van', 'vom', 'zu', 'zur', 'de', 'del', 'della', 'di', 'da', 'dos', 'das', 'du', 'le', 'la', 'el', 'al', 'bin', 'ibn', 'ter', 'ten', 'abu'],
+  _splitName: function(fullName) {
+    var parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return { first: '', last: '' };
+    if (parts.length === 1) return { first: '', last: parts[0] };
+    for (var i = 1; i < parts.length - 1; i++) {
+      if (App._nameParticles.indexOf(parts[i].toLowerCase().replace(/\./g, '')) > -1) {
+        return { first: parts.slice(0, i).join(' '), last: parts.slice(i).join(' ') };
+      }
+    }
+    return { first: parts.slice(0, parts.length - 1).join(' '), last: parts[parts.length - 1] };
+  },
+  _lastNameOf: function(fullName) { return App._splitName(fullName).last; },
+  // Sortier-/Filter-Schluessel: Namenszusaetze werden ignoriert ("von Berg" → B)
+  // und Umlaute auf ihren Grundbuchstaben abgebildet (Öztürk → O).
+  _sortKeyLast: function(fullName) {
+    var last = App._splitName(fullName).last;
+    var parts = last.split(/\s+/).filter(Boolean);
+    while (parts.length > 1 && App._nameParticles.indexOf(parts[0].toLowerCase().replace(/\./g, '')) > -1) parts.shift();
+    var key = parts.join(' ');
+    return key.replace(/ä/gi, 'a').replace(/ö/gi, 'o').replace(/ü/gi, 'u').replace(/ß/g, 'ss');
+  },
+  _letterOf: function(fullName) {
+    var k = App._sortKeyLast(fullName);
+    return (k || '?').charAt(0).toUpperCase();
+  },
+  _nameLastFirst: function(fullName) {
+    var p = App._splitName(fullName);
+    return p.first ? (p.last + ', ' + p.first) : p.last;
+  },
+  _compareByLastName: function(a, b) {
+    var c = App._sortKeyLast(a).localeCompare(App._sortKeyLast(b), 'de', { sensitivity: 'base' });
+    if (c !== 0) return c;
+    return App._splitName(a).first.localeCompare(App._splitName(b).first, 'de', { sensitivity: 'base' });
+  },
+
+  _theoryAttLetter: '',
   _loadTheoryAttendance: async function(scheduleId) {
     try {
       var students = await ApiClient.get('/api/theory/students');
@@ -4593,20 +4632,77 @@ var App = {
 
       var list = document.getElementById('theory-attendance-list');
       if (!list) return;
+      // Alphabetisch nach Nachname sortieren
+      students = (students || []).slice().sort(function(a, b) { return App._compareByLastName(a.name, b.name); });
       var html = '';
       var presentCount = 0;
-      (students || []).forEach(function(st) {
+      var letters = {};
+      students.forEach(function(st) {
         var checked = attMap[st.id] === true;
         if (checked) presentCount++;
-        html += '<div class="theory-attendance-item">' +
+        var parts = App._splitName(st.name);
+        var letter = App._letterOf(st.name);
+        letters[letter] = true;
+        var search = (st.name + ' ' + parts.last + ' ' + App._sortKeyLast(st.name)).toLowerCase();
+        html += '<div class="theory-attendance-item" data-letter="' + letter + '" data-search="' + App._escapeHtml(search) + '">' +
           '<label><input type="checkbox" data-student-id="' + st.id + '"' + (checked ? ' checked' : '') +
-          ' onchange="App._updateTheoryAttCounter()"> ' + st.name + '</label>' +
+          ' onchange="App._updateTheoryAttCounter()"> ' + App._escapeHtml(App._nameLastFirst(st.name)) + '</label>' +
           '<span class="text-xs text-muted">' + t('klasse') + ' ' + (st.license_class || '-') + '</span></div>';
       });
+      html += '<div id="theory-att-empty" class="text-sm text-muted" style="display:none;text-align:center;padding:var(--space-3);">' + t('keineTreffer') + '</div>';
       list.innerHTML = html;
+
+      // Suche + Buchstaben-Filter (nur sinnvoll ab ein paar Schuelern)
+      var filterBox = document.getElementById('theory-attendance-filter');
+      if (filterBox) {
+        if (students.length > 8) {
+          App._theoryAttLetter = '';
+          var chips = '<button type="button" class="theory-att-letter is-active" data-letter="" onclick="App.setTheoryAttLetter(\'\')">' + t('alle') + '</button>';
+          Object.keys(letters).sort(function(a, b){ return a.localeCompare(b, 'de'); }).forEach(function(l) {
+            chips += '<button type="button" class="theory-att-letter" data-letter="' + l + '" onclick="App.setTheoryAttLetter(\'' + l + '\')">' + l + '</button>';
+          });
+          filterBox.innerHTML =
+            '<input type="text" class="form-input" id="theory-att-search" placeholder="' + t('namenSuchen') + '" ' +
+              'oninput="App.filterTheoryAttendance()" style="margin-bottom:var(--space-2);">' +
+            '<div class="theory-att-letters">' + chips + '</div>';
+        } else {
+          filterBox.innerHTML = '';
+        }
+      }
+
       var counter = document.getElementById('theory-att-counter');
       if (counter) counter.textContent = presentCount + '/' + students.length + ' ' + t('anwesend');
     } catch(e) {}
+  },
+
+  setTheoryAttLetter: function(letter) {
+    App._theoryAttLetter = letter || '';
+    var btns = document.querySelectorAll('.theory-att-letter');
+    for (var i = 0; i < btns.length; i++) {
+      if ((btns[i].getAttribute('data-letter') || '') === App._theoryAttLetter) btns[i].classList.add('is-active');
+      else btns[i].classList.remove('is-active');
+    }
+    App.filterTheoryAttendance();
+  },
+
+  // Filtert nur die Anzeige — alle Checkboxen bleiben im DOM, damit beim
+  // Speichern keine Anwesenheit verloren geht.
+  filterTheoryAttendance: function() {
+    var searchEl = document.getElementById('theory-att-search');
+    var q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+    var letter = App._theoryAttLetter || '';
+    var items = document.querySelectorAll('#theory-attendance-list .theory-attendance-item');
+    var shown = 0;
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      var okLetter = !letter || it.getAttribute('data-letter') === letter;
+      var okSearch = !q || (it.getAttribute('data-search') || '').indexOf(q) > -1;
+      var visible = okLetter && okSearch;
+      it.style.display = visible ? '' : 'none';
+      if (visible) shown++;
+    }
+    var empty = document.getElementById('theory-att-empty');
+    if (empty) empty.style.display = shown === 0 ? '' : 'none';
   },
 
   _updateTheoryAttCounter: function() {

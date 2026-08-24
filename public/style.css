@@ -3878,6 +3878,11 @@ html[dir="rtl"] .notif-panel {
 .theory-attendance-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)}
 .theory-attendance-counter{font-size:var(--text-sm);font-weight:600;color:var(--color-purple)}
 .theory-attendance-list{max-height:300px;overflow-y:auto}
+/* Buchstaben-Filter der Anwesenheitsliste (Sortierung nach Nachname) */
+.theory-att-letters{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:var(--space-2)}
+.theory-att-letter{min-width:28px;padding:3px 7px;border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface);color:var(--color-text-muted);font-size:var(--text-xs);font-weight:600;cursor:pointer;line-height:1.4}
+.theory-att-letter:hover{border-color:var(--color-primary);color:var(--color-primary)}
+.theory-att-letter.is-active{background:var(--color-primary);border-color:var(--color-primary);color:#fff}
 .theory-attendance-item{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) 0;border-bottom:1px solid var(--color-divider);font-size:var(--text-sm)}
 .theory-attendance-item:last-child{border-bottom:none}
 .theory-attendance-item label{display:flex;align-items:center;gap:var(--space-2);cursor:pointer;flex:1}
