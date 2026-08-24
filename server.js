@@ -2313,9 +2313,15 @@ app.post('/api/lesson/:id/send-report', authMiddleware, async (req, res) => {
 app.post('/api/lessons', authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== 'instructor') return res.status(403).json({ error: 'Nur Fahrlehrer können Fahrstunden erstellen' });
-    const { studentId, type, duration, notes, ratings, ratingNotes, licenseClass, date, images, docMode, trainingMarks } = req.body;
+    const { studentId, type, duration, notes, ratings, ratingNotes, licenseClass, date, images, docMode, trainingMarks, trackedMinutes } = req.body;
 
     if (!type || !duration) return res.status(400).json({ error: 'Pflichtfelder fehlen' });
+    // Abgerechnet/dokumentiert wird die geplante Dauer (duration). Die per GPS/Timer
+    // gemessene Zeit wird zusaetzlich als tracked_minutes gespeichert (Nachweis).
+    const _duration = Math.min(600, Math.max(1, parseInt(duration, 10) || 0));
+    if (!_duration) return res.status(400).json({ error: 'Dauer ungültig' });
+    var _tracked = parseInt(trackedMinutes, 10);
+    if (!(_tracked > 0) || _tracked > 1440) _tracked = null;
     const _docMode = (docMode === 'cards') ? 'cards' : 'examiner';
 
     // GoBD-konform: Jede Fahrstunde ist regulär. Gratis/Schnupperfahrt-Kennzeichnung
@@ -2347,7 +2353,8 @@ app.post('/api/lessons', authMiddleware, async (req, res) => {
 
     await supabase.from('lessons').insert({
       id, student_id: studentId || null, instructor_id: req.user.id, school_id: schoolId,
-      date: lessonDate, type, duration, notes: notes || '', license_class: licenseClass || 'B',
+      date: lessonDate, type, duration: _duration, notes: notes || '', license_class: licenseClass || 'B',
+      tracked_minutes: _tracked,
       billing_category: _billingCategory,
       doc_mode: _docMode
     });
@@ -6424,6 +6431,43 @@ app.post('/api/students/:id/charges', authMiddleware, requireGobdMode(), async (
     res.json({ charge: data });
   } catch (err) {
     console.error('[Charge POST]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/students/:id/credits — Gutschrift / Guthaben erfassen
+// Eine Gutschrift ist eine Soll-Position mit negativem Betrag (Kategorie 'gutschrift').
+// Dadurch fliesst sie automatisch in Saldo, offene Betraege und Rechnungen ein.
+// body: { amount_cents (positiv), description?, charge_date?, notes? }
+app.post('/api/students/:id/credits', authMiddleware, requireGobdMode(), async (req, res) => {
+  try {
+    const allowed = await canAccessStudent(req, req.params.id);
+    if (!allowed) return res.status(403).json({ error: 'Keine Berechtigung' });
+    const b = req.body || {};
+    const amount = Math.abs(parseInt(b.amount_cents, 10) || 0);
+    if (!amount) return res.status(400).json({ error: 'Betrag erforderlich' });
+    if (amount > 10000000) return res.status(400).json({ error: 'Betrag zu hoch' });
+    const { data: student } = await supabase.from('students').select('school_id').eq('id', req.params.id).single();
+    const row = {
+      id: generateId(),
+      school_id: student.school_id,
+      student_id: req.params.id,
+      description: (b.description && String(b.description).trim()) || 'Gutschrift',
+      category: 'gutschrift',
+      unit_price_cents: -amount,
+      quantity: 1,
+      total_cents: -amount,
+      charge_date: b.charge_date || new Date().toISOString().split('T')[0],
+      created_by_role: req.user.role,
+      created_by_id: req.user.id,
+      source: 'manual',
+      notes: b.notes || null
+    };
+    const { data, error } = await supabase.from('student_charges').insert(row).select().single();
+    if (error) throw error;
+    res.json({ credit: data });
+  } catch (err) {
+    console.error('[Credit POST]', err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -2633,8 +2633,15 @@ var App = {
       // "Fahrstunde starten" button for instructor when student is assigned
       // "Sonstiges" ist keine Fahrstunde — daraus wird nichts dokumentiert.
       if (AppState.currentUser && AppState.currentUser.role === 'instructor' && editSlot.student_id && editSlot.type !== 'Sonstiges') {
+        // Geplante Dauer mitgeben — abgerechnet/dokumentiert wird die geplante Stunde,
+        // nicht die per Timer getrackte Zeit.
+        var _plannedMin = 0;
+        try {
+          _plannedMin = timeToMinutes(editSlot.end_time) - timeToMinutes(editSlot.start_time);
+          if (!(_plannedMin > 0) || _plannedMin > 600) _plannedMin = 0;
+        } catch (e) { _plannedMin = 0; }
         html += '<button type="button" class="btn btn-full btn-lg mt-3" style="background:var(--color-success);color:#fff;" ' +
-          'onclick="App.closeModalForce();App.startLessonFromSlot(\'' + editSlot.student_id + '\', \'' + editSlot.type + '\', \'' + editSlot.license_class + '\')">' +
+          'onclick="App.closeModalForce();App.startLessonFromSlot(\'' + editSlot.student_id + '\', \'' + editSlot.type + '\', \'' + editSlot.license_class + '\', ' + _plannedMin + ')">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><polygon points="5,3 19,12 5,21 5,3"/></svg> '+t('fahrstundeStarten')+'</button>';
       }
     } else {
@@ -8198,6 +8205,7 @@ var App = {
             '<div class="section-title" style="margin:0;">\ud83d\udcb6 Abrechnung</div>' +
             '<div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">' +
               '<button class="btn btn-sm btn-secondary" onclick="App.openAddChargeDialog(\'' + studentId + '\')">+ Position</button>' +
+              '<button class="btn btn-sm btn-secondary" onclick="App.openAddCreditDialog(\'' + studentId + '\')">+ Gutschrift</button>' +
               '<button class="btn btn-sm btn-secondary" onclick="App.openCreateInvoiceDialog(\'' + studentId + '\')">\ud83d\udcc4 Rechnung</button>' +
               '<button class="btn btn-sm btn-primary" onclick="App.openAddPaymentDialog(\'' + studentId + '\')">+ Zahlung</button>' +
             '</div>' +
@@ -8245,6 +8253,12 @@ var App = {
       // Im Soll-Tab Cache fuer offene Charges (zum Rechnungs-Dialog)
       App._billingCache = App._billingCache || {};
       App._billingCache[studentId] = { charges: charges, invoices: invoices, payments: payments };
+      // Gutschriften separat ausweisen: negative Positionen mindern das Soll.
+      var creditCents = 0, sollCents = 0;
+      charges.forEach(function(c){
+        var v = c.total_cents || 0;
+        if (v < 0) creditCents += -v; else sollCents += v;
+      });
       var openColor = summary.open_cents > 0 ? '#dc2626' : (summary.open_cents < 0 ? '#0d9488' : 'var(--text-muted)');
       var openLabel = summary.open_cents > 0 ? 'Offen' : (summary.open_cents < 0 ? 'Guthaben' : 'Ausgeglichen');
       var openValue = summary.open_cents > 0 ? this._formatEur(summary.open_cents) : (summary.open_cents < 0 ? this._formatEur(-summary.open_cents) : this._formatEur(0));
@@ -8253,8 +8267,14 @@ var App = {
       var h = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--space-2);margin-bottom:var(--space-4);">' +
         '<div style="background:var(--bg-elevated);padding:var(--space-3);border-radius:var(--radius-md);">' +
           '<div style="font-size:var(--text-xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Soll</div>' +
-          '<div style="font-size:18px;font-weight:700;margin-top:4px;">' + this._formatEur(summary.total_charges_cents) + '</div>' +
+          '<div style="font-size:18px;font-weight:700;margin-top:4px;">' + this._formatEur(sollCents) + '</div>' +
         '</div>' +
+        (creditCents > 0
+          ? '<div style="background:var(--bg-elevated);padding:var(--space-3);border-radius:var(--radius-md);">' +
+              '<div style="font-size:var(--text-xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Gutschriften</div>' +
+              '<div style="font-size:18px;font-weight:700;margin-top:4px;color:#0d9488;">\u2212 ' + this._formatEur(creditCents) + '</div>' +
+            '</div>'
+          : '') +
         '<div style="background:var(--bg-elevated);padding:var(--space-3);border-radius:var(--radius-md);">' +
           '<div style="font-size:var(--text-xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Bezahlt</div>' +
           '<div style="font-size:18px;font-weight:700;margin-top:4px;color:#0d9488;">' + this._formatEur(summary.total_paid_cents) + '</div>' +
@@ -8287,17 +8307,19 @@ var App = {
             '<th style="padding:8px 6px;"></th>' +
           '</tr></thead><tbody>';
         charges.forEach(function(c){
+          var isCredit = (c.total_cents || 0) < 0;
           var sourceTag = c.source === 'auto' ? '<span class="badge badge-muted" style="font-size:10px;margin-left:6px;">auto</span>' : '';
+          var creditTag = isCredit ? '<span class="badge" style="font-size:10px;margin-left:6px;background:#ccfbf1;color:#0f766e;padding:2px 6px;border-radius:3px;">Gutschrift</span>' : '';
           var invTag = c.invoice_id ? '<span class="badge" style="font-size:10px;margin-left:6px;background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:3px;">in Rechnung</span>' : '';
           var delBtn = c.invoice_id
             ? '<span style="font-size:11px;color:var(--text-muted);">\u2014</span>'
             : '<button class="btn btn-sm" style="padding:4px 8px;background:transparent;color:#dc2626;border:1px solid #dc2626;" onclick="App.deleteCharge(\'' + c.id + '\',\'' + studentId + '\')">\u00d7</button>';
           h += '<tr style="border-bottom:1px solid var(--border-color);' + (c.invoice_id ? 'background:#f8fafc;' : '') + '">' +
             '<td style="padding:8px 6px;white-space:nowrap;">' + App._formatDateDe(c.charge_date) + '</td>' +
-            '<td style="padding:8px 6px;">' + (c.description || '\u2014') + sourceTag + invTag + '</td>' +
-            '<td style="padding:8px 6px;text-align:right;">' + App._formatEur(c.unit_price_cents) + '</td>' +
+            '<td style="padding:8px 6px;">' + (c.description || '\u2014') + sourceTag + creditTag + invTag + '</td>' +
+            '<td style="padding:8px 6px;text-align:right;' + (isCredit ? 'color:#0d9488;' : '') + '">' + App._formatEur(c.unit_price_cents) + '</td>' +
             '<td style="padding:8px 6px;text-align:right;">' + (c.quantity || 1) + '</td>' +
-            '<td style="padding:8px 6px;text-align:right;font-weight:600;">' + App._formatEur(c.total_cents) + '</td>' +
+            '<td style="padding:8px 6px;text-align:right;font-weight:600;' + (isCredit ? 'color:#0d9488;' : '') + '">' + App._formatEur(c.total_cents) + '</td>' +
             '<td style="padding:8px 6px;text-align:right;">' + delBtn + '</td>' +
           '</tr>';
         });
@@ -8458,6 +8480,59 @@ var App = {
       });
       App.closeModalForce();
       App.showToast('Position gespeichert');
+      App.renderStudentBilling(studentId);
+    } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
+  },
+
+  // ── Gutschrift / Guthaben (z. B. Geburtstag, Kulanz, Empfehlung) ──
+  openAddCreditDialog: function(studentId) {
+    var todayStr = new Date().toISOString().split('T')[0];
+    var reasons = ['Gutschrift Geburtstag', 'Gutschrift Empfehlung', 'Gutschrift Kulanz', 'Rabatt', 'Gutschrift Sonstiges'];
+    var opts = '';
+    reasons.forEach(function(r){ opts += '<option value="' + r + '">' + r + '</option>'; });
+    var html = '<div style="display:flex;flex-direction:column;gap:var(--space-3);">' +
+      '<p style="font-size:var(--text-sm);color:var(--text-muted);margin:0;">Die Gutschrift wird als negative Position gebucht und mindert sofort den offenen Betrag des Sch\u00fclers.</p>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">' +
+        '<div class="form-group"><label class="form-label">Betrag (\u20ac) *</label>' +
+          '<input type="number" step="0.01" min="0.01" class="form-input" id="credit-amount" placeholder="50.00"></div>' +
+        '<div class="form-group"><label class="form-label">Datum</label>' +
+          '<input type="date" class="form-input" id="credit-date" value="' + todayStr + '"></div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">Grund</label>' +
+        '<select class="form-select" id="credit-reason" onchange="App._fillCreditDesc(this)">' + opts + '</select></div>' +
+      '<div class="form-group"><label class="form-label">Beschreibung *</label>' +
+        '<input type="text" class="form-input" id="credit-desc" value="Gutschrift Geburtstag"></div>' +
+      '<div class="form-group"><label class="form-label">Notiz</label>' +
+        '<textarea class="form-textarea" id="credit-notes" rows="2"></textarea></div>' +
+    '</div>';
+    html += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-top:var(--space-4);">' +
+      '<button class="btn btn-secondary" onclick="App.closeModalForce()">Abbrechen</button>' +
+      '<button class="btn btn-primary" onclick="App._saveCredit(\'' + studentId + '\')">Gutschrift buchen</button>' +
+    '</div>';
+    App.openModal('Gutschrift erfassen', html);
+  },
+
+  _fillCreditDesc: function(sel) {
+    var descEl = document.getElementById('credit-desc');
+    if (descEl && sel && sel.value) descEl.value = sel.value;
+  },
+
+  _saveCredit: async function(studentId) {
+    var amountVal = parseFloat(((document.getElementById('credit-amount') || {}).value || '0').replace(',', '.'));
+    var desc = (document.getElementById('credit-desc') || {}).value || '';
+    var date = (document.getElementById('credit-date') || {}).value || null;
+    var notes = (document.getElementById('credit-notes') || {}).value || null;
+    if (!(amountVal > 0)) return App.showToast('Betrag fehlt');
+    if (!desc.trim()) return App.showToast('Beschreibung fehlt');
+    try {
+      await ApiClient.post('/api/students/' + studentId + '/credits', {
+        amount_cents: Math.round(amountVal * 100),
+        description: desc.trim(),
+        charge_date: date,
+        notes: notes
+      });
+      App.closeModalForce();
+      App.showToast('Gutschrift gebucht');
       App.renderStudentBilling(studentId);
     } catch (err) { App.showToast('Fehler: ' + (err.message || err)); }
   },
@@ -11417,8 +11492,18 @@ var App = {
     });
   },
 
+  // Geplante Dauer einer Fahrstunde: bevorzugt die Dauer des eingeplanten Termins,
+  // sonst die Standarddauer des Termintyps (Fahrschul-Einstellung, z. B. 80 Min).
+  _plannedMinutesFor: function(type, plannedMin) {
+    var p = parseInt(plannedMin, 10);
+    if (p > 0 && p <= 600) return p;
+    var preset = parseInt(SCHEDULE_PRESETS[type], 10);
+    if (preset > 0 && preset <= 600) return preset;
+    return 90;
+  },
+
   _startLessonAfterModePick: function(studentId, studentName, type, licenseClass, docMode) {
-    AppState.activeLesson = { studentId: studentId, studentName: studentName, type: type, licenseClass: licenseClass, docMode: docMode || 'examiner', startTime: new Date() };
+    AppState.activeLesson = { studentId: studentId, studentName: studentName, type: type, licenseClass: licenseClass, docMode: docMode || 'examiner', startTime: new Date(), plannedMinutes: App._plannedMinutesFor(type, 0) };
     AppState.lessonStartTime = Date.now();
     AppState.lessonPaused = false;
     AppState.pausedDuration = 0;
@@ -11492,7 +11577,7 @@ var App = {
   },
 
   // Start lesson directly from schedule slot (no setup screen)
-  startLessonFromSlot: async function(studentId, type, licenseClass) {
+  startLessonFromSlot: async function(studentId, type, licenseClass, plannedMin) {
     try {
       var students = await ApiClient.get('/api/instructor/school-students');
       var student = students.find(function(s) { return s.id === studentId; });
@@ -11500,12 +11585,12 @@ var App = {
       var self = this;
       var lc = licenseClass || 'B';
       this._pickDocModeThen(lc, function(docMode) {
-        self._startLessonFromSlotAfterModePick(student, type, lc, docMode);
+        self._startLessonFromSlotAfterModePick(student, type, lc, docMode, plannedMin);
       });
     } catch(e) { this.showToast(t('fehler') + ': ' + e.message); }
   },
-  _startLessonFromSlotAfterModePick: function(student, type, licenseClass, docMode) {
-    AppState.activeLesson = { studentId: student.id, studentName: student.name, type: type, licenseClass: licenseClass, docMode: docMode || 'examiner', startTime: new Date() };
+  _startLessonFromSlotAfterModePick: function(student, type, licenseClass, docMode, plannedMin) {
+    AppState.activeLesson = { studentId: student.id, studentName: student.name, type: type, licenseClass: licenseClass, docMode: docMode || 'examiner', startTime: new Date(), plannedMinutes: App._plannedMinutesFor(type, plannedMin) };
     AppState.lessonStartTime = Date.now();
     AppState.lessonPaused = false;
     AppState.pausedDuration = 0;
@@ -12087,13 +12172,21 @@ var App = {
     }
     this._unmountTrainingCardsView();
     var elapsed = Date.now() - AppState.lessonStartTime - (AppState.pausedDuration || 0);
-    var durationMin = Math.max(1, Math.round(elapsed / 60000));
-    AppState.activeLesson.duration = durationMin;
+    var trackedMin = Math.max(1, Math.round(elapsed / 60000));
+    // Abgerechnet und dokumentiert wird die GEPLANTE Dauer (z. B. 80 Min), nicht die
+    // getrackte Zeit. Die getrackte Zeit wird als Nachweis mitgespeichert und in der
+    // Zusammenfassung angezeigt; der Fahrlehrer kann die Dauer dort noch korrigieren.
+    var plannedMin = this._plannedMinutesFor(AppState.activeLesson.type, AppState.activeLesson.plannedMinutes);
+    AppState.activeLesson.trackedMinutes = trackedMin;
+    AppState.activeLesson.plannedMinutes = plannedMin;
+    AppState.activeLesson.duration = plannedMin;
+    var durationMin = trackedMin;
     // Route/Marker/Distance-Daten übernehmen (in cards-Modus alles leer/0)
     AppState.activeLesson.routeData = (AppState.routePoints || []).slice();
     AppState.activeLesson.markers = (AppState.routeMarkers || []).slice();
     AppState.activeLesson.distanceKm = (AppState.totalDistance || 0) / 1000;
     if (durationMin > 0 && AppState.totalDistance > 0) {
+      // Durchschnittsgeschwindigkeit aus der tatsaechlich gefahrenen Zeit
       AppState.activeLesson.avgSpeedKmh = (AppState.totalDistance / 1000) / (durationMin / 60);
     } else {
       AppState.activeLesson.avgSpeedKmh = 0;
@@ -12116,6 +12209,34 @@ var App = {
     this.renderLessonSummary();
   },
 
+  // Dauer-Block der Zusammenfassung: abgerechnet wird die geplante Dauer,
+  // die getrackte Zeit steht als Nachweis daneben und die Dauer ist korrigierbar.
+  _summaryDurationHtml: function(lesson) {
+    var billed = parseInt(lesson.duration, 10) || 0;
+    var tracked = parseInt(lesson.trackedMinutes, 10) || 0;
+    var info = 'Geplant: ' + (parseInt(lesson.plannedMinutes, 10) || billed) + ' Min';
+    if (tracked > 0) info += ' \u00b7 getrackt: ' + tracked + ' Min';
+    return '<div style="margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--color-border);">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap;">' +
+        '<label class="form-label" for="summary-duration-min" style="margin:0;">Abgerechnete Dauer (Min)</label>' +
+        '<input type="number" min="1" max="600" step="5" id="summary-duration-min" class="form-input" ' +
+          'style="width:110px;text-align:right;" value="' + billed + '" onchange="App._onSummaryDurationChange(this)">' +
+      '</div>' +
+      '<div class="text-xs text-muted" style="margin-top:6px;">' + info + '</div>' +
+    '</div>';
+  },
+
+  _onSummaryDurationChange: function(el) {
+    if (!AppState.activeLesson) return;
+    var v = parseInt(el.value, 10);
+    if (!(v > 0)) v = 1;
+    if (v > 600) v = 600;
+    el.value = v;
+    AppState.activeLesson.duration = v;
+    var badge = document.getElementById('summary-duration-badge');
+    if (badge) badge.textContent = App.formatDuration(v);
+  },
+
   renderLessonSummary: function() {
     var lesson = AppState.activeLesson;
     if (!lesson) return;
@@ -12126,8 +12247,9 @@ var App = {
     }
     var html = '<div class="card mb-4"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-2);">' +
       '<span class="font-semibold text-sm">' + lesson.type + '</span>' +
-      '<span class="badge badge-primary">' + this.formatDuration(lesson.duration) + '</span></div>' +
-      '<div class="text-xs text-muted">' + lesson.studentName + '</div></div>';
+      '<span class="badge badge-primary" id="summary-duration-badge">' + this.formatDuration(lesson.duration) + '</span></div>' +
+      '<div class="text-xs text-muted">' + lesson.studentName + '</div>' +
+      this._summaryDurationHtml(lesson) + '</div>';
 
     // ── PFEP-Bewertungs-Surface (Pruefer-Optik) ──
     var groups = evaluationGroupsFor(lesson && lesson.licenseClass);
@@ -12229,8 +12351,9 @@ var App = {
 
     var html = '<div class="card mb-4"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-2);">' +
       '<span class="font-semibold text-sm">' + this._escapeHtml(lesson.type || '') + '</span>' +
-      '<span class="badge badge-primary">' + this.formatDuration(lesson.duration) + '</span></div>' +
-      '<div class="text-xs text-muted">' + this._escapeHtml(lesson.studentName || '') + '</div></div>';
+      '<span class="badge badge-primary" id="summary-duration-badge">' + this.formatDuration(lesson.duration) + '</span></div>' +
+      '<div class="text-xs text-muted">' + this._escapeHtml(lesson.studentName || '') + '</div>' +
+      this._summaryDurationHtml(lesson) + '</div>';
 
     html += '<div class="section-title mb-2">' + this._escapeHtml(t('trainingReportTitle') || 'Ausbildungsdiagramm — Fahrstunde') + '</div>';
 
@@ -12544,8 +12667,13 @@ var App = {
           });
         }
       });
+      // Dauer aus dem Eingabefeld (falls der Fahrlehrer korrigiert hat) hat Vorrang
+      var _durEl = document.getElementById('summary-duration-min');
+      var _durVal = _durEl ? parseInt(_durEl.value, 10) : 0;
+      if (_durVal > 0 && _durVal <= 600) lesson.duration = _durVal;
       var resp = await ApiClient.post('/api/lessons', {
         studentId: lesson.studentId, type: lesson.type, duration: lesson.duration,
+        trackedMinutes: lesson.trackedMinutes || null,
         notes: notes, ratings: _filterValidRatings(AppState.summaryRatings),
         ratingNotes: AppState.summaryRatingNotes || {},
         licenseClass: lesson.licenseClass,
