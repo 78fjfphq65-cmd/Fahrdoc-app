@@ -287,7 +287,10 @@ function _filterValidRatings(ratings) {
 
 var SCHEDULE_PRESETS = {
   'Übungsfahrt': 90, 'Überlandfahrt': 225, 'Autobahnfahrt': 180,
-  'Nachtfahrt': 135, 'Prüfungsvorbereitung': 90, 'Praktische Prüfung': 55, 'Theoretische Prüfung': 45,
+  'Nachtfahrt': 135, 'Prüfungsvorbereitung': 90, 'Praktische Prüfung': 55,
+  // 'Theoretische Prüfung' wurde als Termintyp entfernt (2026-08-24) — die
+  // Theorie wird über den Theorieplan verwaltet. Farbe, Kürzel und Übersetzung
+  // bleiben erhalten, damit Alttermine weiter korrekt angezeigt werden.
   // "Sonstiges" = Termin, der keine Fahrstunde ist (Beratung, Sehtest, privater
   // Termin ...). Wird nicht dokumentiert und nicht abgerechnet.
   'Sonstiges': 90
@@ -2502,7 +2505,12 @@ var App = {
       html += roField(tType(type));
     } else {
       html += '<select class="form-select" id="schedule-type" onchange="App.onScheduleTypeChange()">';
-      SCHEDULE_TYPES.forEach(function(st) {
+      // Typen aus Altterminen (z. B. "Theoretische Prüfung", "Zeitsperre") stehen
+      // nicht mehr in der Auswahl — beim Bearbeiten trotzdem ergänzen, sonst
+      // würde der Typ beim Speichern still überschrieben.
+      var typeOptions = SCHEDULE_TYPES.slice();
+      if (type && typeOptions.indexOf(type) === -1) typeOptions.unshift(type);
+      typeOptions.forEach(function(st) {
         html += '<option value="' + st + '"' + (st === type ? ' selected' : '') + '>' + tType(st) + '</option>';
       });
       html += '</select>';
