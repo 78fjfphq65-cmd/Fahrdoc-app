@@ -11552,22 +11552,94 @@ var App = {
     try {
       // Instructor sees ALL school students (not just linked ones)
       var students = await ApiClient.get('/api/instructor/school-students');
-      var sel = document.getElementById('lesson-student-select');
-      sel.innerHTML = '<option value="">' + t('schuelerWaehlen') + '...</option>' +
-        '<option value="__probe__">' + t('probefahrt') + ' (' + t('ohneSchueler') + ')</option>';
-      students.forEach(function(st) { sel.innerHTML += '<option value="' + st.id + '">' + st.name + ' (Klasse ' + st.license_class + ')</option>'; });
+      // Nach Nachname sortieren; angezeigt wird "Nachname, Vorname".
+      AppState.lessonSetupStudents = (students || []).slice().sort(function(a, b) {
+        return App._compareByLastName(a.name, b.name);
+      });
+      var searchEl = document.getElementById('lesson-student-search');
+      if (searchEl) {
+        searchEl.value = '';
+        searchEl.placeholder = t('namenSuchen');
+        searchEl.style.display = AppState.lessonSetupStudents.length > 5 ? '' : 'none';
+      }
+      this._fillLessonStudentSelect('');
       // Briefing-Card unter Schueler-Dropdown bei Auswahl einblenden
+      var sel = document.getElementById('lesson-student-select');
       var briefingBox = document.getElementById('lesson-setup-briefing');
       var self = this;
       sel.onchange = function() {
         var v = sel.value;
         if (!briefingBox) return;
         if (!v || v === '__probe__') { briefingBox.style.display = 'none'; briefingBox.innerHTML = ''; return; }
-        var name = (sel.selectedOptions[0] && sel.selectedOptions[0].textContent.split(' (')[0]) || '';
-        briefingBox.innerHTML = self._renderSetupBriefingCard(v, name);
+        briefingBox.innerHTML = self._renderSetupBriefingCard(v, self._selectedLessonStudentName());
         briefingBox.style.display = 'block';
       };
     } catch (e) {}
+  },
+
+  // Echter Name des gewaehlten Schuelers (nicht die Anzeige "Nachname, Vorname").
+  _selectedLessonStudentName: function() {
+    var sel = document.getElementById('lesson-student-select');
+    var opt = sel && sel.selectedOptions[0];
+    if (!opt) return '';
+    return opt.getAttribute('data-name') || opt.textContent.split(' (')[0];
+  },
+
+  // Baut die Schuelerliste auf, optional gefiltert. Die bisherige Auswahl bleibt
+  // erhalten, solange sie zum Filter passt.
+  _fillLessonStudentSelect: function(query) {
+    var sel = document.getElementById('lesson-student-select');
+    if (!sel) return;
+    var prev = sel.value;
+    var list = AppState.lessonSetupStudents || [];
+    var q = String(query || '').trim().toLowerCase();
+    // Umlaute wie im Sortierschluessel abbilden, damit "ö" auch "Öztürk" findet.
+    var qKey = q.replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss');
+    var matches = list.filter(function(st) {
+      if (!q) return true;
+      var lastKey = App._sortKeyLast(st.name).toLowerCase();
+      // Ein einzelner Buchstabe filtert nach Anfangsbuchstabe des Nachnamens,
+      // ab zwei Zeichen wird im ganzen Namen gesucht.
+      if (q.length === 1) return lastKey.indexOf(qKey) === 0;
+      var key = (st.name + ' ' + lastKey + ' ' + App._nameLastFirst(st.name)).toLowerCase();
+      return key.indexOf(q) !== -1 || lastKey.indexOf(qKey) === 0;
+    });
+    var html = '<option value="">' + t('schuelerWaehlen') + '...</option>' +
+      '<option value="__probe__">' + t('probefahrt') + ' (' + t('ohneSchueler') + ')</option>';
+    matches.forEach(function(st) {
+      html += '<option value="' + st.id + '" data-name="' + App._escapeHtml(st.name) + '">' +
+        App._escapeHtml(App._nameLastFirst(st.name)) +
+        ' (' + t('klasse') + ' ' + App._escapeHtml(st.license_class || '') + ')</option>';
+    });
+    sel.innerHTML = html;
+    // Auswahl wiederherstellen; bei genau einem Treffer direkt vorauswaehlen.
+    if (prev && prev !== '' && prev !== '__probe__' && matches.some(function(st) { return st.id === prev; })) {
+      sel.value = prev;
+    } else if (q && matches.length === 1) {
+      sel.value = matches[0].id;
+    } else if (prev === '__probe__') {
+      sel.value = '__probe__';
+    }
+    var hint = document.getElementById('lesson-student-hint');
+    if (hint) {
+      if (q && matches.length === 0) {
+        hint.textContent = t('keineTreffer');
+        hint.style.display = '';
+      } else if (q) {
+        hint.textContent = matches.length + ' ' + t('schueler');
+        hint.style.display = '';
+      } else {
+        hint.style.display = 'none';
+      }
+    }
+    // Briefing-Card nur bei tatsaechlichem Wechsel neu aufbauen, damit ein bereits
+    // erzeugtes Briefing beim Weitertippen nicht verloren geht.
+    if (sel.value !== prev && sel.onchange) sel.onchange();
+  },
+
+  filterLessonStudents: function() {
+    var searchEl = document.getElementById('lesson-student-search');
+    App._fillLessonStudentSelect(searchEl ? searchEl.value : '');
   },
 
   _renderSetupBriefingCard: function(studentId, studentName) {
@@ -11663,7 +11735,7 @@ var App = {
       studentId = null;
       studentName = t('probefahrt');
     } else {
-      studentName = document.getElementById('lesson-student-select').selectedOptions[0].textContent.split(' (')[0];
+      studentName = this._selectedLessonStudentName();
     }
     var self = this;
     this._pickDocModeThen(licenseClass, function(docMode) {
