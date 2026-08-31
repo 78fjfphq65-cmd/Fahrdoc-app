@@ -11688,10 +11688,12 @@ var App = {
   },
 
   // ── Modus-Auswahl: 'cards' (Ausbildungsdiagramm) vs 'examiner' (TÜV-Modus) ──
-  // Zeigt einen Dialog und ruft cb(mode) auf. Nur für Klasse B — andere Klassen
-  // ohne Karten-Katalog laufen direkt im examiner-Modus.
+  // Zeigt einen Dialog und ruft cb(mode) auf. Nur für Klassen mit Karten-Katalog
+  // (B sowie die Motorrad-Klassen A, A1, A2, AM) — alle anderen Klassen laufen
+  // direkt im examiner-Modus.
   _pickDocModeThen: function(licenseClass, cb) {
-    if (licenseClass !== 'B') { cb('examiner'); return; }
+    var hasCards = (typeof trainingCatalogFor === 'function') && !!trainingCatalogFor(licenseClass);
+    if (!hasCards) { cb('examiner'); return; }
     var self = this;
     var html =
       '<p class="text-muted mb-3" style="font-size:14px;">' + t('docModeChoiceSubtitle') + '</p>' +
@@ -11931,17 +11933,20 @@ var App = {
     this._trainingFavoritesOpen = (this._trainingFavoritesOpen === undefined) ? true : this._trainingFavoritesOpen;
 
     var self = this;
+    // Katalog nach Klasse der Fahrstunde wählen (B oder Motorrad-A)
+    this._setTrainingCatalogKey(AppState.activeLesson && AppState.activeLesson.licenseClass);
+    var clsQ = this._trainingClassQuery();
     // Parallel laden: State + Favoriten + Custom-Topics
     var promises = [];
     if (studentId) {
-      promises.push(ApiClient.get('/api/training-state/' + encodeURIComponent(studentId)).then(function(resp) {
+      promises.push(ApiClient.get('/api/training-state/' + encodeURIComponent(studentId) + clsQ).then(function(resp) {
         if (resp && resp.items) resp.items.forEach(function(row) { self._trainingState[row.topic_id] = row.value; });
       }).catch(function(e) { console.warn('[training-cards] load state failed:', e && e.message); }));
     }
-    promises.push(ApiClient.get('/api/training-favorites').then(function(resp) {
+    promises.push(ApiClient.get('/api/training-favorites' + clsQ).then(function(resp) {
       if (resp && resp.items) resp.items.forEach(function(row) { self._trainingFavorites[row.topic_id] = true; });
     }).catch(function(e) { console.warn('[training-cards] load favorites failed:', e && e.message); }));
-    promises.push(ApiClient.get('/api/training-custom-topics').then(function(resp) {
+    promises.push(ApiClient.get('/api/training-custom-topics' + clsQ).then(function(resp) {
       if (resp && resp.items) self._trainingCustomTopics = resp.items;
     }).catch(function(e) { console.warn('[training-cards] load custom failed:', e && e.message); }));
     await Promise.all(promises);
@@ -11974,6 +11979,30 @@ var App = {
     this._trainingMarks = null;
   },
 
+  // Katalog-Schlüssel der gerade angezeigten Karten ('A' oder 'B').
+  // Wird beim Mounten (Live-Fahrstunde / Edit-Modal) aus der Klasse gesetzt.
+  _trainingCatalogKey: 'B',
+
+  _setTrainingCatalogKey: function(licenseClass) {
+    var key = (typeof trainingCatalogClassFor === 'function') ? trainingCatalogClassFor(licenseClass) : null;
+    this._trainingCatalogKey = key || 'B';
+    return this._trainingCatalogKey;
+  },
+
+  // Aktuell gültiger Katalog (Array von Stufen) — nie null solange die
+  // Katalog-Datei geladen ist.
+  _currentTrainingCatalog: function() {
+    if (typeof TRAINING_CATALOGS === 'undefined') {
+      return (typeof TRAINING_CATALOG_B !== 'undefined') ? TRAINING_CATALOG_B : null;
+    }
+    return TRAINING_CATALOGS[this._trainingCatalogKey || 'B'] || TRAINING_CATALOGS.B || null;
+  },
+
+  // Query-Suffix für die Trainings-Endpunkte (Stand/Favoriten/Custom pro Klasse)
+  _trainingClassQuery: function() {
+    return '?class=' + encodeURIComponent(this._trainingCatalogKey || 'B');
+  },
+
   _renderTrainingCards: function() {
     // Erlaubt zwei Container: Live-Fahrstunde (#lesson-cards-container)
     // und Edit-Modal (#edit-lesson-cards-container). Live hat Vorrang.
@@ -11982,7 +12011,9 @@ var App = {
       var editEl = document.getElementById('edit-lesson-cards-container');
       if (editEl) cardsEl = editEl;
     }
-    if (!cardsEl || typeof TRAINING_CATALOG_B === 'undefined') return;
+    var catalog = this._currentTrainingCatalog();
+    if (!cardsEl || !catalog) return;
+    var catalogKey = this._trainingCatalogKey || 'B';
     var lang = (AppState.language || 'de');
     var state = this._trainingState || {};
     var marks = this._trainingMarks || {};
@@ -12024,16 +12055,18 @@ var App = {
     html += '</div></div>';
 
     // ── Katalog-Stufen ──
-    TRAINING_CATALOG_B.forEach(function(stage) {
+    catalog.forEach(function(stage, stageIdx) {
       var stageKey = stage.stage;
       var stageCustoms = customs.filter(function(c) { return c.stage === stageKey; });
       var stageMeta = self._trainingStageProgress(stage, state, stageCustoms);
-      var isFirst = stageKey === 'grundstufe';
+      var isFirst = stageIdx === 0;
       html += '<div class="training-stage' + (isFirst ? ' is-open' : '') + '" data-stage="' + stageKey + '">';
       html += '<button type="button" class="training-stage-header" onclick="App._toggleTrainingStage(\'' + stageKey + '\')">';
       html += '<div class="training-stage-header-text">';
       html += '<h3 class="training-stage-title">' + self._escapeHtml(tCatalog(TRAINING_STAGE_NAMES[stageKey], lang)) + '</h3>';
-      var subtitle = TRAINING_STAGE_SUBTITLES && TRAINING_STAGE_SUBTITLES[stageKey];
+      var subtitle = (typeof trainingStageSubtitleFor === 'function')
+        ? trainingStageSubtitleFor(catalogKey, stageKey)
+        : (TRAINING_STAGE_SUBTITLES && TRAINING_STAGE_SUBTITLES[stageKey]);
       if (subtitle) html += '<p class="training-stage-subtitle">' + self._escapeHtml(tCatalog(subtitle, lang)) + '</p>';
       html += '</div>';
       html += '<div class="training-stage-meta">';
@@ -12045,7 +12078,8 @@ var App = {
 
       stage.groups.forEach(function(group) {
         html += '<div class="training-group">';
-        if (group.name) html += '<h4 class="training-group-title">' + self._escapeHtml(tCatalog(group.name, lang)) + '</h4>';
+        var groupTitle = group.title || group.name;
+        if (groupTitle) html += '<h4 class="training-group-title">' + self._escapeHtml(tCatalog(groupTitle, lang)) + '</h4>';
         group.items.forEach(function(item) {
           html += self._renderTrainingItem(item, state, marks, lang, { isCustom: false });
         });
@@ -12083,7 +12117,8 @@ var App = {
     var favs = this._trainingFavorites || {};
     var customs = this._trainingCustomTopics || [];
     var out = [];
-    TRAINING_CATALOG_B.forEach(function(stage) {
+    var catalog = this._currentTrainingCatalog() || [];
+    catalog.forEach(function(stage) {
       stage.groups.forEach(function(group) {
         group.items.forEach(function(item) {
           if (favs[item.id]) out.push({ item: item, isCustom: false });
@@ -12222,7 +12257,7 @@ var App = {
     if (newVal) this._trainingFavorites[itemId] = true;
     else delete this._trainingFavorites[itemId];
     this._rerenderTrainingStage('__favorites__');
-    ApiClient.post('/api/training-favorites', { topic_id: itemId, favorite: newVal }).catch(function(e) {
+    ApiClient.post('/api/training-favorites', { topic_id: itemId, favorite: newVal, catalog_class: this._trainingCatalogKey || 'B' }).catch(function(e) {
       console.warn('[training-cards] favorite persist failed:', e && e.message);
     });
   },
@@ -12285,7 +12320,8 @@ var App = {
       var resp = await ApiClient.post('/api/training-custom-topics', {
         stage: stageKey,
         name: name,
-        topic_type: topicType
+        topic_type: topicType,
+        catalog_class: this._trainingCatalogKey || 'B'
       });
       if (resp && resp.id) {
         if (!this._trainingCustomTopics) this._trainingCustomTopics = [];
@@ -12349,9 +12385,10 @@ var App = {
   },
 
   _stageIdForItem: function(itemId) {
-    if (typeof TRAINING_CATALOG_B === 'undefined') return null;
-    for (var i = 0; i < TRAINING_CATALOG_B.length; i++) {
-      var stage = TRAINING_CATALOG_B[i];
+    var catalog = this._currentTrainingCatalog();
+    if (!catalog) return null;
+    for (var i = 0; i < catalog.length; i++) {
+      var stage = catalog[i];
       for (var g = 0; g < stage.groups.length; g++) {
         var group = stage.groups[g];
         for (var it = 0; it < group.items.length; it++) {
@@ -12391,7 +12428,8 @@ var App = {
       student_id: studentId,
       topic_id: itemId,
       topic_type: itemType,
-      value: value
+      value: value,
+      catalog_class: this._trainingCatalogKey || 'B'
     };
     if (lessonId) body.lesson_id = lessonId;
     ApiClient.post('/api/training-state/mark', body).catch(function(e) {
@@ -12611,8 +12649,12 @@ var App = {
     // Ermittle alle Items die in dieser Stunde berührt wurden (marks[id] === true)
     // und gruppiere nach Stufe.
     var touchedByStage = {};
-    if (typeof TRAINING_CATALOG_B !== 'undefined') {
-      TRAINING_CATALOG_B.forEach(function(stage) {
+    var summaryCatalog = (typeof trainingCatalogFor === 'function')
+      ? trainingCatalogFor(lesson.licenseClass || lesson.license_class)
+      : null;
+    if (!summaryCatalog && typeof TRAINING_CATALOG_B !== 'undefined') summaryCatalog = TRAINING_CATALOG_B;
+    if (summaryCatalog) {
+      summaryCatalog.forEach(function(stage) {
         var stageKey = stage.stage;
         var stageItems = [];
         stage.groups.forEach(function(group) {
@@ -12644,7 +12686,7 @@ var App = {
       });
     }
 
-    var stageOrder = ['grundstufe','grundfahraufgaben','aufbaustufe','leistungsstufe'];
+    var stageOrder = (summaryCatalog || []).map(function(s) { return s.stage; });
     var anyTouched = stageOrder.some(function(k) { return touchedByStage[k]; });
 
     if (!anyTouched) {
@@ -13734,11 +13776,15 @@ var App = {
     // Zeigt alle Themen die in DIESER Fahrstunde bewertet wurden, gruppiert nach Stufe.
     // Rating-Items (1..5) als Balken mit Farbverlauf, Check-Items (Grundstufe) als Häkchen.
     var _tMarksRaw = lesson.trainingMarks;
+    var _pdfCatalog = (typeof trainingCatalogFor === 'function')
+      ? trainingCatalogFor(lesson.license_class || lesson.licenseClass)
+      : null;
+    if (!_pdfCatalog && typeof TRAINING_CATALOG_B !== 'undefined') _pdfCatalog = TRAINING_CATALOG_B;
     if (Array.isArray(_tMarksRaw) && _tMarksRaw.length > 0 &&
-        typeof TRAINING_CATALOG_B !== 'undefined' && typeof TRAINING_STAGE_NAMES !== 'undefined') {
+        _pdfCatalog && typeof TRAINING_STAGE_NAMES !== 'undefined') {
       // 1) Lookup: topic_id → { name, stage, type }
       var _itemLookup = {};
-      TRAINING_CATALOG_B.forEach(function(stage) {
+      _pdfCatalog.forEach(function(stage) {
         (stage.groups || []).forEach(function(g) {
           (g.items || []).forEach(function(item) {
             _itemLookup[item.id] = { name: item.name, stage: stage.stage, type: item.type };
@@ -13751,11 +13797,12 @@ var App = {
         });
       });
       // 2) Marks nach Stufe gruppieren
-      var _stageOrder = ['grundstufe','grundfahraufgaben','aufbaustufe','leistungsstufe'];
-      var _byStage = { grundstufe: [], grundfahraufgaben: [], aufbaustufe: [], leistungsstufe: [] };
+      var _stageOrder = _pdfCatalog.map(function(s) { return s.stage; });
+      var _byStage = {};
+      _stageOrder.forEach(function(s) { _byStage[s] = []; });
       _tMarksRaw.forEach(function(m) {
         var meta = _itemLookup[m.topic_id];
-        if (!meta) return;
+        if (!meta || !_byStage[meta.stage]) return;
         _byStage[meta.stage].push({
           name: tCatalog(meta.name, lang),
           type: m.topic_type,
@@ -14637,9 +14684,11 @@ var App = {
     // die Marks der aktuellen Lesson überschreiben ihn weiter oben nicht mehr,
     // aber ihre Werte gelten für diese Lesson.
     var studentId = lesson && lesson.student_id;
+    this._setTrainingCatalogKey(lesson && (lesson.license_class || lesson.licenseClass));
+    var clsQ = this._trainingClassQuery();
     var promises = [];
     if (studentId) {
-      promises.push(ApiClient.get('/api/training-state/' + encodeURIComponent(studentId)).then(function(resp) {
+      promises.push(ApiClient.get('/api/training-state/' + encodeURIComponent(studentId) + clsQ).then(function(resp) {
         if (resp && resp.items) resp.items.forEach(function(row) {
           // Schülerstand nur als Fallback übernehmen, wenn diese Lesson den Wert nicht bereits gesetzt hat
           if (self._trainingState[row.topic_id] === undefined) {
@@ -14648,10 +14697,10 @@ var App = {
         });
       }).catch(function(e) { console.warn('[edit-cards] load state failed:', e && e.message); }));
     }
-    promises.push(ApiClient.get('/api/training-favorites').then(function(resp) {
+    promises.push(ApiClient.get('/api/training-favorites' + clsQ).then(function(resp) {
       if (resp && resp.items) resp.items.forEach(function(row) { self._trainingFavorites[row.topic_id] = true; });
     }).catch(function(e) { console.warn('[edit-cards] load favorites failed:', e && e.message); }));
-    promises.push(ApiClient.get('/api/training-custom-topics').then(function(resp) {
+    promises.push(ApiClient.get('/api/training-custom-topics' + clsQ).then(function(resp) {
       if (resp && resp.items) self._trainingCustomTopics = resp.items;
     }).catch(function(e) { console.warn('[edit-cards] load custom failed:', e && e.message); }));
     await Promise.all(promises);

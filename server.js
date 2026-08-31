@@ -7094,6 +7094,18 @@ async function _canInstructorAccessStudent(user, studentId) {
   }
 }
 
+// Katalog-Klasse normalisieren: 'A' (Motorrad A/A1/A2/AM) oder 'B' (Default).
+function _catalogClassOf(v) {
+  const c = String(v == null ? '' : v).trim().toUpperCase();
+  return c === 'A' ? 'A' : 'B';
+}
+
+// Erlaubte Stufen pro Katalog-Klasse (fuer Custom-Kriterien)
+const TRAINING_ALLOWED_STAGES = {
+  B: ['grundstufe', 'grundfahraufgaben', 'aufbaustufe', 'leistungsstufe'],
+  A: ['grundstufe', 'aufbaustufe', 'leistungsstufe', 'sonderfahrten', 'reifestufe']
+};
+
 // GET /api/training-state/:studentId — kumulativer Ausbildungsstand
 app.get('/api/training-state/:studentId', authMiddleware, async (req, res) => {
   try {
@@ -7104,7 +7116,7 @@ app.get('/api/training-state/:studentId', authMiddleware, async (req, res) => {
     const { data, error } = await supabase.from('student_training_state')
       .select('topic_id, topic_type, value, last_lesson_id, updated_at')
       .eq('student_id', studentId)
-      .eq('catalog_class', 'B');
+      .eq('catalog_class', _catalogClassOf(req.query.class));
     if (error) throw error;
     res.json({ items: data || [] });
   } catch (err) {
@@ -7128,7 +7140,7 @@ app.post('/api/training-state/mark', authMiddleware, async (req, res) => {
     // 1) Persistenten Stand upserten
     const { error: e1 } = await supabase.from('student_training_state').upsert({
       student_id: student_id,
-      catalog_class: 'B',
+      catalog_class: _catalogClassOf(req.body && req.body.catalog_class),
       topic_id: topic_id,
       topic_type: topic_type,
       value: v,
@@ -7170,7 +7182,7 @@ app.get('/api/training-favorites', authMiddleware, async (req, res) => {
     const { data, error } = await supabase.from('instructor_training_favorites')
       .select('topic_id, catalog_class, created_at')
       .eq('instructor_id', req.user.id)
-      .eq('catalog_class', 'B');
+      .eq('catalog_class', _catalogClassOf(req.query.class));
     if (error) throw error;
     res.json({ items: data || [] });
   } catch (err) {
@@ -7187,11 +7199,12 @@ app.post('/api/training-favorites', authMiddleware, async (req, res) => {
     const topicId = (req.body && req.body.topic_id) || null;
     const favorite = !!(req.body && req.body.favorite);
     if (!topicId) return res.status(400).json({ error: 'topic_id erforderlich' });
+    const favClass = _catalogClassOf(req.body && req.body.catalog_class);
 
     if (favorite) {
       const { error } = await supabase.from('instructor_training_favorites').upsert({
         instructor_id: req.user.id,
-        catalog_class: 'B',
+        catalog_class: favClass,
         topic_id: topicId
       }, { onConflict: 'instructor_id,catalog_class,topic_id' });
       if (error) throw error;
@@ -7199,7 +7212,7 @@ app.post('/api/training-favorites', authMiddleware, async (req, res) => {
       const { error } = await supabase.from('instructor_training_favorites')
         .delete()
         .eq('instructor_id', req.user.id)
-        .eq('catalog_class', 'B')
+        .eq('catalog_class', favClass)
         .eq('topic_id', topicId);
       if (error) throw error;
     }
@@ -7217,7 +7230,7 @@ app.get('/api/training-custom-topics', authMiddleware, async (req, res) => {
     const { data, error } = await supabase.from('instructor_training_custom_topics')
       .select('id, stage, group_key, name, topic_type, sort_order, created_at')
       .eq('instructor_id', req.user.id)
-      .eq('catalog_class', 'B')
+      .eq('catalog_class', _catalogClassOf(req.query.class))
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
     if (error) throw error;
@@ -7243,15 +7256,16 @@ app.post('/api/training-custom-topics', authMiddleware, async (req, res) => {
     if (!name || name.length < 2) return res.status(400).json({ error: 'Name erforderlich (mind. 2 Zeichen)' });
     if (name.length > 256) return res.status(400).json({ error: 'Name zu lang' });
     if (topicType !== 'check' && topicType !== 'rating') return res.status(400).json({ error: 'topic_type muss check oder rating sein' });
-    // Erlaubte Stages: exakt die Katalog-Stufen
-    const allowedStages = ['grundstufe', 'grundfahraufgaben', 'aufbaustufe', 'leistungsstufe'];
+    // Erlaubte Stages: exakt die Katalog-Stufen der jeweiligen Klasse
+    const customClass = _catalogClassOf(body.catalog_class);
+    const allowedStages = TRAINING_ALLOWED_STAGES[customClass];
     if (allowedStages.indexOf(stage) === -1) return res.status(400).json({ error: 'Ungueltige stage' });
 
     const id = 'ct_' + generateId();
     const { error } = await supabase.from('instructor_training_custom_topics').insert({
       id: id,
       instructor_id: req.user.id,
-      catalog_class: 'B',
+      catalog_class: customClass,
       stage: stage,
       group_key: groupKey,
       name: name,
