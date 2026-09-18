@@ -418,6 +418,24 @@ async function findLoginCandidates(email) {
 }
 
 // ============================================
+// Gueltigkeitsdauern der E-Mail-Bestaetigung
+// --------------------------------------------
+// Der 6-stellige Code wird direkt aus der geoeffneten App abgetippt und bleibt
+// deshalb kurzlebig. Der Bestaetigungslink dagegen wird oft erst Stunden spaeter
+// im Mailprogramm geklickt — mit 15 Minuten lief er regelmaessig ins Leere und
+// das Konto blieb unbestaetigt (ohne dass der Nutzer einen Neuversand anstiess).
+// ============================================
+const EMAIL_VERIFY_CODE_TTL_MS = 15 * 60 * 1000;      // 15 Minuten
+const EMAIL_VERIFY_LINK_TTL_MS = 24 * 60 * 60 * 1000; // 24 Stunden
+function emailVerifyExpiries() {
+  const now = Date.now();
+  return {
+    codeExpiresAt: new Date(now + EMAIL_VERIFY_CODE_TTL_MS).toISOString(),
+    linkExpiresAt: new Date(now + EMAIL_VERIFY_LINK_TTL_MS).toISOString()
+  };
+}
+
+// ============================================
 // AUTH ROUTES
 // ============================================
 
@@ -701,10 +719,10 @@ app.post('/api/auth/signup', async (req, res) => {
       // Send verification email
       const vCode = generateCode();
       const vToken = crypto.randomBytes(24).toString('hex');
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      const _vExp = emailVerifyExpiries();
       await supabase.from('verification_codes').insert([
-        { id: generateId(), user_id: id, user_role: 'school', email, code: vCode, type: 'email_verify', expires_at: expiresAt },
-        { id: generateId(), user_id: id, user_role: 'school', email, code: vToken, type: 'email_verify', expires_at: expiresAt }
+        { id: generateId(), user_id: id, user_role: 'school', email, code: vCode, type: 'email_verify', expires_at: _vExp.codeExpiresAt },
+        { id: generateId(), user_id: id, user_role: 'school', email, code: vToken, type: 'email_verify', expires_at: _vExp.linkExpiresAt }
       ]);
       await sendVerificationEmail(email, fullName, vCode, vToken, id, 'school');
 
@@ -727,10 +745,10 @@ app.post('/api/auth/signup', async (req, res) => {
 
         const vCode = generateCode();
         const vToken = crypto.randomBytes(24).toString('hex');
-        const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+        const _vExp = emailVerifyExpiries();
         await supabase.from('verification_codes').insert([
-          { id: generateId(), user_id: id, user_role: 'instructor', email, code: vCode, type: 'email_verify', expires_at: expiresAt },
-          { id: generateId(), user_id: id, user_role: 'instructor', email, code: vToken, type: 'email_verify', expires_at: expiresAt }
+          { id: generateId(), user_id: id, user_role: 'instructor', email, code: vCode, type: 'email_verify', expires_at: _vExp.codeExpiresAt },
+          { id: generateId(), user_id: id, user_role: 'instructor', email, code: vToken, type: 'email_verify', expires_at: _vExp.linkExpiresAt }
         ]);
         await sendVerificationEmail(email, fullName, vCode, vToken, id, 'instructor');
 
@@ -784,10 +802,10 @@ app.post('/api/auth/signup', async (req, res) => {
       // Send verification email
       const vCode = generateCode();
       const vToken = crypto.randomBytes(24).toString('hex');
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      const _vExp = emailVerifyExpiries();
       await supabase.from('verification_codes').insert([
-        { id: generateId(), user_id: id, user_role: 'instructor', email, code: vCode, type: 'email_verify', expires_at: expiresAt },
-        { id: generateId(), user_id: id, user_role: 'instructor', email, code: vToken, type: 'email_verify', expires_at: expiresAt }
+        { id: generateId(), user_id: id, user_role: 'instructor', email, code: vCode, type: 'email_verify', expires_at: _vExp.codeExpiresAt },
+        { id: generateId(), user_id: id, user_role: 'instructor', email, code: vToken, type: 'email_verify', expires_at: _vExp.linkExpiresAt }
       ]);
       await sendVerificationEmail(email, fullName, vCode, vToken, id, 'instructor');
 
@@ -811,10 +829,10 @@ app.post('/api/auth/signup', async (req, res) => {
       // Send verification email
       const vCode = generateCode();
       const vToken = crypto.randomBytes(24).toString('hex');
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      const _vExp = emailVerifyExpiries();
       await supabase.from('verification_codes').insert([
-        { id: generateId(), user_id: id, user_role: 'student', email, code: vCode, type: 'email_verify', expires_at: expiresAt },
-        { id: generateId(), user_id: id, user_role: 'student', email, code: vToken, type: 'email_verify', expires_at: expiresAt }
+        { id: generateId(), user_id: id, user_role: 'student', email, code: vCode, type: 'email_verify', expires_at: _vExp.codeExpiresAt },
+        { id: generateId(), user_id: id, user_role: 'student', email, code: vToken, type: 'email_verify', expires_at: _vExp.linkExpiresAt }
       ]);
       await sendVerificationEmail(email, fullName, vCode, vToken, id, 'student');
 
@@ -938,10 +956,10 @@ app.post('/api/auth/resend-code', async (req, res) => {
 
     const vCode = generateCode();
     const vToken = crypto.randomBytes(24).toString('hex');
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const _vExp = emailVerifyExpiries();
     await supabase.from('verification_codes').insert([
-      { id: generateId(), user_id: userId, user_role: role, email, code: vCode, type: 'email_verify', expires_at: expiresAt },
-      { id: generateId(), user_id: userId, user_role: role, email, code: vToken, type: 'email_verify', expires_at: expiresAt }
+      { id: generateId(), user_id: userId, user_role: role, email, code: vCode, type: 'email_verify', expires_at: _vExp.codeExpiresAt },
+      { id: generateId(), user_id: userId, user_role: role, email, code: vToken, type: 'email_verify', expires_at: _vExp.linkExpiresAt }
     ]);
     await sendVerificationEmail(email, name, vCode, vToken, userId, role);
 

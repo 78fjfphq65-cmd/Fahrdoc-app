@@ -39,7 +39,7 @@ async function sendVerificationEmail(to, name, code, verifyToken, userId, role) 
           <div style="text-align: center; margin: 20px 0 28px 0;">
             <span style="font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #1a1a1a; background: #f0f4f8; padding: 14px 28px; border-radius: 12px; display: inline-block;">${code}</span>
           </div>
-          <p style="font-size: 14px; color: #666; line-height: 1.5;">Link und Code sind 15 Minuten gültig. Falls du dich nicht bei FahrDoc registriert hast, ignoriere diese E-Mail.</p>
+          <p style="font-size: 14px; color: #666; line-height: 1.5;">Der Bestätigungslink ist 24 Stunden gültig, der Code 15 Minuten. Falls du dich nicht bei FahrDoc registriert hast, ignoriere diese E-Mail.</p>
           <hr style="border: none; border-top: 1px solid #eee; margin: 28px 0;">
           <p style="font-size: 12px; color: #999; text-align: center;">FahrDoc — Digitale Fahrstunden-Dokumentation</p>
         </div>
