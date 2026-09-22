@@ -453,6 +453,8 @@ function parseBlockNotes(notes) {
 var AppState = {
   currentUser: null, currentScreen: 'welcome', signupRole: 'student',
   signupUserId: null, activeLesson: null, lessonTimer: null, lessonStartTime: null,
+  // Screen Wake Lock waehrend einer laufenden Fahrstunde (siehe App.requestWakeLock)
+  _wakeLock: null, _wakeLockVisHandler: null,
   charts: {}, navHistory: [], summaryRatings: {}, summaryRatingNotes: {}, theme: 'light', language: 'de',
   _cachedData: {},
   // Schedule
@@ -11762,6 +11764,8 @@ var App = {
     AppState.pausedDuration = 0;
     AppState.pauseStartTime = null;
     AppState.pendingImages = [];
+    // Display waehrend der Stunde wachhalten (siehe App.requestWakeLock)
+    this.requestWakeLock();
     this.navigate('lesson-active');
     document.getElementById('active-lesson-title').textContent = t('fahrstunden') + ' · ' + studentName;
     document.getElementById('active-lesson-type-badge').textContent = type;
@@ -11798,6 +11802,8 @@ var App = {
       AppState.lessonPaused = true;
       AppState.pauseStartTime = Date.now();
       if (AppState.gpsWatchId) { navigator.geolocation.clearWatch(AppState.gpsWatchId); AppState.gpsWatchId = null; }
+      // In der Pause darf sich das Display normal sperren (Akku).
+      this.releaseWakeLock();
       var btn = document.getElementById('lesson-pause-btn');
       if (btn) {
         btn.classList.add('is-resume');
@@ -11819,6 +11825,7 @@ var App = {
       AppState.pauseStartTime = null;
       // resume=true: Strecke, Marker und Distanz der bisherigen Fahrt behalten
       this.startGPS(true);
+      this.requestWakeLock();
       var btn = document.getElementById('lesson-pause-btn');
       if (btn) {
         btn.classList.remove('is-resume');
@@ -11849,6 +11856,8 @@ var App = {
     AppState.pausedDuration = 0;
     AppState.pauseStartTime = null;
     AppState.pendingImages = [];
+    // Display waehrend der Stunde wachhalten (siehe App.requestWakeLock)
+    this.requestWakeLock();
     this.navigate('lesson-active');
     document.getElementById('active-lesson-title').textContent = t('fahrstunden') + ' \u00b7 ' + student.name;
     document.getElementById('active-lesson-type-badge').textContent = type;
@@ -12453,6 +12462,7 @@ var App = {
     }
     AppState.lessonPaused = false;
     this.stopGPS();
+    this.releaseWakeLock();
     // ── WICHTIG: Karten-Marks RETTEN bevor _unmountTrainingCardsView() sie loescht ──
     var _savedMarks = null, _savedState = null;
     if (AppState.activeLesson && AppState.activeLesson.docMode === 'cards') {
@@ -15620,6 +15630,60 @@ var App = {
     }
   },
 
+  // ============================================
+  // Display waehrend der Fahrstunde wachhalten
+  // --------------------------------------------
+  // Browser liefern GPS-Positionen NUR solange die Seite im Vordergrund und das
+  // Display an ist. Sperrt sich das Handy waehrend der Fahrt automatisch, bricht
+  // watchPosition ab und die Strecke bekommt ein Loch. Der Screen Wake Lock
+  // verhindert genau das: das Display bleibt an, solange die Fahrstunde laeuft.
+  //
+  // Verfuegbar ab Safari/iOS 16.4 und Chrome 84. Wo es fehlt, passiert nichts —
+  // das Tracking laeuft wie bisher, nur eben mit Display-Timeout.
+  //
+  // Das Betriebssystem gibt den Lock automatisch frei, sobald die Seite in den
+  // Hintergrund geht (Anruf, App-Wechsel, manuelles Sperren). Deshalb holen wir
+  // ihn ueber visibilitychange zurueck, wenn der Fahrlehrer wieder in die App
+  // kommt und die Stunde noch laeuft.
+  // ============================================
+  requestWakeLock: function() {
+    if (!navigator.wakeLock || !navigator.wakeLock.request) return;
+    if (AppState._wakeLock) return;
+
+    var self = this;
+    navigator.wakeLock.request('screen').then(function(lock) {
+      // Stunde wurde in der Zwischenzeit beendet -> sofort wieder freigeben.
+      if (!AppState.activeLesson) { try { lock.release(); } catch (_e) {} return; }
+      AppState._wakeLock = lock;
+      lock.addEventListener('release', function() {
+        if (AppState._wakeLock === lock) AppState._wakeLock = null;
+      });
+    }).catch(function() {
+      // Kein Drama: z. B. Energiesparmodus oder Seite nicht sichtbar.
+      // Der naechste visibilitychange versucht es erneut.
+    });
+
+    if (!AppState._wakeLockVisHandler) {
+      AppState._wakeLockVisHandler = function() {
+        if (document.visibilityState !== 'visible') return;
+        if (!AppState.activeLesson || AppState.lessonPaused) return;
+        self.requestWakeLock();
+      };
+      document.addEventListener('visibilitychange', AppState._wakeLockVisHandler);
+    }
+  },
+
+  releaseWakeLock: function() {
+    if (AppState._wakeLockVisHandler) {
+      document.removeEventListener('visibilitychange', AppState._wakeLockVisHandler);
+      AppState._wakeLockVisHandler = null;
+    }
+    if (AppState._wakeLock) {
+      try { AppState._wakeLock.release(); } catch (_e) {}
+      AppState._wakeLock = null;
+    }
+  },
+
   haversineDistance: function(lat1, lng1, lat2, lng2) {
     var R = 6371000; // meters
     var dLat = (lat2 - lat1) * Math.PI / 180;
@@ -16017,6 +16081,7 @@ var App = {
 
   cleanupRouteTracking: function() {
     this.stopGPS();
+    this.releaseWakeLock();
     AppState.routePoints = [];
     AppState.routeMarkers = [];
     AppState.mapMarkerObjects = [];
