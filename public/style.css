@@ -4371,6 +4371,65 @@ html[dir="rtl"] .notif-panel {
 }
 
 /* ============================================
+   UNTERBROCHENE FAHRSTUNDE — Wiederherstellungs-Dialog
+   Wird nach dem Anmelden gezeigt, wenn eine begonnene Fahrstunde
+   durch einen App-Absturz nicht beendet wurde.
+   ============================================ */
+.lesson-restore-body {
+  padding: 0 2px;
+}
+.lesson-restore-lead {
+  font-size: 15.5px;
+  line-height: 1.55;
+  color: var(--color-text);
+  margin: 0 0 var(--space-3) 0;
+}
+.lesson-restore-facts {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 10px);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.lesson-restore-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 7px 0;
+  font-size: 14.5px;
+  line-height: 1.4;
+  border-bottom: 1px solid var(--color-border);
+}
+.lesson-restore-row:last-child {
+  border-bottom: none;
+}
+.lesson-restore-row span {
+  color: var(--color-text-muted);
+  flex: 0 0 auto;
+}
+.lesson-restore-row strong {
+  color: var(--color-text);
+  font-weight: 600;
+  text-align: right;
+  /* Lange Schuelernamen umbrechen statt die Zeile zu sprengen */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lesson-restore-hint {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+.lesson-restore-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* ============================================
    WELCOME ROLE CARDS (Solo-Onboarding Phase 1)
    ============================================ */
 .role-cards {

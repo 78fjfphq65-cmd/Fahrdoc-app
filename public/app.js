@@ -800,6 +800,10 @@ var App = {
       AppState.currentUser = user;
       var dash = { school: 'school-dashboard', instructor: 'instructor-dashboard', student: 'student-dashboard' };
       this.navigate(dash[user.role]);
+      // Abgestuerzte Fahrstunde? Dann Fortsetzen anbieten (siehe
+      // App.maybeOfferLessonRestore). Kurz verzoegert, damit das Dashboard
+      // zuerst steht und der Dialog nicht ins Leere rendert.
+      setTimeout(function() { App.maybeOfferLessonRestore(); }, 600);
       if (user.role === 'school') { setTimeout(function(){ App.checkSubscriptionLock(); }, 500); }
       // Toast nach Solo-Checkout-Success-Reload
       try {
@@ -1181,6 +1185,10 @@ var App = {
       this.applyBranding();
       var dash = { school: 'school-dashboard', instructor: 'instructor-dashboard', student: 'student-dashboard' };
       this.navigate(dash[result.user.role]);
+      // Abgestuerzte Fahrstunde? Dann Fortsetzen anbieten (siehe
+      // App.maybeOfferLessonRestore). Kurz verzoegert, damit das Dashboard
+      // zuerst steht und der Dialog nicht ins Leere rendert.
+      setTimeout(function() { App.maybeOfferLessonRestore(); }, 600);
       var greetName = result.user.admin_name || result.user.name;
       var greet = t('willkommen') + ', ' + greetName + '!';
       if (this.isSolo()) greet = 'Willkommen bei FahrDoc Solo, ' + greetName + '!';
@@ -11764,37 +11772,11 @@ var App = {
     AppState.pausedDuration = 0;
     AppState.pauseStartTime = null;
     AppState.pendingImages = [];
-    // Display waehrend der Stunde wachhalten (siehe App.requestWakeLock)
-    this.requestWakeLock();
-    this.navigate('lesson-active');
-    document.getElementById('active-lesson-title').textContent = t('fahrstunden') + ' · ' + studentName;
-    document.getElementById('active-lesson-type-badge').textContent = type;
-    if (AppState.lessonTimer) clearInterval(AppState.lessonTimer);
-    AppState.lessonTimer = setInterval(function() {
-      if (AppState.lessonPaused) return;
-      var elapsed = Date.now() - AppState.lessonStartTime - AppState.pausedDuration;
-      var s = Math.floor(elapsed / 1000);
-      var h = Math.floor(s / 3600); var m = Math.floor((s % 3600) / 60); var sec = s % 60;
-      document.getElementById('lesson-timer').textContent = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
-    }, 1000);
-    // Reset pause button
-    var pauseBtn = document.getElementById('lesson-pause-btn');
-    if (pauseBtn) {
-      pauseBtn.classList.remove('is-resume');
-      pauseBtn.innerHTML = '<span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg></span><span class="lesson-action-label">' + t('pause') + '</span>';
-    }
-    var overlay = document.getElementById('lesson-paused-overlay');
-    if (overlay) overlay.classList.remove('visible');
-    // Initialize route tracking (nur wenn Modus GPS nutzt — in cards-Modus übersprungen)
-    if (docMode !== 'cards') {
-      this._unmountTrainingCardsView();
-      this.initRouteMap();
-      this.startGPS();
-      // Schnellmarkierungs-Bar auch dann rendern wenn Google Maps noch nicht geladen ist
-      this._mountQuickMarkerBar();
-    } else {
-      this._mountTrainingCardsView();
-    }
+    // Ein alter Entwurf darf eine frisch gestartete Stunde nicht ueberleben.
+    this._clearLessonDraft();
+    // Ansicht, Timer, Wake Lock und GPS: siehe _enterActiveLessonView
+    this._enterActiveLessonView(false);
+    this._persistActiveLesson();
   },
 
   toggleLessonPause: function() {
@@ -11804,6 +11786,7 @@ var App = {
       if (AppState.gpsWatchId) { navigator.geolocation.clearWatch(AppState.gpsWatchId); AppState.gpsWatchId = null; }
       // In der Pause darf sich das Display normal sperren (Akku).
       this.releaseWakeLock();
+      this._persistActiveLesson();
       var btn = document.getElementById('lesson-pause-btn');
       if (btn) {
         btn.classList.add('is-resume');
@@ -11826,6 +11809,7 @@ var App = {
       // resume=true: Strecke, Marker und Distanz der bisherigen Fahrt behalten
       this.startGPS(true);
       this.requestWakeLock();
+      this._persistActiveLesson();
       var btn = document.getElementById('lesson-pause-btn');
       if (btn) {
         btn.classList.remove('is-resume');
@@ -11856,33 +11840,9 @@ var App = {
     AppState.pausedDuration = 0;
     AppState.pauseStartTime = null;
     AppState.pendingImages = [];
-    // Display waehrend der Stunde wachhalten (siehe App.requestWakeLock)
-    this.requestWakeLock();
-    this.navigate('lesson-active');
-    document.getElementById('active-lesson-title').textContent = t('fahrstunden') + ' \u00b7 ' + student.name;
-    document.getElementById('active-lesson-type-badge').textContent = type;
-    if (AppState.lessonTimer) clearInterval(AppState.lessonTimer);
-    AppState.lessonTimer = setInterval(function() {
-      if (AppState.lessonPaused) return;
-      var elapsed = Date.now() - AppState.lessonStartTime - AppState.pausedDuration;
-      var s = Math.floor(elapsed / 1000);
-      var h = Math.floor(s / 3600); var m = Math.floor((s % 3600) / 60); var sec = s % 60;
-      document.getElementById('lesson-timer').textContent = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
-    }, 1000);
-    // Reset pause button
-    var pauseBtn = document.getElementById('lesson-pause-btn');
-    if (pauseBtn) pauseBtn.innerHTML = '\u23f8 ' + t('pause');
-    var overlay = document.getElementById('lesson-paused-overlay');
-    if (overlay) overlay.classList.remove('visible');
-    // Initialize route tracking (nur wenn Modus GPS nutzt — in cards-Modus übersprungen)
-    if (docMode !== 'cards') {
-      this._unmountTrainingCardsView();
-      this.initRouteMap();
-      this.startGPS();
-      this._mountQuickMarkerBar();
-    } else {
-      this._mountTrainingCardsView();
-    }
+    this._clearLessonDraft();
+    this._enterActiveLessonView(false);
+    this._persistActiveLesson();
   },
 
   stopLesson: function() {
@@ -11893,6 +11853,8 @@ var App = {
       AppState.pauseStartTime = null;
       this.cleanupRouteTracking();
       this._unmountTrainingCardsView();
+      this._removeLessonDraftGuards();
+      this._clearLessonDraft();
       AppState.activeLesson = null; AppState.pendingImages = [];
       this._trainingState = null;
       this._trainingMarks = null;
@@ -12444,6 +12406,9 @@ var App = {
     ApiClient.post('/api/training-state/mark', body).catch(function(e) {
       console.warn('[training-cards] mark persist failed:', e && e.message);
     });
+    // Zusaetzlich in den lokalen Entwurf, damit ein Absturz auch die
+    // Bewertungen dieser Stunde nicht mitnimmt.
+    this._persistActiveLesson();
   },
 
   _escapeHtml: function(s) {
@@ -12463,6 +12428,9 @@ var App = {
     AppState.lessonPaused = false;
     this.stopGPS();
     this.releaseWakeLock();
+    // Stunde ist abgeschlossen -> lokaler Zwischenstand wird nicht mehr gebraucht
+    this._removeLessonDraftGuards();
+    this._clearLessonDraft();
     // ── WICHTIG: Karten-Marks RETTEN bevor _unmountTrainingCardsView() sie loescht ──
     var _savedMarks = null, _savedState = null;
     if (AppState.activeLesson && AppState.activeLesson.docMode === 'cards') {
@@ -15684,6 +15652,381 @@ var App = {
     }
   },
 
+  // ============================================
+  // Absturzsicherung fuer die laufende Fahrstunde
+  // --------------------------------------------
+  // Wirft das Betriebssystem die App aus dem Speicher (Anruf, wenig RAM,
+  // versehentliches Wegwischen), war die begonnene Stunde bisher komplett
+  // verloren: Zeit, Strecke und Markierungen leben nur im Arbeitsspeicher.
+  //
+  // Deshalb legen wir waehrend der Stunde alle paar Sekunden einen Schnappschuss
+  // lokal auf dem Geraet ab. Beim naechsten Start bietet die App an, die Stunde
+  // fortzusetzen. Es geht dabei ausschliesslich um lokale Zwischenstaende —
+  // nichts davon verlaesst das Geraet, und beim Beenden oder Abbrechen wird der
+  // Schnappschuss sofort geloescht.
+  //
+  // Bewusst NICHT gesichert: die aufgenommenen Fotos (AppState.pendingImages).
+  // Die liegen als Data-URLs vor und wuerden den Speicher der Domain sprengen.
+  // ============================================
+  _LESSON_DRAFT_KEY: 'fahrdoc_active_lesson_draft',
+  _LESSON_DRAFT_MAX_AGE_MS: 12 * 60 * 60 * 1000, // aeltere Entwuerfe sind wertlos
+  _LESSON_DRAFT_MAX_POINTS: 20000,               // harte Obergrenze gegen Speicherueberlauf
+  _lessonDraftTick: 0,
+
+  _draftStore: function() {
+    try { return window['local' + 'Storage']; } catch (_e) { return null; }
+  },
+
+  // Koordinaten auf 6 Nachkommastellen kuerzen (~0,1 m) — spart rund die
+  // Haelfte des Speichers gegenueber den vollen Float-Werten.
+  _roundCoord: function(v) {
+    return Math.round(v * 1e6) / 1e6;
+  },
+
+  _persistActiveLesson: function() {
+    var store = this._draftStore();
+    if (!store) return;
+    var lesson = AppState.activeLesson;
+    if (!lesson) return;
+
+    try {
+      var pts = AppState.routePoints || [];
+      // Bei absurd langen Aufzeichnungen nur das juengste Stueck sichern.
+      if (pts.length > this._LESSON_DRAFT_MAX_POINTS) {
+        pts = pts.slice(pts.length - this._LESSON_DRAFT_MAX_POINTS);
+      }
+      var self = this;
+      var draft = {
+        v: 1,
+        savedAt: Date.now(),
+        userId: (AppState.currentUser && AppState.currentUser.id) || null,
+        lesson: {
+          studentId: lesson.studentId,
+          studentName: lesson.studentName,
+          type: lesson.type,
+          licenseClass: lesson.licenseClass,
+          docMode: lesson.docMode,
+          plannedMinutes: lesson.plannedMinutes,
+          startTime: lesson.startTime ? new Date(lesson.startTime).toISOString() : null
+        },
+        lessonStartTime: AppState.lessonStartTime,
+        pausedDuration: AppState.pausedDuration || 0,
+        lessonPaused: !!AppState.lessonPaused,
+        pauseStartTime: AppState.pauseStartTime || null,
+        totalDistance: AppState.totalDistance || 0,
+        routePoints: pts.map(function(p) {
+          var o = { lat: self._roundCoord(p.lat), lng: self._roundCoord(p.lng), timestamp: p.timestamp };
+          if (p.segmentStart) o.segmentStart = true;
+          return o;
+        }),
+        routeMarkers: AppState.routeMarkers || [],
+        trainingMarks: (lesson.docMode === 'cards') ? (this._trainingMarks || {}) : null,
+        trainingState: (lesson.docMode === 'cards') ? (this._trainingState || {}) : null
+      };
+      store.setItem(this._LESSON_DRAFT_KEY, JSON.stringify(draft));
+    } catch (_e) {
+      // Voller Speicher o. ae. — die Stunde selbst laeuft unbeirrt weiter.
+    }
+  },
+
+  _clearLessonDraft: function() {
+    var store = this._draftStore();
+    if (!store) return;
+    try { store.removeItem(this._LESSON_DRAFT_KEY); } catch (_e) {}
+  },
+
+  // Liefert den gespeicherten Entwurf oder null. Raeumt dabei gleich auf:
+  // kaputte, veraltete oder fremde Entwuerfe werden geloescht.
+  _readLessonDraft: function() {
+    var store = this._draftStore();
+    if (!store) return null;
+    var raw;
+    try { raw = store.getItem(this._LESSON_DRAFT_KEY); } catch (_e) { return null; }
+    if (!raw) return null;
+
+    var draft;
+    try { draft = JSON.parse(raw); } catch (_e) { this._clearLessonDraft(); return null; }
+    if (!draft || draft.v !== 1 || !draft.lesson || !draft.lessonStartTime) {
+      this._clearLessonDraft();
+      return null;
+    }
+    if (Date.now() - (draft.savedAt || 0) > this._LESSON_DRAFT_MAX_AGE_MS) {
+      this._clearLessonDraft();
+      return null;
+    }
+    // Entwurf eines anderen Kontos nie anzeigen (geteiltes Geraet).
+    var uid = AppState.currentUser && AppState.currentUser.id;
+    if (draft.userId && uid && draft.userId !== uid) {
+      this._clearLessonDraft();
+      return null;
+    }
+    return draft;
+  },
+
+  // Wird aus dem Sekundentakt des Fahrstunden-Timers aufgerufen: alle 5 Sekunden
+  // sichern reicht voellig und haelt die Schreiblast niedrig.
+  _tickLessonDraft: function() {
+    this._lessonDraftTick = (this._lessonDraftTick || 0) + 1;
+    if (this._lessonDraftTick % 5 !== 0) return;
+    this._persistActiveLesson();
+  },
+
+  // Letzte Chance vor dem Wegwischen: beim Verstecken der Seite sofort sichern.
+  _installLessonDraftGuards: function() {
+    if (AppState._lessonDraftGuards) return;
+    var self = this;
+    AppState._lessonDraftGuards = {
+      hide: function() {
+        if (!AppState.activeLesson) return;
+        if (document.visibilityState === 'hidden') self._persistActiveLesson();
+      },
+      unload: function() {
+        if (AppState.activeLesson) self._persistActiveLesson();
+      }
+    };
+    document.addEventListener('visibilitychange', AppState._lessonDraftGuards.hide);
+    window.addEventListener('pagehide', AppState._lessonDraftGuards.unload);
+  },
+
+  _removeLessonDraftGuards: function() {
+    if (!AppState._lessonDraftGuards) return;
+    document.removeEventListener('visibilitychange', AppState._lessonDraftGuards.hide);
+    window.removeEventListener('pagehide', AppState._lessonDraftGuards.unload);
+    AppState._lessonDraftGuards = null;
+  },
+
+  // Zeichnet die wiederhergestellte Strecke samt Markierungen neu auf die Karte.
+  // Laeuft nach initRouteMap(); ist Google Maps noch nicht bereit, versuchen wir
+  // es kurz erneut, statt die Strecke stillschweigend zu verlieren.
+  _redrawRestoredRoute: function(attempt) {
+    var self = this;
+    attempt = attempt || 0;
+    if (!AppState.map || typeof google === 'undefined' || !google.maps) {
+      if (attempt < 20) {
+        setTimeout(function() { self._redrawRestoredRoute(attempt + 1); }, 400);
+      }
+      return;
+    }
+
+    var pts = AppState.routePoints || [];
+    if (pts.length) {
+      // Pro gefahrenem Abschnitt ein eigenes Polylinien-Paar — genau wie live.
+      var segments = this._splitRouteSegments(pts);
+      // initRouteMap hat bereits ein leeres Segment angelegt; das erste
+      // wiederhergestellte Stueck wandert dort hinein.
+      segments.forEach(function(seg, idx) {
+        if (idx > 0) self._startRouteSegment();
+        if (!AppState.mapPolyline) return;
+        var corePath = AppState.mapPolyline.getPath();
+        var casingPath = AppState.mapPolylineCasing && AppState.mapPolylineCasing.getPath();
+        seg.forEach(function(p) {
+          var ll = new google.maps.LatLng(p.lat, p.lng);
+          corePath.push(ll);
+          if (casingPath) casingPath.push(ll);
+        });
+      });
+
+      var last = pts[pts.length - 1];
+      if (AppState.mapCurrentPos) AppState.mapCurrentPos.setPosition({ lat: last.lat, lng: last.lng });
+      AppState.lastKnownPos = { lat: last.lat, lng: last.lng };
+      AppState.map.setCenter(this._sheetAdjustedCenter(last.lat, last.lng));
+    }
+
+    (AppState.routeMarkers || []).forEach(function(marker, i) {
+      var cat = self._findMarkerCategory(marker.category) || {};
+      var mapMarker = new google.maps.Marker({
+        position: { lat: marker.lat, lng: marker.lng },
+        map: AppState.map,
+        label: { text: String(i + 1), color: '#fff', fontWeight: 'bold', fontSize: '12px' },
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 14,
+          fillColor: cat.color || '#20808D',
+          fillOpacity: 1,
+          strokeColor: cat.stroke || '#0C4E54',
+          strokeWeight: 2
+        },
+        title: (marker.categoryLabel || cat.label || '') + ' • ' + (marker.time || '')
+      });
+      AppState.mapMarkerObjects.push(mapMarker);
+    });
+
+    this.updateRouteStats(null);
+  },
+
+  // ── Wiederherstellungs-Dialog ──────────────────────────────────────────
+  // Wird nach dem Anmelden gezeigt, wenn ein Entwurf vorliegt.
+  maybeOfferLessonRestore: function() {
+    if (AppState.activeLesson) return;               // laeuft schon etwas
+    var user = AppState.currentUser;
+    if (!user || user.role !== 'instructor') return;
+
+    var draft = this._readLessonDraft();
+    if (!draft) return;
+
+    var mins = Math.max(1, Math.round(
+      (Date.now() - draft.lessonStartTime - (draft.pausedDuration || 0)) / 60000
+    ));
+    var km = ((draft.totalDistance || 0) / 1000).toFixed(1).replace('.', ',');
+    var started = new Date(draft.lessonStartTime);
+    var uhr = String(started.getHours()).padStart(2, '0') + ':' +
+              String(started.getMinutes()).padStart(2, '0');
+    var esc = this._escapeHtml ? this._escapeHtml.bind(this) : function(v) { return v; };
+
+    var html =
+      '<div class="lesson-restore-body">' +
+        '<p class="lesson-restore-lead">' + t('unterbrocheneStundeText') + '</p>' +
+        '<div class="lesson-restore-facts">' +
+          '<div class="lesson-restore-row"><span>' + t('schueler') + '</span><strong>' + esc(draft.lesson.studentName || '—') + '</strong></div>' +
+          '<div class="lesson-restore-row"><span>' + t('art') + '</span><strong>' + esc(draft.lesson.type || '—') + '</strong></div>' +
+          '<div class="lesson-restore-row"><span>' + t('begonnenUm') + '</span><strong>' + uhr + (t('uhr') ? ' ' + t('uhr') : '') + '</strong></div>' +
+          '<div class="lesson-restore-row"><span>' + t('bisherigeDauer') + '</span><strong>' + mins + ' ' + t('minKurz') + '</strong></div>' +
+          (draft.lesson.docMode === 'cards'
+            ? ''
+            : '<div class="lesson-restore-row"><span>' + t('strecke') + '</span><strong>' + km + ' km</strong></div>') +
+        '</div>' +
+        '<p class="lesson-restore-hint">' + t('unterbrocheneStundeHinweis') + '</p>' +
+        '<div class="lesson-restore-actions">' +
+          '<button class="btn btn-secondary btn-full" onclick="App.discardLessonDraft()">' + t('verwerfen') + '</button>' +
+          '<button class="btn btn-primary btn-full" onclick="App.resumeLessonFromDraft()">' + t('stundeFortsetzen') + '</button>' +
+        '</div>' +
+      '</div>';
+
+    this.openModal(t('unterbrocheneStunde'), html);
+  },
+
+  discardLessonDraft: function() {
+    this._clearLessonDraft();
+    this.closeModalForce();
+    this.showToast(t('entwurfVerworfen'));
+  },
+
+  resumeLessonFromDraft: function() {
+    var draft = this._readLessonDraft();
+    this.closeModalForce();
+    if (!draft) { this.showToast(t('entwurfNichtMehrDa')); return; }
+
+    AppState.activeLesson = {
+      studentId: draft.lesson.studentId,
+      studentName: draft.lesson.studentName,
+      type: draft.lesson.type,
+      licenseClass: draft.lesson.licenseClass,
+      docMode: draft.lesson.docMode || 'examiner',
+      startTime: draft.lesson.startTime ? new Date(draft.lesson.startTime) : new Date(draft.lessonStartTime),
+      plannedMinutes: draft.lesson.plannedMinutes
+    };
+    AppState.lessonStartTime = draft.lessonStartTime;
+    AppState.pausedDuration = draft.pausedDuration || 0;
+    AppState.lessonPaused = !!draft.lessonPaused;
+    // War beim Absturz gerade Pause, laeuft diese Pause weiter — der Zeitpunkt
+    // aus dem Entwurf bleibt gueltig, sonst wuerde die Pausenzeit verschluckt.
+    AppState.pauseStartTime = draft.lessonPaused
+      ? (draft.pauseStartTime || draft.savedAt || Date.now())
+      : null;
+    AppState.pendingImages = [];          // Fotos werden bewusst nicht gesichert
+    AppState.routePoints = draft.routePoints || [];
+    AppState.routeMarkers = draft.routeMarkers || [];
+    AppState.mapMarkerObjects = [];
+    AppState.totalDistance = draft.totalDistance || 0;
+    // Die Luecke zwischen letztem Punkt und Wiederaufnahme darf weder als
+    // Strecke gezaehlt noch als gerade Linie gezeichnet werden.
+    AppState.lastGpsPosition = null;
+    AppState.bestEffortPosition = null;
+    AppState.kalmanLat = null;
+    AppState.kalmanLng = null;
+    AppState.kalmanVariance = null;
+    AppState._pendingSegmentBreak = AppState.routePoints.length > 0;
+
+    var self = this;
+    this._enterActiveLessonView(true);
+
+    if (AppState.activeLesson.docMode === 'cards') {
+      // _mountTrainingCardsView holt den Serverstand und setzt _trainingMarks
+      // zurueck — die in dieser Stunde gesetzten Bewertungen also erst danach
+      // wieder einspielen und neu zeichnen.
+      Promise.resolve(this._mountTrainingCardsViewPromise).then(function() {
+        self._trainingMarks = draft.trainingMarks || {};
+        if (draft.trainingState) {
+          Object.keys(draft.trainingState).forEach(function(k) {
+            if (self._trainingState && self._trainingState[k] === undefined) {
+              self._trainingState[k] = draft.trainingState[k];
+            }
+          });
+        }
+        try { self._renderTrainingCards(); } catch (_e) {}
+      });
+    }
+
+    this.showToast(t('stundeWiederhergestellt'));
+    this._persistActiveLesson();
+  },
+
+  // ── Gemeinsamer Aufbau der Fahrstunden-Ansicht ─────────────────────────
+  // Wird von beiden Startwegen (freier Start / Start aus einem Termin) und von
+  // der Wiederherstellung benutzt. resume === true behaelt Strecke und Marker.
+  _setPauseButtonState: function(paused) {
+    var btn = document.getElementById('lesson-pause-btn');
+    if (btn) {
+      btn.classList.toggle('is-resume', !!paused);
+      btn.innerHTML = paused
+        ? '<span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7L8 5z"/></svg></span><span class="lesson-action-label">' + t('fortsetzen') + '</span>'
+        : '<span class="lesson-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg></span><span class="lesson-action-label">' + t('pause') + '</span>';
+    }
+    var overlay = document.getElementById('lesson-paused-overlay');
+    if (overlay) {
+      if (paused) {
+        if (overlay.parentNode !== document.body) document.body.appendChild(overlay);
+        overlay.classList.add('visible');
+      } else {
+        overlay.classList.remove('visible');
+      }
+    }
+  },
+
+  _startLessonTimer: function() {
+    if (AppState.lessonTimer) clearInterval(AppState.lessonTimer);
+    this._lessonDraftTick = 0;
+    var self = this;
+    AppState.lessonTimer = setInterval(function() {
+      if (AppState.lessonPaused) return;
+      var elapsed = Date.now() - AppState.lessonStartTime - AppState.pausedDuration;
+      var s = Math.floor(elapsed / 1000);
+      var h = Math.floor(s / 3600); var m = Math.floor((s % 3600) / 60); var sec = s % 60;
+      var el = document.getElementById('lesson-timer');
+      if (el) el.textContent = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+      self._tickLessonDraft();
+    }, 1000);
+  },
+
+  _enterActiveLessonView: function(resume) {
+    var lesson = AppState.activeLesson;
+    if (!lesson) return;
+
+    this.requestWakeLock();
+    this._installLessonDraftGuards();
+    this.navigate('lesson-active');
+
+    var titleEl = document.getElementById('active-lesson-title');
+    if (titleEl) titleEl.textContent = t('fahrstunden') + ' \u00b7 ' + (lesson.studentName || '');
+    var badgeEl = document.getElementById('active-lesson-type-badge');
+    if (badgeEl) badgeEl.textContent = lesson.type || '';
+
+    this._startLessonTimer();
+    this._setPauseButtonState(AppState.lessonPaused);
+
+    if (lesson.docMode !== 'cards') {
+      this._unmountTrainingCardsView();
+      this.initRouteMap();
+      if (resume) this._redrawRestoredRoute();
+      // In einer wiederhergestellten Pause bleibt das GPS aus, bis der
+      // Fahrlehrer auf Fortsetzen tippt.
+      if (!AppState.lessonPaused) this.startGPS(!!resume);
+      this._mountQuickMarkerBar();
+    } else {
+      this._mountTrainingCardsViewPromise = this._mountTrainingCardsView();
+    }
+  },
+
   haversineDistance: function(lat1, lng1, lat2, lng2) {
     var R = 6371000; // meters
     var dLat = (lat2 - lat1) * Math.PI / 180;
@@ -15830,6 +16173,9 @@ var App = {
     }
 
     this.updateRouteStats(null);
+    // Markierungen sind teuer erarbeitet -> nicht bis zum naechsten
+    // Autosave-Intervall warten.
+    this._persistActiveLesson();
     // Kurzer Toast bestaetigt Kategorie ohne dass der Lehrer wegschauen muss
     // Nur Text im Toast (kein SVG-HTML, weil showToast textContent nutzt)
     this.showToast('✓ ' + cat.shortLabel + (pos.usedGps ? '' : ' (Kartenmitte)'));
@@ -16074,6 +16420,7 @@ var App = {
         }
 
         self.updateRouteStats(null);
+        self._persistActiveLesson();
         self.showToast(usedGps ? t('markierungGesetzt') : t('markierungAufKartenmitte'));
       };
     }
